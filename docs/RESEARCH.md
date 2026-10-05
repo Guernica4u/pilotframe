@@ -111,6 +111,22 @@ See PLAN.md §6 for how we'll measure the real values.
 7. Collision data (PhysicsCollide is a TODO even in bsp_tool's 360 branch). **We may have to build collision from render meshes or another lump** (the PC version has collision-ish lumps such as CM_* grid/brush data **(check)**).
 8. Precise movement physics (it lives in engine code, which we won't read).
 
+## 10. Community research sweep (2026-10-04)
+
+Done with an external research assistant. Claims marked *(reported)* still need checking against our own files before we rely on them.
+
+- **XBAR `.bpk`:** cra0 said on XeNTaX (Oct 2014) that he'd "figured out most of" the header, and his closed-source Titanfall VPKTool 3.4 (2015) shipped "experimental 360 archive" support. **He never published details, the name hash, or file lists.** Our decoder in `pf-fmt-bpk` already goes further. Not used: closed-source binary.
+- **Related, but a different format:** Bluepoint's MGS HD Collection (360) `.xbarc` is PSARC-like. aluigi's QuickBMS script for Quake Arena Arcade's `.bpk` (by Pi Studios, not Bluepoint) handles XMemCompress. Both are archived ZenHAX threads, and neither documents the hash.
+- **bsp_tool** (GPL-3.0): `bsp_tool/branches/respawn/titanfall_x360.py` is now in `master`. The old branch is gone. Big-endian `PSBr`, version 29. It reuses `orange_box_x360` lump classes, and PakFile/PhysicsCollide are TODO. **Allowed to port with attribution** (decision log).
+- **Textures:** Xenia `src/xenia/gpu/xenos.h` (BSD-3-Clause) has the Xenos format list (CTX1 = 60, DXN) and the tiling logic used as our reference. *(reported)* Source-engine 360 VTFX data is linear (untiled) with per-block DXT byte swapping, so verify this on our own VTFX entries in M3. `rob5300/vtfx_reader` (Rust) and the Noesis `inc_xbox360_untile.py` have **no license**: read for understanding only, never copy.
+- **Audio:** vgmstream (permissive license, in COPYING) parses Wwise `.pck`/`.bnk` and decodes XMA1/XMA2. This is the likely route for `r1/wwise/_360/*.pck`.
+- **Movement anchors:**
+  - Wall-run lasts **1.75 s** (3.5 s with Enhanced Parkour Kit) at "about double sprint speed" (Titanfall Wiki, Fandom, method not stated).
+  - A Respawn designer said traversal reaches "up to 30 mph, well over double a pilot's sprint speed" (Game Developer interview, 2014).
+  - These are behaviour-level figures, not engine units.
+- **Nobody has publicly documented:** the `.st1/.st2` streaming texture sets, `BPAN` and the other in-pack magics, 360 MDL/VVD/VTX internals, the XBAR name hash, or engine-unit TF1 movement values.
+- **Lead for later:** the ResHax "XeNTaX backup index" and the archive.org `xentax.7z` attachment dump might hold cra0's unpublished 2014 notes.
+
 ## Sources
 
 - https://github.com/SK8-ENGINE/skate-3-rust-engine
