@@ -98,17 +98,35 @@ fn run(image_path: &PathBuf, out: &PathBuf, hash: bool) -> io::Result<()> {
         } else {
             (hex(&magic), ascii(&magic))
         };
-        let sha256 = if hash && !is_xex { Some(sha256_of(&image, &entry.path, entry.size)?) } else { None };
+        let sha256 = if hash && !is_xex {
+            Some(sha256_of(&image, &entry.path, entry.size)?)
+        } else {
+            None
+        };
 
-        let folder = entry.path.split_once('/').map_or("(root)", |(top, _)| top).to_owned();
+        let folder = entry
+            .path
+            .split_once('/')
+            .map_or("(root)", |(top, _)| top)
+            .to_owned();
         add(by_ext.entry(ext.clone()).or_default(), entry.size);
         add(by_folder.entry(folder).or_default(), entry.size);
-        let magic4 = format!("{} {}", hex(&magic[..magic.len().min(4)]), ascii(&magic[..magic.len().min(4)]));
+        let magic4 = format!(
+            "{} {}",
+            hex(&magic[..magic.len().min(4)]),
+            ascii(&magic[..magic.len().min(4)])
+        );
         if !is_xex {
             *magic_by_ext.entry((ext, magic4)).or_default() += 1;
         }
 
-        files.push(FileRecord { path: entry.path.clone(), size: entry.size, magic_hex, magic_ascii, sha256 });
+        files.push(FileRecord {
+            path: entry.path.clone(),
+            size: entry.size,
+            magic_hex,
+            magic_ascii,
+            sha256,
+        });
     }
 
     let total_bytes: u64 = files.iter().map(|f| f.size).sum();
@@ -116,7 +134,12 @@ fn run(image_path: &PathBuf, out: &PathBuf, hash: bool) -> io::Result<()> {
 
     println!("image:   {}", image_path.display());
     println!("layout:  {:?}", image.layout());
-    println!("files:   {}   dirs: {}   total: {}", files.len(), dir_count, mb(total_bytes));
+    println!(
+        "files:   {}   dirs: {}   total: {}",
+        files.len(),
+        dir_count,
+        mb(total_bytes)
+    );
 
     println!("\n## Extensions (by total size)");
     print_tallies(&by_ext);
@@ -131,7 +154,11 @@ fn run(image_path: &PathBuf, out: &PathBuf, hash: bool) -> io::Result<()> {
     }
     for (ext, mut magics) in grouped {
         magics.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
-        let shown: Vec<_> = magics.iter().take(3).map(|(m, c)| format!("[{m}] x{c}")).collect();
+        let shown: Vec<_> = magics
+            .iter()
+            .take(3)
+            .map(|(m, c)| format!("[{m}] x{c}"))
+            .collect();
         println!("  {ext:<10} {}", shown.join("  "));
     }
 
@@ -150,7 +177,10 @@ fn run(image_path: &PathBuf, out: &PathBuf, hash: bool) -> io::Result<()> {
         total_bytes,
         files,
     };
-    std::fs::write(out, serde_json::to_vec_pretty(&report).map_err(io::Error::other)?)?;
+    std::fs::write(
+        out,
+        serde_json::to_vec_pretty(&report).map_err(io::Error::other)?,
+    )?;
     println!("\nfull report: {}", out.display());
     Ok(())
 }
@@ -194,7 +224,16 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn ascii(bytes: &[u8]) -> String {
-    bytes.iter().map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' }).collect()
+    bytes
+        .iter()
+        .map(|&b| {
+            if (0x20..0x7f).contains(&b) {
+                b as char
+            } else {
+                '.'
+            }
+        })
+        .collect()
 }
 
 fn mb(bytes: u64) -> String {

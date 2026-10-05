@@ -28,7 +28,11 @@ fn every_pack_parses() {
             "{}: data offset + size should equal the file size",
             pack.path
         );
-        assert!(bpk.entries.iter().all(|e| e.id < bpk.header.id_space), "{}", pack.path);
+        assert!(
+            bpk.entries.iter().all(|e| e.id < bpk.header.id_space),
+            "{}",
+            pack.path
+        );
     }
 }
 
@@ -43,5 +47,8 @@ fn lobby_pack_fully_decodes() {
         assert_eq!(data.len(), e.size as usize, "entry {}", e.id);
         bsp += usize::from(data.starts_with(b"PSBr"));
     }
-    assert_eq!(bsp, 1, "expected exactly one big-endian BSP in the lobby pack");
+    assert_eq!(
+        bsp, 1,
+        "expected exactly one big-endian BSP in the lobby pack"
+    );
 }

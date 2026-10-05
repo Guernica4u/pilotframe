@@ -74,7 +74,13 @@ impl XdvdfsImage {
             .enumerate()
             .map(|(i, e)| (e.path.to_ascii_lowercase(), i))
             .collect();
-        Ok(Self { source, layout, entries, locations, index })
+        Ok(Self {
+            source,
+            layout,
+            entries,
+            locations,
+            index,
+        })
     }
 
     pub fn layout(&self) -> Layout {
@@ -83,7 +89,9 @@ impl XdvdfsImage {
 
     /// Absolute byte offset of a file's data inside the image.
     pub fn data_offset(&self, path: &str) -> Option<u64> {
-        self.index.get(&path.to_ascii_lowercase()).map(|&i| self.locations[i])
+        self.index
+            .get(&path.to_ascii_lowercase())
+            .map(|&i| self.locations[i])
     }
 }
 
@@ -93,16 +101,24 @@ impl Vfs for XdvdfsImage {
     }
 
     fn find(&self, path: &str) -> Option<&VfsEntry> {
-        self.index.get(&path.to_ascii_lowercase()).map(|&i| &self.entries[i])
+        self.index
+            .get(&path.to_ascii_lowercase())
+            .map(|&i| &self.entries[i])
     }
 
     fn read_range(&self, path: &str, offset: u64, buf: &mut [u8]) -> io::Result<()> {
-        let &i = self.index.get(&path.to_ascii_lowercase()).ok_or_else(|| not_found(path))?;
+        let &i = self
+            .index
+            .get(&path.to_ascii_lowercase())
+            .ok_or_else(|| not_found(path))?;
         let entry = &self.entries[i];
         if entry.is_dir {
             return Err(invalid(&format!("{path} is a directory")));
         }
-        if offset.checked_add(buf.len() as u64).is_none_or(|end| end > entry.size) {
+        if offset
+            .checked_add(buf.len() as u64)
+            .is_none_or(|end| end > entry.size)
+        {
             return Err(out_of_bounds(offset, buf.len(), entry.size));
         }
         self.source.read_exact_at(self.locations[i] + offset, buf)
@@ -110,14 +126,21 @@ impl Vfs for XdvdfsImage {
 }
 
 fn detect_layout(source: &dyn ReadAt) -> io::Result<Layout> {
-    for layout in [Layout::GamePartitionOnly, Layout::Xgd3, Layout::Xgd2, Layout::Xgd1] {
+    for layout in [
+        Layout::GamePartitionOnly,
+        Layout::Xgd3,
+        Layout::Xgd2,
+        Layout::Xgd1,
+    ] {
         let at = layout.partition_offset() + VOLUME_DESCRIPTOR_SECTOR * SECTOR;
         let mut magic = [0u8; 20];
         if source.read_exact_at(at, &mut magic).is_ok() && &magic == MAGIC {
             return Ok(layout);
         }
     }
-    Err(invalid("no XDVDFS volume descriptor found (not an Xbox disc image?)"))
+    Err(invalid(
+        "no XDVDFS volume descriptor found (not an Xbox disc image?)",
+    ))
 }
 
 fn read_dir(
@@ -144,7 +167,9 @@ fn read_dir(
         if !visited.insert(at) {
             continue;
         }
-        let header = table.get(at..at + 14).ok_or_else(|| invalid("directory entry runs past its table"))?;
+        let header = table
+            .get(at..at + 14)
+            .ok_or_else(|| invalid("directory entry runs past its table"))?;
         let left = u16_le(header, 0);
         // 0xFFFF marks padding, which is also how an empty directory looks.
         if left == 0xFFFF {
@@ -159,7 +184,11 @@ fn read_dir(
             .get(at + 14..at + 14 + name_len)
             .ok_or_else(|| invalid("directory entry name runs past its table"))?;
         let name = String::from_utf8_lossy(name);
-        let path = if prefix.is_empty() { name.into_owned() } else { format!("{prefix}/{name}") };
+        let path = if prefix.is_empty() {
+            name.into_owned()
+        } else {
+            format!("{prefix}/{name}")
+        };
 
         for link in [left, right] {
             if link != 0 {
@@ -169,7 +198,14 @@ fn read_dir(
 
         let is_dir = attributes & ATTR_DIRECTORY != 0;
         let location = base + u64::from(start) * SECTOR;
-        out.push((VfsEntry { path: path.clone(), size: if is_dir { 0 } else { u64::from(len) }, is_dir }, location));
+        out.push((
+            VfsEntry {
+                path: path.clone(),
+                size: if is_dir { 0 } else { u64::from(len) },
+                is_dir,
+            },
+            location,
+        ));
         if is_dir {
             read_dir(source, base, start, len, &path, depth + 1, out)?;
         }

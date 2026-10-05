@@ -31,7 +31,8 @@ impl ReadAt for Vec<u8> {
     }
 
     fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
-        let start = usize::try_from(offset).map_err(|_| out_of_bounds(offset, buf.len(), self.len() as u64))?;
+        let start = usize::try_from(offset)
+            .map_err(|_| out_of_bounds(offset, buf.len(), self.len() as u64))?;
         let src = start
             .checked_add(buf.len())
             .and_then(|end| self.get(start..end))
@@ -53,7 +54,10 @@ impl FileSource {
     pub fn open(path: impl AsRef<std::path::Path>) -> io::Result<Self> {
         let file = std::fs::File::open(path)?;
         let len = file.metadata()?.len();
-        Ok(Self { file: std::sync::Mutex::new(file), len })
+        Ok(Self {
+            file: std::sync::Mutex::new(file),
+            len,
+        })
     }
 }
 
@@ -65,10 +69,16 @@ impl ReadAt for FileSource {
 
     fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
         use std::io::{Read, Seek, SeekFrom};
-        if offset.checked_add(buf.len() as u64).is_none_or(|end| end > self.len) {
+        if offset
+            .checked_add(buf.len() as u64)
+            .is_none_or(|end| end > self.len)
+        {
             return Err(out_of_bounds(offset, buf.len(), self.len));
         }
-        let mut file = self.file.lock().map_err(|_| io::Error::other("file lock poisoned"))?;
+        let mut file = self
+            .file
+            .lock()
+            .map_err(|_| io::Error::other("file lock poisoned"))?;
         file.seek(SeekFrom::Start(offset))?;
         file.read_exact(buf)
     }
@@ -91,12 +101,15 @@ pub trait Vfs: Send + Sync {
     fn read_range(&self, path: &str, offset: u64, buf: &mut [u8]) -> io::Result<()>;
 
     fn find(&self, path: &str) -> Option<&VfsEntry> {
-        self.entries().iter().find(|e| e.path.eq_ignore_ascii_case(path))
+        self.entries()
+            .iter()
+            .find(|e| e.path.eq_ignore_ascii_case(path))
     }
 
     fn read(&self, path: &str) -> io::Result<Vec<u8>> {
         let entry = self.find(path).ok_or_else(|| not_found(path))?;
-        let size = usize::try_from(entry.size).map_err(|_| io::Error::other("file too large for memory"))?;
+        let size = usize::try_from(entry.size)
+            .map_err(|_| io::Error::other("file too large for memory"))?;
         let mut buf = vec![0; size];
         self.read_range(path, 0, &mut buf)?;
         Ok(buf)
@@ -113,8 +126,15 @@ pub struct VfsFile<'a> {
 
 impl<'a> VfsFile<'a> {
     pub fn open(vfs: &'a dyn Vfs, path: &str) -> io::Result<Self> {
-        let entry = vfs.find(path).filter(|e| !e.is_dir).ok_or_else(|| not_found(path))?;
-        Ok(Self { vfs, path: entry.path.clone(), len: entry.size })
+        let entry = vfs
+            .find(path)
+            .filter(|e| !e.is_dir)
+            .ok_or_else(|| not_found(path))?;
+        Ok(Self {
+            vfs,
+            path: entry.path.clone(),
+            len: entry.size,
+        })
     }
 }
 

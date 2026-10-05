@@ -45,7 +45,12 @@ fn info(file: &str) -> io::Result<()> {
     println!("{:#x?}", bpk.header);
     let compressed = bpk.entries.iter().filter(|e| e.is_compressed()).count();
     let unpacked: u64 = bpk.entries.iter().map(|e| u64::from(e.size)).sum();
-    println!("entries: {}  compressed: {}  raw: {}", bpk.entries.len(), compressed, bpk.entries.len() - compressed);
+    println!(
+        "entries: {}  compressed: {}  raw: {}",
+        bpk.entries.len(),
+        compressed,
+        bpk.entries.len() - compressed
+    );
     println!("unpacked total: {:.2} MB", unpacked as f64 / 1048576.0);
     let mut flags: BTreeMap<u32, usize> = BTreeMap::new();
     for e in &bpk.entries {
@@ -57,11 +62,22 @@ fn info(file: &str) -> io::Result<()> {
 
 fn list(file: &str) -> io::Result<()> {
     let (source, bpk) = open(file)?;
-    println!("{:>5}  {:<16}  {:>9}  {:>5}  {:<4}  magic", "id", "hash", "size", "flags", "lzx");
+    println!(
+        "{:>5}  {:<16}  {:>9}  {:>5}  {:<4}  magic",
+        "id", "hash", "size", "flags", "lzx"
+    );
     for e in &bpk.entries {
         let data = bpk.read(&source, e)?;
         let lzx = if e.is_compressed() { "yes" } else { "" };
-        println!("{:>5}  {:016x}  {:>9}  {:>5}  {:<4}  {}", e.id, e.hash, e.size, e.flags, lzx, label(&data));
+        println!(
+            "{:>5}  {:016x}  {:>9}  {:>5}  {:<4}  {}",
+            e.id,
+            e.hash,
+            e.size,
+            e.flags,
+            lzx,
+            label(&data)
+        );
     }
     Ok(())
 }
@@ -88,7 +104,10 @@ fn magic(file: &str) -> io::Result<()> {
     let mut rows: Vec<_> = by_magic.into_iter().collect();
     rows.sort_by_key(|(_, (_, bytes))| std::cmp::Reverse(*bytes));
     for (magic, (count, bytes)) in rows {
-        println!("  {magic:<28} {count:>5}  {:>10.2} MB", bytes as f64 / 1048576.0);
+        println!(
+            "  {magic:<28} {count:>5}  {:>10.2} MB",
+            bytes as f64 / 1048576.0
+        );
     }
     println!("decode failures: {failed}");
     Ok(())
@@ -110,7 +129,16 @@ fn extract(file: &str, dir: &str) -> io::Result<()> {
 fn label(data: &[u8]) -> String {
     let head = &data[..data.len().min(4)];
     let hex: String = head.iter().map(|b| format!("{b:02x}")).collect();
-    let ascii: String = head.iter().map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' }).collect();
+    let ascii: String = head
+        .iter()
+        .map(|&b| {
+            if (0x20..0x7f).contains(&b) {
+                b as char
+            } else {
+                '.'
+            }
+        })
+        .collect();
     format!("{hex} {ascii}")
 }
 
@@ -119,7 +147,13 @@ fn guess_ext(data: &[u8]) -> &'static str {
         Some(b"rBSP") | Some(b"PSBr") => "bsp",
         Some(b"IDST") | Some(b"TSDI") => "mdl",
         Some(b"VTF\0") | Some(b"VTFX") => "vtf",
-        _ if data.iter().take(256).all(|&b| b == b'\t' || b == b'\r' || b == b'\n' || (0x20..0x7f).contains(&b)) => "txt",
+        _ if data
+            .iter()
+            .take(256)
+            .all(|&b| b == b'\t' || b == b'\r' || b == b'\n' || (0x20..0x7f).contains(&b)) =>
+        {
+            "txt"
+        }
         _ => "bin",
     }
 }

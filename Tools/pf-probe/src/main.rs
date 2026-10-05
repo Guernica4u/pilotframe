@@ -56,8 +56,21 @@ fn main() -> ExitCode {
         println!("{path}  size {size} ({size:#x})");
         for (i, row) in buf.chunks(16).enumerate() {
             let hex: Vec<_> = row.iter().map(|b| format!("{b:02x}")).collect();
-            let ascii: String = row.iter().map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' }).collect();
-            println!("{:08x}  {:<47}  {ascii}", offset + (i * 16) as u64, hex.join(" "));
+            let ascii: String = row
+                .iter()
+                .map(|&b| {
+                    if (0x20..0x7f).contains(&b) {
+                        b as char
+                    } else {
+                        '.'
+                    }
+                })
+                .collect();
+            println!(
+                "{:08x}  {:<47}  {ascii}",
+                offset + (i * 16) as u64,
+                hex.join(" ")
+            );
         }
         Ok(())
     })();

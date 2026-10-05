@@ -92,7 +92,10 @@ impl Bpk {
             unknown_20: [w(8), w(9), w(10), w(11)],
         };
         if header.version != 6 {
-            return Err(invalid(&format!("unsupported XBAR version {}", header.version)));
+            return Err(invalid(&format!(
+                "unsupported XBAR version {}",
+                header.version
+            )));
         }
         window(header.window_size)?;
 
@@ -145,7 +148,10 @@ pub fn decompress(stored: &[u8], size: usize, window_size: u32) -> io::Result<Ve
     let mut out = Vec::with_capacity(size);
     let mut at = 0;
     while out.len() < size {
-        if !out.is_empty() && out.len() % window_len == 0 && stored.get(at..at + 5) == Some(&STREAM_SEPARATOR) {
+        if !out.is_empty()
+            && out.len() % window_len == 0
+            && stored.get(at..at + 5) == Some(&STREAM_SEPARATOR)
+        {
             lzx.reset();
             at += STREAM_SEPARATOR.len();
             // A final segment that wouldn't compress is stored raw.
@@ -156,11 +162,15 @@ pub fn decompress(stored: &[u8], size: usize, window_size: u32) -> io::Result<Ve
         }
         let (frame, chunk_len, header_len) = match stored.get(at) {
             Some(0xFF) => {
-                let b = stored.get(at + 1..at + 5).ok_or_else(|| invalid("truncated LZX chunk header"))?;
+                let b = stored
+                    .get(at + 1..at + 5)
+                    .ok_or_else(|| invalid("truncated LZX chunk header"))?;
                 (usize::from(be16(b, 0)), usize::from(be16(b, 2)), 5)
             }
             Some(_) => {
-                let b = stored.get(at..at + 2).ok_or_else(|| invalid("truncated LZX chunk header"))?;
+                let b = stored
+                    .get(at..at + 2)
+                    .ok_or_else(|| invalid("truncated LZX chunk header"))?;
                 (FRAME_LEN, usize::from(be16(b, 0)), 2)
             }
             None => return Err(invalid("LZX stream ended before the expected size")),

@@ -64,13 +64,33 @@ fn build(files: &[(&[u8], Store)]) -> Vec<u8> {
         let end = (data_offset + data.len()) as u32;
         let id = (i * 3) as u32;
         let hash = (i as u64 + 1) * 0x0101_0101_0101_0101;
-        for word in [id, bytes.len() as u32, start, end, (hash >> 32) as u32, hash as u32, 0] {
+        for word in [
+            id,
+            bytes.len() as u32,
+            start,
+            end,
+            (hash >> 32) as u32,
+            hash as u32,
+            0,
+        ] {
             table.extend(word.to_be_bytes());
         }
     }
     let mut out: Vec<u8> = Vec::new();
     out.extend(b"XBAR");
-    let header = [6, files.len() as u32, 0, WINDOW as u32, files.len() as u32 * 3, data_offset as u32, data.len() as u32, 0, 0, 0, 0];
+    let header = [
+        6,
+        files.len() as u32,
+        0,
+        WINDOW as u32,
+        files.len() as u32 * 3,
+        data_offset as u32,
+        data.len() as u32,
+        0,
+        0,
+        0,
+        0,
+    ];
     for word in header {
         out.extend(word.to_be_bytes());
     }
@@ -82,7 +102,9 @@ fn build(files: &[(&[u8], Store)]) -> Vec<u8> {
 
 /// Compressible but not trivial test content.
 fn sample(len: usize, seed: u8) -> Vec<u8> {
-    (0..len).map(|i| ((i / 7) as u8).wrapping_mul(seed) ^ (i % 13) as u8).collect()
+    (0..len)
+        .map(|i| ((i / 7) as u8).wrapping_mul(seed) ^ (i % 13) as u8)
+        .collect()
 }
 
 #[test]
