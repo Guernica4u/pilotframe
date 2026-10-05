@@ -1,0 +1,10 @@
+[package]
+name = "pf-vfs"
+description = "Byte sources and a read-only virtual filesystem trait (no Bevy, WASM-safe)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

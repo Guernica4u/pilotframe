@@ -1,0 +1,39 @@
+# --- Game data: NEVER commit (see PLAN.md §0, rule 3) ---
+local/
+cache/
+dumps/
+resources/
+Resources/
+inventory*.json
+*.iso
+*.xiso
+*.god
+*.bsp
+*.bsp_lump
+*.ent
+*.vpk
+*.vtf
+*.vtfx
+*.vmt
+*.mdl
+*.vvd
+*.vtx
+*.phy
+*.xma
+*.xwb
+*.xsb
+*.wav
+*.mstr
+*.nut
+*.xex
+*.cab
+
+# --- Build output ---
+target/
+
+# --- Editors / OS ---
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

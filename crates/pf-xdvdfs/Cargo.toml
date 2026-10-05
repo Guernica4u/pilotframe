@@ -1,0 +1,16 @@
+[package]
+name = "pf-xdvdfs"
+description = "Read-only XDVDFS reader for Xbox 360 disc images (ISO or game partition)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pf-vfs.workspace = true
+
+[dev-dependencies]
+pf-testdata.workspace = true
+
+[lints]
+workspace = true
