@@ -1,0 +1,401 @@
+<title>Pilotframe Roadmap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a summary strip, the two parallel tracks, then one milestone list in build order. */
+:root {
+  --bg: #f3f4f6;
+  --surface: #ffffff;
+  --ink: #1b2330;
+  --muted: #5d6878;
+  --line: #d9dde4;
+  --accent: #d0661f;       /* drop-pod orange */
+  --accent-soft: #fbe9dc;
+  --track-a: #2f6fa6;      /* game files */
+  --track-a-soft: #e3eef8;
+  --track-b: #6b4fa3;      /* movement */
+  --track-b-soft: #ece6f6;
+  --done: #2e7d4f;
+  --done-soft: #e1f2e7;
+  --display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161d; --surface: #1a2029; --ink: #e6e9ee; --muted: #9aa4b2; --line: #2c3442;
+    --accent: #f08a43; --accent-soft: #3a2618;
+    --track-a: #6aa8dd; --track-a-soft: #1b2c3d;
+    --track-b: #a98ae0; --track-b-soft: #2a2238;
+    --done: #5cc289; --done-soft: #16301f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161d; --surface: #1a2029; --ink: #e6e9ee; --muted: #9aa4b2; --line: #2c3442;
+  --accent: #f08a43; --accent-soft: #3a2618;
+  --track-a: #6aa8dd; --track-a-soft: #1b2c3d;
+  --track-b: #a98ae0; --track-b-soft: #2a2238;
+  --done: #5cc289; --done-soft: #16301f;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.55 var(--body);
+  padding-inline: 16px;
+  padding-block: 32px 64px;
+}
+.wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 40px; }
+
+header { display: grid; gap: 12px; }
+.eyebrow {
+  font: 500 12px/1 var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+h1 {
+  font: 700 clamp(30px, 5vw, 44px)/1.05 var(--display);
+  margin: 0;
+  letter-spacing: -.01em;
+  text-wrap: balance;
+}
+.lede { margin: 0; max-width: 64ch; color: var(--muted); }
+
+/* Progress strip: one cell per milestone, M0–M12 */
+.progress { display: grid; gap: 10px; }
+.cells { display: grid; grid-template-columns: repeat(13, 1fr); gap: 4px; }
+.cell {
+  height: 34px; border-radius: 3px;
+  background: var(--surface); border: 1px solid var(--line);
+  display: grid; place-items: center;
+  font: 500 11px/1 var(--mono); color: var(--muted);
+}
+.cell.done { background: var(--done); border-color: var(--done); color: var(--surface); }
+.cell.next { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid var(--line); background: var(--surface); }
+.dot.done { background: var(--done); border-color: var(--done); }
+.dot.next { background: var(--accent); border-color: var(--accent); }
+
+h2 {
+  font: 600 20px/1.2 var(--display);
+  margin: 0 0 14px;
+  letter-spacing: .01em;
+}
+
+/* Two parallel tracks */
+.tracks { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.track {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--c);
+  border-radius: 6px;
+  padding: 18px 20px;
+  display: grid; gap: 8px;
+  min-width: 0;
+}
+.track.a { --c: var(--track-a); }
+.track.b { --c: var(--track-b); }
+.track h3 { margin: 0; font: 600 17px/1.25 var(--display); color: var(--c); }
+.track p { margin: 0; color: var(--muted); font-size: 14px; }
+.track ol { margin: 4px 0 0; padding-left: 20px; display: grid; gap: 2px; font-size: 14px; }
+.note { font-size: 13px; color: var(--muted); margin: 12px 0 0; max-width: 70ch; }
+
+/* Milestone list */
+.phase { display: grid; gap: 10px; }
+.phase + .phase { margin-top: 28px; }
+.phase-label {
+  font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); padding-bottom: 8px; border-bottom: 1px solid var(--line);
+}
+.ms {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ms:last-child { border-bottom: 0; }
+.num {
+  font: 700 22px/1 var(--display);
+  color: var(--muted);
+  padding-top: 2px;
+}
+.ms.done .num { color: var(--done); }
+.ms.next .num { color: var(--accent); }
+.ms-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; }
+.ms-head h4 { margin: 0; font: 600 17px/1.3 var(--body); }
+.pill {
+  font: 500 11px/1 var(--mono); letter-spacing: .04em; text-transform: uppercase;
+  padding: 5px 8px; border-radius: 3px;
+  background: var(--bg); color: var(--muted); border: 1px solid var(--line);
+}
+.pill.done { background: var(--done-soft); color: var(--done); border-color: transparent; }
+.pill.next { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.pill.a { background: var(--track-a-soft); color: var(--track-a); border-color: transparent; }
+.pill.b { background: var(--track-b-soft); color: var(--track-b); border-color: transparent; }
+.est { font: 400 12px/1.4 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.goal { margin: 6px 0 0; max-width: 68ch; }
+.tasks { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 4px; font-size: 14px; }
+.tasks li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; color: var(--ink); }
+.tasks li::before {
+  content: ""; width: 12px; height: 12px; margin-top: 4px;
+  border: 1.5px solid var(--line); border-radius: 2px;
+}
+.tasks li.x::before { background: var(--done); border-color: var(--done); }
+.tasks li.x { color: var(--muted); }
+code { font: 400 13px var(--mono); background: var(--bg); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--line); }
+
+/* Side research */
+.research { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.r {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+  padding: 14px 16px; display: grid; gap: 4px; min-width: 0;
+}
+.r b { font: 600 14px/1.3 var(--body); }
+.r span { font-size: 13px; color: var(--muted); }
+
+footer { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 6px; }
+
+@media (max-width: 560px) {
+  .cells { grid-template-columns: repeat(7, 1fr); }
+  .ms { grid-template-columns: 40px minmax(0, 1fr); gap: 10px; }
+  .num { font-size: 18px; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Unofficial · private · updated 4 Oct 2026</div>
+    <h1>Pilotframe Roadmap</h1>
+    <p class="lede">A from-scratch Rust and Bevy rebuild of the 2014 mech shooter, using assets from each player's own Xbox 360 disc. Milestones run in order. Two tracks can be worked on at the same time.</p>
+  </header>
+
+  <section class="progress" aria-label="Overall progress">
+    <div class="cells">
+      <div class="cell done" title="M0 done">M0</div>
+      <div class="cell done" title="M1 done">M1</div>
+      <div class="cell next" title="M2 next">M2</div>
+      <div class="cell">M3</div><div class="cell">M4</div><div class="cell">M5</div><div class="cell">M6</div>
+      <div class="cell">M7</div><div class="cell">M8</div><div class="cell">M9</div><div class="cell">M10</div>
+      <div class="cell">M11</div><div class="cell">M12</div>
+    </div>
+    <div class="legend">
+      <span><i class="dot done"></i>Done (2)</span>
+      <span><i class="dot next"></i>Next up</span>
+      <span><i class="dot"></i>Planned</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Two tracks, two people</h2>
+    <div class="tracks">
+      <div class="track a">
+        <h3>Track A · Game files to maps</h3>
+        <p>Reads the disc and gets the original maps on screen. Needs a Titanfall 360 dump.</p>
+        <ol>
+          <li>M2 raw map geometry</li>
+          <li>M3 textured fly-through</li>
+          <li>Then models and animations for M6–M8</li>
+        </ol>
+      </div>
+      <div class="track b">
+        <h3>Track B · Movement sandbox</h3>
+        <p>Builds the pilot controller on a homemade test map. Needs no game files, so it can start today.</p>
+        <ol>
+          <li>M4 walk with collision on a greybox map</li>
+          <li>M5 faithful pilot movement</li>
+          <li>Merges with Track A when M3 lands</li>
+        </ol>
+      </div>
+    </div>
+    <p class="note">Suggested split: you take Track A, your friend takes Track B. Each track works on its own branch and merges through pull requests.</p>
+  </section>
+
+  <section>
+    <h2>Milestones</h2>
+
+    <div class="phase">
+      <div class="phase-label">Foundations</div>
+
+      <article class="ms done">
+        <div class="num">M0</div>
+        <div>
+          <div class="ms-head"><h4>Dump the disc and list its files</h4><span class="pill done">Done</span><span class="pill a">Track A</span></div>
+          <p class="goal">Read the 360 disc image and find out what's on it.</p>
+          <ul class="tasks">
+            <li class="x">Disc image reader (XDVDFS, XGD3)</li>
+            <li class="x">Inventory tool: 220 files, 18 map packs found</li>
+            <li class="x">First map picked: <code>mp_lobby</code> as a test, then <code>mp_colony</code></li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="ms done">
+        <div class="num">M1</div>
+        <div>
+          <div class="ms-head"><h4>Open the map packs</h4><span class="pill done">Done</span><span class="pill a">Track A</span></div>
+          <p class="goal">Unpack Bluepoint's XBAR pack format and list what's inside.</p>
+          <ul class="tasks">
+            <li class="x">Header and entry table decoded</li>
+            <li class="x">LZX decompression, including the 128 KB stream quirk</li>
+            <li class="x">All 18 packs fully unpack, zero failures</li>
+            <li class="x">Found BSP, models, VTFX textures, animations, entities</li>
+          </ul>
+        </div>
+      </article>
+    </div>
+
+    <div class="phase">
+      <div class="phase-label">See the maps</div>
+
+      <article class="ms next">
+        <div class="num">M2</div>
+        <div>
+          <div class="ms-head"><h4>Draw one map's raw geometry</h4><span class="pill next">Next</span><span class="pill a">Track A</span><span class="est">1–3 days · up to 2 weeks</span></div>
+          <p class="goal">The lobby's shapes appear in a Bevy window that you can fly around in. No textures yet.</p>
+          <ul class="tasks">
+            <li>Read the 2,064-byte map header (128 lump records)</li>
+            <li>Work out how lump records point to other pack entries</li>
+            <li>Decode vertex, index and mesh lumps (big-endian)</li>
+            <li>Add Bevy to the project, pinned to the latest stable version</li>
+            <li>Viewer app with a fly camera, flat-shaded lobby on screen</li>
+            <li>Same for <code>mp_colony</code></li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="ms">
+        <div class="num">M3</div>
+        <div>
+          <div class="ms-head"><h4>Fly through a full textured map</h4><span class="pill">Planned</span><span class="pill a">Track A</span><span class="est">1–2 weeks · up to 2 months</span></div>
+          <p class="goal">Colony looks like Colony: textures, lighting, props and sky. The game loads only from your local converted cache.</p>
+          <ul class="tasks">
+            <li>VTFX textures: untile the Xbox 360 layout, swap DXT byte order</li>
+            <li>Work out the streaming texture sets (<code>main.st1/.st2</code>), still undocumented</li>
+            <li>Materials from text definitions</li>
+            <li>Lightmaps, static props (models), skybox</li>
+            <li><code>pf-setup</code> command-line tool: ISO in, cache out</li>
+          </ul>
+        </div>
+      </article>
+    </div>
+
+    <div class="phase">
+      <div class="phase-label">Be a pilot</div>
+
+      <article class="ms">
+        <div class="num">M4</div>
+        <div>
+          <div class="ms-head"><h4>Walk the map with collision</h4><span class="pill">Planned</span><span class="pill b">Track B</span><span class="est">days · up to 2 weeks</span></div>
+          <p class="goal">Run around with gravity, slopes and steps, and never fall through the floor. Keyboard, mouse and controller all work.</p>
+          <ul class="tasks">
+            <li>Homemade greybox test map (no game files needed)</li>
+            <li>Capsule character controller on a fixed simulation tick</li>
+            <li>Input actions for keyboard/mouse and controller</li>
+            <li>Collision from real map data once M3 is in</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="ms">
+        <div class="num">M5</div>
+        <div>
+          <div class="ms-head"><h4>Faithful pilot movement</h4><span class="pill">Planned</span><span class="pill b">Track B</span><span class="est">2–4 weeks · then ongoing tuning</span></div>
+          <p class="goal">Sprint, double jump, wall-run, wall-hang, slide and air control, each matched to measurements from the 360 version.</p>
+          <ul class="tasks">
+            <li>Collect 360 gameplay clips from YouTube (you pick, I analyse frame by frame)</li>
+            <li>Read numeric settings files from the disc as data</li>
+            <li>Every value logged with its source and error margin</li>
+            <li>Side-by-side comparison against the clips</li>
+          </ul>
+        </div>
+      </article>
+    </div>
+
+    <div class="phase">
+      <div class="phase-label">The game</div>
+
+      <article class="ms">
+        <div class="num">M6</div>
+        <div>
+          <div class="ms-head"><h4>One titan, embark and disembark</h4><span class="pill">Planned</span><span class="est">2–3 months</span></div>
+          <p class="goal">Call in a titan, climb in, walk and dash, climb out. Needs the model and animation formats (TSDI, BPAN) decoded.</p>
+        </div>
+      </article>
+
+      <article class="ms">
+        <div class="num">M7</div>
+        <div>
+          <div class="ms-head"><h4>Grunts and AI</h4><span class="pill">Planned</span><span class="est">2–4 months</span></div>
+          <p class="goal">Navmesh built per map, grunts that patrol, take cover and shoot back.</p>
+        </div>
+      </article>
+
+      <article class="ms">
+        <div class="num">M8</div>
+        <div>
+          <div class="ms-head"><h4>Weapons</h4><span class="pill">Planned</span><span class="est">2–4 months</span></div>
+          <p class="goal">Data-driven guns: hitscan and projectiles, aiming down sights, recoil, the smart pistol and an anti-titan weapon.</p>
+        </div>
+      </article>
+
+      <article class="ms">
+        <div class="num">M9</div>
+        <div>
+          <div class="ms-head"><h4>Offline match vs bots</h4><span class="pill">Planned</span><span class="est">2–4 months</span></div>
+          <p class="goal">Attrition-style match: scoring, spawns, titan timers, bot pilots, the evac ending.</p>
+        </div>
+      </article>
+    </div>
+
+    <div class="phase">
+      <div class="phase-label">Later</div>
+
+      <article class="ms">
+        <div class="num">M10</div>
+        <div>
+          <div class="ms-head"><h4>Multiplayer</h4><span class="pill">Planned</span><span class="est">4–8 months</span></div>
+          <p class="goal">Servers, client-side prediction and lag compensation. The movement code is built for this from M4 on.</p>
+        </div>
+      </article>
+
+      <article class="ms">
+        <div class="num">M11</div>
+        <div>
+          <div class="ms-head"><h4>Play without the disc</h4><span class="pill">Planned</span><span class="est">2–3 months</span></div>
+          <p class="goal">Community-made maps and placeholder models through the same content system. Designed in from day one.</p>
+        </div>
+      </article>
+
+      <article class="ms">
+        <div class="num">M12</div>
+        <div>
+          <div class="ms-head"><h4>Web build</h4><span class="pill">Planned</span><span class="est">2+ months</span></div>
+          <p class="goal">Runs in a browser. Format readers already compile without native-only features to keep this possible.</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <h2>Open research on the side</h2>
+    <div class="research">
+      <div class="r"><b>Entry names</b><span>Packs store 64-bit hashes, not file names. Common hash functions didn't match. Not blocking.</span></div>
+      <div class="r"><b>Streaming textures</b><span><code>main.st1/.st2</code>, about 2.2 GB, Bluepoint's own format. Blocks M3.</span></div>
+      <div class="r"><b>Animations (BPAN)</b><span>The biggest content type in every pack. Needed for titans and pilots.</span></div>
+      <div class="r"><b>Audio</b><span>Wwise packages, which the community already documents. Low priority until M8.</span></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Unofficial fan project. Not affiliated with, endorsed by, or connected to Electronic Arts or Respawn Entertainment. No game assets are included or distributed.</span>
+    <span>Estimates show best case · slower case. The slow parts are undocumented file formats, not writing code.</span>
+  </footer>
+</div>
