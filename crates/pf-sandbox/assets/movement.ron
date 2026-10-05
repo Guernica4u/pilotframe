@@ -1,0 +1,30 @@
+// Pilot movement tuning, read by pf-movement through the sandbox.
+//
+// EVERY VALUE HERE IS A PLACEHOLDER: round numbers chosen to feel roughly right,
+// not measurements. Real values come from frame-by-frame analysis of 360 footage
+// (PLAN §6). When a value is measured, update it here AND log its source and
+// error bar in docs/movement/values.md.
+//
+// Units: game units (~1 inch), seconds, degrees.
+// The sandbox reloads this file when you save it, no restart needed.
+(
+    // Body
+    capsule_radius: 16.0,
+    capsule_height: 72.0,
+    eye_height: 60.0,
+
+    // Ground movement
+    walk_speed: 180.0,
+    sprint_speed: 270.0,
+    ground_accel: 1400.0,
+    ground_friction: 1600.0,
+
+    // Air
+    air_accel: 300.0,
+    gravity: 750.0,
+    jump_height: 48.0,
+
+    // Terrain
+    max_slope_deg: 45.0,
+    step_height: 18.0,
+)
