@@ -6,6 +6,13 @@
 
 Status: **Milestones 0 and 1 done. Milestone 2 (raw map geometry) next.** Format research and sources are in [docs/RESEARCH.md](docs/RESEARCH.md).
 
+## Why this exists
+
+**An open-source version of Titanfall that stays playable on PC forever, is fully moddable, and belongs to its community.** It doesn't depend on EA's executable, DRM, stores or servers, and doesn't need a pre-existing PC install (unlike projects that patch the original game). Every design choice should serve that:
+- **Independent:** own engine, runs from the player's own discs (PC or 360).
+- **Moddable:** gameplay values in data files, a documented cache/content format, mod folder support (mods override original assets), and community maps (M11).
+- **Ours:** clean-room GPL code, so nobody can take it away.
+
 ## Decisions (2026-10-04)
 
 | Topic | Decision |
