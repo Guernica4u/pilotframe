@@ -2,6 +2,12 @@
 
 State on 2026-10-04: **M0 and M1 done** (disc reader, all 18 XBAR packs decode). Pushed to `Guernica4u/pilotframe`. Friend may start Track B ([TRACK_B.md](TRACK_B.md)).
 
+## Update 2026-10-05
+
+- **PC discs are usable:** `Resources/pc/Titanfall (USA) (Disc 1-3).iso`. Each holds part of one split ZIP (`Titanfall.cd` = central directory, `Titanfall.z01`… = data), with no encryption flags. Contents: `vpk/client_mp_*.bsp.pak000_*.vpk` (Respawn VPK v2.3, LZHAM) and more. Never open `.exe`/`.dll`/scripts.
+- **New M2 order:** (0) write `pf-zip` (read-only multi-disc ZIP over the 3 ISOs via ISO9660/UDF + pf-vfs) and `pf-fmt-vpk` (Respawn VPK + LZHAM; check that the LZHAM crate's license is GPL-compatible). (1) Draw **PC** `mp_lobby`/`mp_colony` geometry (rBSP v29 LE, bsp_tool `titanfall.py`). (2) Use the same map from the 360 (`PSBr`, BE) to map 360 lumps onto PC lumps.
+- **Track B** (friend) pushed `pf-movement` + `pf-sandbox` on `track-b/movement-sandbox`. Shared-file changes reviewed OK (Bevy 0.19.1 pinned). `main` is now rustfmt-clean. Map collision must implement `pf_movement::CollisionWorld` (parry TriMesh, Z-up→Y-up at conversion).
+
 ## M2 plan: lobby geometry on screen (Track A)
 
 1. **Find lump data.** Parse the 2,064-byte `PSBr` entry in `mp_lobby.bpk`: 16-byte header (magic, version 29, ...) plus 128 × 16-byte lump records, big-endian. Check whether lump offsets/sizes point into one combined stream or match other pack entries' sizes or ids. Start by comparing lump sizes against the entry sizes in `Resources/extracted/mp_lobby.list.txt`.

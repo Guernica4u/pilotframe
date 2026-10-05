@@ -10,8 +10,9 @@ Status: **Milestones 0 and 1 done. Milestone 2 (raw map geometry) next.** Format
 
 | Topic | Decision |
 |---|---|
-| Asset source | **Xbox 360 ISO**, dumped by the owner from their own disc. It lives in `resources/` (gitignored). The PC discs (3) are set aside, probably encrypted. |
-| Movement reference | Replicate the **360 build** (whatever we port from). |
+| Asset source | **Both, from the owner's own discs** (in gitignored `Resources/`): the **Xbox 360 ISO**, plus the **PC retail discs (3 ISOs)**. The PC data is a plain, unencrypted split ZIP (538 files, about 50 GB, mostly Respawn VPKs), so no DRM is involved. We never touch the PC `.exe`/`.dll` or game scripts. **The PC (documented formats) is a reference for decoding the 360 (Bluepoint formats). Setup will accept either disc set, and PC gives HD assets.** (Decided 2026-10-05.) |
+| Movement reference | **PC values**, read from both versions' settings files. If they match the 360 (likely), there's nothing to decide. (Changed 2026-10-05.) |
+| DLC | Base game only (15 maps + lobby + training). DLC maps aren't on any disc. They were downloads, and the stores are closed, so it's out of scope for now. |
 | Clean-room line | Numeric **settings files may be read as data**. **Game scripts (`.nut`) are off-limits.** The XEX is never touched. |
 | Third-party code | We **may port struct layouts from GPL-3.0 tools** (e.g. bsp_tool) with attribution in the file header and `docs/RESEARCH.md`. AGPL (RSX) is read-only reference. Anything containing leaked/SDK-derived code is never used. |
 | Measurement footage | No 360 console and no capture card, so we'll use **YouTube footage of the 360 version** that the owner picks, analysed frame by frame. Lower precision (360 ran ~30 fps at sub-720p), so we average over many clips. |
