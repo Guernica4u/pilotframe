@@ -12,7 +12,16 @@ Status: **Milestones 0 and 1 done. Milestone 2 (raw map geometry) next.** Format
 |---|---|
 | Asset source | **Both, from the owner's own discs** (in gitignored `Resources/`): the **Xbox 360 ISO**, plus the **PC retail discs (3 ISOs)**. The PC data is a plain, unencrypted split ZIP (538 files, about 50 GB, mostly Respawn VPKs), so no DRM is involved. We never touch the PC `.exe`/`.dll` or game scripts. **The PC (documented formats) is a reference for decoding the 360 (Bluepoint formats). Setup will accept either disc set, and PC gives HD assets.** (Decided 2026-10-05.) |
 | Movement reference | **PC values**, read from both versions' settings files. If they match the 360 (likely), there's nothing to decide. (Changed 2026-10-05.) |
-| DLC | Base game only (15 maps + lobby + training). DLC maps aren't on any disc. They were downloads, and the stores are closed, so it's out of scope for now. |
+| **Main source** | **PC first** for everything (2026-10-05). The 360 stays supported at lower priority, so players with only the 360 disc can play later. |
+| First launch | Like the Skate 3 project: a setup screen with a **Windows file picker**. The player picks the 360 ISO, PC Disc 1 ISO (discs 2–3 found next to it), or a PC install folder. The version is detected automatically. Converts once into a cache. |
+| Cache location | A `data/` folder **next to the game exe**. |
+| Menu | **Rebuild the original menu** at runtime from the player's own files (art and fonts are never in the repo). Plain fallback menu if the files are missing. |
+| Graphics | **Match the original PC look** (baked lighting, original textures). Modern extras only as optional settings later, if ever. |
+| Audio | Comes in **right after the first textured map (M3)**: map ambience, footsteps, menu music. |
+| First map | **Colony** (PC files). |
+| Public goal | Repo goes public when it **boots to the menu and you can pick a map and walk it with real pilot movement** (incl. wall-running). No enemies needed. |
+| DLC | **Only DLC the owner downloaded themselves** (e.g. an old PC install or the Xbox 360's hard drive). Never from other people. The stores are closed. Setup will pick DLC up if it's present. Base game first. |
+| (old) DLC | Base game only (15 maps + lobby + training). DLC maps aren't on any disc. They were downloads, and the stores are closed, so it's out of scope for now. |
 | Clean-room line | Numeric **settings files may be read as data**. **Game scripts (`.nut`) are off-limits.** The XEX is never touched. |
 | Third-party code | We **may port struct layouts from GPL-3.0 tools** (e.g. bsp_tool) with attribution in the file header and `docs/RESEARCH.md`. AGPL (RSX) is read-only reference. Anything containing leaked/SDK-derived code is never used. |
 | Measurement footage | No 360 console and no capture card, so we'll use **YouTube footage of the 360 version** that the owner picks, analysed frame by frame. Lower precision (360 ran ~30 fps at sub-720p), so we average over many clips. |
