@@ -4,6 +4,7 @@
 //!   pf-pc <disc1.iso> list [filter]
 //!   pf-pc <disc1.iso> extract <filter> <out_dir>
 //!   pf-pc vpk <file_dir.vpk>           (list the named files inside a VPK)
+//!   pf-pc vpk-extract <file_dir.vpk> <filter> <out_dir>
 //!
 //! Discs 2 and 3 are found next to disc 1 by replacing "Disc 1" in the name.
 //! `filter` is a case-insensitive substring of the archive path.
@@ -34,6 +35,14 @@ fn run() -> io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let usage =
         || io::Error::other("usage: pf-pc <disc1.iso> list [filter] | extract <filter> <out_dir>");
+    if args.first().map(String::as_str) == Some("vpk-extract") {
+        let get = |i: usize| args.get(i).ok_or_else(usage);
+        return extract_vpk(
+            Path::new(get(1)?),
+            &get(2)?.to_ascii_lowercase(),
+            Path::new(get(3)?),
+        );
+    }
     if args.first().map(String::as_str) == Some("vpk") {
         return list_vpk(Path::new(args.get(1).ok_or_else(usage)?));
     }
@@ -147,4 +156,75 @@ fn list_vpk(path: &Path) -> io::Result<()> {
         eprintln!("{n:>7}  {:>9.1} MB  .{ext}", bytes as f64 / 1048576.0);
     }
     Ok(())
+}
+
+/// Unpack files from a VPK (dir + data archives in the same folder), checking CRC-32.
+fn extract_vpk(dir_path: &Path, filter: &str, out_dir: &Path) -> io::Result<()> {
+    let dir_data = fs::read(dir_path)?;
+    let dir = pf_fmt_vpk::VpkDir::parse(&dir_data)?;
+    let dir_name = dir_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    // englishclient_mp_colony.bsp.pak000_dir.vpk -> client_mp_colony.bsp.pak000_NNN.vpk
+    let base = dir_name
+        .trim_end_matches("_dir.vpk")
+        .split_once("client_")
+        .map(|(_, rest)| format!("client_{rest}"))
+        .ok_or_else(|| io::Error::other("unexpected VPK dir file name"))?;
+    let mut archives = std::collections::HashMap::new();
+
+    let (mut count, mut bytes) = (0usize, 0u64);
+    for f in dir.files.iter().filter(|f| f.path.contains(filter)) {
+        if BLOCKED_EXT.iter().any(|x| f.path.ends_with(x)) {
+            continue;
+        }
+        let mut data = dir_data[f.preload.0..f.preload.0 + f.preload.1].to_vec();
+        for c in &f.chunks {
+            let archive =
+                match archives.entry(c.archive) {
+                    std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        let path = dir_path.with_file_name(format!("{base}_{:03}.vpk", c.archive));
+                        e.insert(FileSource::open(&path).map_err(|err| {
+                            io::Error::other(format!("{}: {err}", path.display()))
+                        })?)
+                    }
+                };
+            let mut raw = vec![0u8; c.compressed_size as usize];
+            archive.read_exact_at(c.offset, &mut raw)?;
+            if c.is_compressed() {
+                raw = pf_lzham::decompress(&raw, c.size as usize)
+                    .map_err(|e| io::Error::other(format!("{}: {e}", f.path)))?;
+            }
+            data.extend_from_slice(&raw);
+        }
+        if crc32(&data) != f.crc32 {
+            return Err(io::Error::other(format!("{}: CRC-32 mismatch", f.path)));
+        }
+        let dest = out_dir.join(&f.path);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&dest, &data)?;
+        count += 1;
+        bytes += data.len() as u64;
+    }
+    println!(
+        "extracted {count} files, {:.1} MB, all CRCs OK",
+        bytes as f64 / 1048576.0
+    );
+    Ok(())
+}
+
+fn crc32(data: &[u8]) -> u32 {
+    // Small table-free CRC-32 (IEEE); speed doesn't matter for a research tool.
+    let mut crc = !0u32;
+    for &b in data {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            crc = (crc >> 1) ^ (0xEDB8_8320 & (crc & 1).wrapping_neg());
+        }
+    }
+    !crc
 }
