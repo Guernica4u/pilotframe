@@ -23,6 +23,11 @@ State on 2026-10-04: **M0 and M1 done** (disc reader, all 18 XBAR packs decode).
 
 **Next action: Thursday, "start M2"**: PC Colony geometry on screen (steps below).
 
+## Progress 2026-10-06 (M2 started early, branch m2/pc-reader)
+
+- **Done:** `pf-iso9660` (ISO 9660 + multi-extent), `pf-zip` (split ZIP64 over the 3 discs, Deflate stream extract + CRC check), `pf-fmt-vpk` (Respawn VPK v2.3 dir: names + chunks), `Tools/pf-pc` (`list`, `extract`, `vpk`). Colony VPKs extract in ~6 s to `Resources/pc_extracted/vpk/` (CRC OK). The Colony dir lists 5,608 named files: `depot/r1dev/game/r1/maps/mp_colony.bsp` + 134 `.bsp_lump` files, 1,971 `.vtf`, 702 `.mdl`, etc. List: `Resources/pc_extracted/colony_files.txt`.
+- **Next:** LZHAM decompression (almost every chunk is LZHAM). Find a GPL-compatible decoder (pure Rust preferred; else bindings to the MIT C lib). Then read `mp_colony.bsp` + lumps, then the Bevy viewer.
+
 ## Update 2026-10-05
 
 - **PC discs are usable:** `Resources/pc/Titanfall (USA) (Disc 1-3).iso`. Each holds part of one split ZIP (`Titanfall.cd` = central directory, `Titanfall.z01`… = data), with no encryption flags. Contents: `vpk/client_mp_*.bsp.pak000_*.vpk` (Respawn VPK v2.3, LZHAM) and more. Never open `.exe`/`.dll`/scripts.

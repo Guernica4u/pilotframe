@@ -264,8 +264,9 @@ footer { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line)
           <ul class="tasks">
             <li class="x">Checked the PC discs: one ZIP split over 3 discs, VPKs stored with Deflate, so first launch unpacks them into a <code>data/</code> cache</li>
             <li class="x">DLC: all 3 packs (9 maps) present with their index files</li>
-            <li>ZIP reader across the 3 disc images + Deflate unpack</li>
-            <li>Respawn VPK reader + LZHAM decompression</li>
+            <li class="x">ZIP reader across the 3 disc images + Deflate unpack (Colony unpacks in 6 s)</li>
+            <li class="x">VPK file list: Colony has 5,608 named files</li>
+            <li>LZHAM decompression</li>
             <li>Decode Colony's vertex, index and mesh lumps (rBSP v29)</li>
             <li>Add Bevy to the project, pinned to the latest stable version</li>
             <li>Viewer app with a fly camera, flat-shaded lobby on screen</li>
