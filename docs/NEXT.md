@@ -9,7 +9,7 @@ State on 2026-10-04: **M0 and M1 done** (disc reader, all 18 XBAR packs decode).
 **Local files** (all in gitignored `Resources/`):
 - `TitanFall-XBOX360.iso`: the owner's 360 dump. Single XGD3 disc, build `R1X360_CL108433`.
 - `pc/Titanfall (USA) (Disc 1-3).iso` + `[LOGS]` (DiscImageCreator, 2022): the owner's PC retail discs. Plain split ZIP, 538 entries, about 50 GB, 214 VPKs, no encryption.
-- `dlc/`: **pending.** The owner is copying in their own old DLC download. Next step: list the files (never open exe/dll) and identify Expedition / Frontier's Edge / IMC Rising, PC or 360.
+- `r1_titanfall_DLCS/Titanfall DLCS/`: the owner's own PC DLC download (checked 2026-10-05). All 3 packs: DropPod1 = Expedition (mp_runoff, mp_swampland, mp_wargames), DropPod2 = Frontier's Edge (mp_harmony_mines, mp_haven, mp_switchback), DropPod3 = IMC Rising (mp_backwater, mp_sandtrap, mp_zone_18). That's 9 `vpk/client_mp_*.bsp.pak000_000.vpk` data VPKs (~6.8 GB) plus installer exes (never open them). **The `englishclient_mp_<map>.bsp.pak000_dir.vpk` index files are missing.** Those came with a base-game patch, and the retail disc only has dir VPKs for launch maps. To read DLC maps we need the dir VPKs from the owner's own patched install. Not needed until after the launch maps work.
 - `extracted/`: decoded 360 packs + `*.list.txt`. `inventory.json`: 360 inventory.
 - `reference/`: Colony overhead/minimap, a town screenshot, `menu/main_menu_console.png`, `links.txt` (executions, terminations, animations, movement-basics videos, Fandom wiki).
 
