@@ -15,6 +15,16 @@ pf-testdata = { path = "crates/pf-testdata" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+# Bevy breaks its API every few months, so the whole workspace pins one version (PLAN §2).
+bevy = "=0.19.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+# Debug builds of Bevy are too slow to use. Optimise dependencies (built once,
+# cached) and lightly optimise our own code.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

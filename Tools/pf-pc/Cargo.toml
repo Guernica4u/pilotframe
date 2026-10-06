@@ -11,6 +11,7 @@ pf-vfs.workspace = true
 pf-iso9660 = { path = "../../crates/pf-iso9660" }
 pf-zip = { path = "../../crates/pf-zip" }
 pf-fmt-vpk = { path = "../../crates/pf-fmt-vpk" }
+pf-lzham = { path = "../../crates/pf-lzham" }
 
 [lints]
 workspace = true

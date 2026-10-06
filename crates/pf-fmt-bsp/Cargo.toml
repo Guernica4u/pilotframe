@@ -1,0 +1,10 @@
+[package]
+name = "pf-fmt-bsp"
+description = "Titanfall PC map reader (rBSP v29): world geometry and material names"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
