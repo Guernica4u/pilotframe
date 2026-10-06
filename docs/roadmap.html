@@ -174,7 +174,8 @@ footer { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line)
   <header>
     <div class="eyebrow">Unofficial · private · updated 4 Oct 2026</div>
     <h1>Pilotframe Roadmap</h1>
-    <p class="lede">A from-scratch Rust and Bevy rebuild of the 2014 mech shooter, using assets from each player's own Xbox 360 disc. Milestones run in order. Two tracks can be worked on at the same time.</p>
+    <p class="lede">A from-scratch Rust and Bevy rebuild of the 2014 mech shooter, using assets from each player's own PC or Xbox 360 discs. Milestones run in order. Two tracks can be worked on at the same time.</p>
+    <p class="note"><strong>When can I boot it?</strong> Goal: boot to the rebuilt menu, pick Colony, and walk it with real pilot movement. Path: M2 → M3 → audio → M4 → M5 → setup screen + menu. Estimate: <strong>roughly 3–6 weeks of sessions after M2 starts (Thu 2026-10-08)</strong>, so around mid-to-late November 2026. A plain, untextured fly-through of Colony should come within the first week.</p>
   </header>
 
   <section class="progress" aria-label="Overall progress">
@@ -258,15 +259,17 @@ footer { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line)
       <article class="ms next">
         <div class="num">M2</div>
         <div>
-          <div class="ms-head"><h4>Draw one map's raw geometry</h4><span class="pill next">Next</span><span class="pill a">Track A</span><span class="est">1–3 days · up to 2 weeks</span></div>
-          <p class="goal">The lobby's shapes appear in a Bevy window that you can fly around in. No textures yet.</p>
+          <div class="ms-head"><h4>Draw Colony's raw geometry (PC)</h4><span class="pill next">Next</span><span class="pill a">Track A</span><span class="est">1–3 days · up to 2 weeks</span></div>
+          <p class="goal">Colony's shapes from the PC discs appear in a Bevy window that you can fly around in. No textures yet.</p>
           <ul class="tasks">
-            <li>Read the 2,064-byte map header (128 lump records)</li>
-            <li>Work out how lump records point to other pack entries</li>
-            <li>Decode vertex, index and mesh lumps (big-endian)</li>
+            <li class="x">Checked the PC discs: one ZIP split over 3 discs, VPKs stored with Deflate, so first launch unpacks them into a <code>data/</code> cache</li>
+            <li class="x">DLC: all 3 packs (9 maps) present with their index files</li>
+            <li>ZIP reader across the 3 disc images + Deflate unpack</li>
+            <li>Respawn VPK reader + LZHAM decompression</li>
+            <li>Decode Colony's vertex, index and mesh lumps (rBSP v29)</li>
             <li>Add Bevy to the project, pinned to the latest stable version</li>
             <li>Viewer app with a fly camera, flat-shaded lobby on screen</li>
-            <li>Same for <code>mp_colony</code></li>
+            <li>Later: match the 360 version's lumps to the PC ones</li>
           </ul>
         </div>
       </article>

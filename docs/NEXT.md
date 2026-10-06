@@ -26,6 +26,7 @@ State on 2026-10-04: **M0 and M1 done** (disc reader, all 18 XBAR packs decode).
 ## Update 2026-10-05
 
 - **PC discs are usable:** `Resources/pc/Titanfall (USA) (Disc 1-3).iso`. Each holds part of one split ZIP (`Titanfall.cd` = central directory, `Titanfall.z01`… = data), with no encryption flags. Contents: `vpk/client_mp_*.bsp.pak000_*.vpk` (Respawn VPK v2.3, LZHAM) and more. Never open `.exe`/`.dll`/scripts.
+- **Found 2026-10-06:** inside the PC ZIP, 210 of 214 VPKs use Deflate (method 8), 4 are stored. Deflate means no random access, so `pf-zip` should stream-extract (e.g. `miniz_oxide`, MIT/Apache/zlib) into the `data/` cache on first launch rather than reading in place.
 - **New M2 order:** (0) write `pf-zip` (read-only multi-disc ZIP over the 3 ISOs via ISO9660/UDF + pf-vfs) and `pf-fmt-vpk` (Respawn VPK + LZHAM; check that the LZHAM crate's license is GPL-compatible). (1) Draw **PC** `mp_lobby`/`mp_colony` geometry (rBSP v29 LE, bsp_tool `titanfall.py`). (2) Use the same map from the 360 (`PSBr`, BE) to map 360 lumps onto PC lumps.
 - **Track B** (friend) pushed `pf-movement` + `pf-sandbox` on `track-b/movement-sandbox`. Shared-file changes reviewed OK (Bevy 0.19.1 pinned). `main` is now rustfmt-clean. Map collision must implement `pf_movement::CollisionWorld` (parry TriMesh, Z-up→Y-up at conversion).
 
