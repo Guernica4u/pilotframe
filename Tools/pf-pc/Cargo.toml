@@ -1,0 +1,16 @@
+[package]
+name = "pf-pc"
+description = "List and extract files from the PC retail DVDs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pf-vfs.workspace = true
+pf-iso9660 = { path = "../../crates/pf-iso9660" }
+pf-zip = { path = "../../crates/pf-zip" }
+pf-fmt-vpk = { path = "../../crates/pf-fmt-vpk" }
+
+[lints]
+workspace = true
