@@ -26,7 +26,8 @@ State on 2026-10-04: **M0 and M1 done** (disc reader, all 18 XBAR packs decode).
 ## Progress 2026-10-06 (M2 started early, branch m2/pc-reader)
 
 - **Done:** `pf-iso9660` (ISO 9660 + multi-extent), `pf-zip` (split ZIP64 over the 3 discs, Deflate stream extract + CRC check), `pf-fmt-vpk` (Respawn VPK v2.3 dir: names + chunks), `Tools/pf-pc` (`list`, `extract`, `vpk`). Colony VPKs extract in ~6 s to `Resources/pc_extracted/vpk/` (CRC OK). The Colony dir lists 5,608 named files: `depot/r1dev/game/r1/maps/mp_colony.bsp` + 134 `.bsp_lump` files, 1,971 `.vtf`, 702 `.mdl`, etc. List: `Resources/pc_extracted/colony_files.txt`.
-- **Next:** LZHAM decompression (almost every chunk is LZHAM). Find a GPL-compatible decoder (pure Rust preferred; else bindings to the MIT C lib). Then read `mp_colony.bsp` + lumps, then the Bevy viewer.
+- **Also done 2026-10-06:** `pf-lzham` (MIT lzham_alpha C lib via `lzham-alpha-sys`, dict 2^20). Needs CMake: set `CMAKE` to VS Build Tools' cmake.exe. `pf-pc vpk-extract` unpacks all 5,608 Colony files (1.5 GB, CRCs OK) to `Resources/pc_extracted/colony/`. `pf-fmt-bsp` reads rBSP v29 world geometry (layouts from bsp_tool, credited; LitBump stride 44 and Unlit stride 20 confirmed). **`pf-viewer` shows Colony** (188k triangles, 309 materials, flat colour per material, fly camera): `cargo run -p pf-viewer --release -- Resources/pc_extracted/colony/depot/r1dev/game/r1/maps/mp_colony.bsp`. Bevy 0.19.1 is pinned on main now.
+- **Next (M3):** textures (VTF from the VPK, VMT material files → names), check triangle winding, props (static props in the game lump 0x23), then lightmaps. Also: turn the pf-pc steps into the first-launch setup (pick Disc 1, extract to `data/`).
 
 ## Update 2026-10-05
 

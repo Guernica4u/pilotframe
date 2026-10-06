@@ -182,13 +182,13 @@ footer { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line)
     <div class="cells">
       <div class="cell done" title="M0 done">M0</div>
       <div class="cell done" title="M1 done">M1</div>
-      <div class="cell next" title="M2 next">M2</div>
-      <div class="cell">M3</div><div class="cell">M4</div><div class="cell">M5</div><div class="cell">M6</div>
+      <div class="cell done" title="M2 done">M2</div>
+      <div class="cell next" title="M3 next">M3</div><div class="cell">M4</div><div class="cell">M5</div><div class="cell">M6</div>
       <div class="cell">M7</div><div class="cell">M8</div><div class="cell">M9</div><div class="cell">M10</div>
       <div class="cell">M11</div><div class="cell">M12</div>
     </div>
     <div class="legend">
-      <span><i class="dot done"></i>Done (2)</span>
+      <span><i class="dot done"></i>Done (3)</span>
       <span><i class="dot next"></i>Next up</span>
       <span><i class="dot"></i>Planned</span>
     </div>
@@ -256,29 +256,29 @@ footer { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line)
     <div class="phase">
       <div class="phase-label">See the maps</div>
 
-      <article class="ms next">
+      <article class="ms done">
         <div class="num">M2</div>
         <div>
-          <div class="ms-head"><h4>Draw Colony's raw geometry (PC)</h4><span class="pill next">Next</span><span class="pill a">Track A</span><span class="est">1–3 days · up to 2 weeks</span></div>
+          <div class="ms-head"><h4>Draw Colony's raw geometry (PC)</h4><span class="pill done">Done</span><span class="pill a">Track A</span></div>
           <p class="goal">Colony's shapes from the PC discs appear in a Bevy window that you can fly around in. No textures yet.</p>
           <ul class="tasks">
             <li class="x">Checked the PC discs: one ZIP split over 3 discs, VPKs stored with Deflate, so first launch unpacks them into a <code>data/</code> cache</li>
             <li class="x">DLC: all 3 packs (9 maps) present with their index files</li>
             <li class="x">ZIP reader across the 3 disc images + Deflate unpack (Colony unpacks in 6 s)</li>
             <li class="x">VPK file list: Colony has 5,608 named files</li>
-            <li>LZHAM decompression</li>
-            <li>Decode Colony's vertex, index and mesh lumps (rBSP v29)</li>
-            <li>Add Bevy to the project, pinned to the latest stable version</li>
-            <li>Viewer app with a fly camera, flat-shaded lobby on screen</li>
+            <li class="x">LZHAM decompression: all 5,608 Colony files unpack, checksums OK</li>
+            <li class="x">Decode Colony's vertex, index and mesh lumps (rBSP v29): 188k triangles</li>
+            <li class="x">Bevy 0.19.1 added and pinned</li>
+            <li class="x">Viewer app with a fly camera: Colony on screen</li>
             <li>Later: match the 360 version's lumps to the PC ones</li>
           </ul>
         </div>
       </article>
 
-      <article class="ms">
+      <article class="ms next">
         <div class="num">M3</div>
         <div>
-          <div class="ms-head"><h4>Fly through a full textured map</h4><span class="pill">Planned</span><span class="pill a">Track A</span><span class="est">1–2 weeks · up to 2 months</span></div>
+          <div class="ms-head"><h4>Fly through a full textured map</h4><span class="pill next">Next</span><span class="pill a">Track A</span><span class="est">1–2 weeks · up to 2 months</span></div>
           <p class="goal">Colony looks like Colony: textures, lighting, props and sky. The game loads only from your local converted cache.</p>
           <ul class="tasks">
             <li>VTFX textures: untile the Xbox 360 layout, swap DXT byte order</li>
