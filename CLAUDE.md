@@ -8,7 +8,7 @@ Unofficial Rust + Bevy rebuild of Titanfall (2014), using assets from each playe
 - **Game scripts are off-limits.** The packs contain Squirrel game scripts. Don't open, print, or summarise them. Numeric settings files (KeyValues data) may be read as data.
 - **No game data in git.** Nothing from `Resources/` (ISO, extracted packs, inventory JSON) is ever committed, pasted into issues, or used as a test fixture. Docs may describe struct layouts, but no hex dumps longer than a header.
 - **Engine never assumes original assets exist.** Missing assets fall back to placeholders.
-- **No EA/Respawn trademarks or art** in names, UI, or assets.
+- **Branding (name, logo, icon) is the owners' call.** Don't flag it. The project logo is a deliberate choice. Keep the "unofficial / not affiliated with EA or Respawn" notice in the README and title screen.
 - **License:** GPL-3.0-only. Only add dependencies with GPL-compatible licenses (MIT, Apache-2.0, BSD, ISC, zlib, MPL-2.0, LGPL, GPL-3.0). Check before adding.
 
 ## Layout

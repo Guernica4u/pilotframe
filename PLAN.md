@@ -49,7 +49,7 @@ These go into `CONTRIBUTING.md` and `LEGAL.md` word for word once the repo exist
 3. **Bring your own assets.** The repo, releases, CI artifacts, issues, wiki, and any website hold **zero** game-derived bytes: no textures, meshes, audio, maps, screenshots of converted assets in test fixtures, or hex dumps longer than a struct header. Only the player's local setup tool turns their own disc dump into a local cache next to the exe.
 4. **The engine never assumes original assets exist.** Every asset lookup goes through a content layer that can be satisfied by the original-derived cache, a community pack, or built-in placeholders.
 5. **Third-party code** may be used only if its license is GPL-3.0-compatible. **Exception:** we may *read* AGPL code (RSX) for format facts but won't vendor it.
-6. **Branding:** no EA/Respawn logos, fonts, UI art, or trademarks in the name, icon, or art. README and title screen both carry the "unofficial / not affiliated" notice.
+6. **Branding:** name, logo and icon are the owners' call (relaxed 2026-10-05). README and title screen carry the "unofficial / not affiliated" notice.
 7. **License:** `GPL-3.0-only`, plus this notice: *"This license covers only the code in this repository. It grants no rights to Electronic Arts' or Respawn Entertainment's code, data, assets, or trademarks."*
 
 ---
@@ -296,7 +296,7 @@ Movement code lives in the engine, inside the XEX we won't touch. So we treat th
 | **Scope** (a full AAA multiplayer shooter) | Certain | Burnout | Milestones that are each fun on their own. M3 ("walk around the original maps") is a satisfying stopping point. |
 | **Bevy churn + you're new to Rust** | High | Slow, frustrating upgrades | Pin versions, keep Bevy out of Layer 0 (most code doesn't care about upgrades), clippy + tests in CI. |
 | **AI-generated code drifts toward "remembered" game code** | Low–medium | Clean-room breach | Rule in CONTRIBUTING: prompts reference our docs/formats write-ups only. Never paste decompiled/leaked code into a session. |
-| **Legal: EA takedown** | Low–medium (EA has tolerated BYOA projects but isn't obliged to) | Project hosting lost | Strict BYOA, no trademarks, no assets anywhere, a clear notice, mirror-ready repo. |
+| **Legal: EA takedown** | Low–medium (EA has tolerated BYOA projects but isn't obliged to) | Project hosting lost | Strict BYOA, no game assets anywhere, clean-room code, a clear notice, mirror-ready repo. Branding is easy to swap if ever needed. |
 
 ---
 
