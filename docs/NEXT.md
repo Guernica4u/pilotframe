@@ -2,6 +2,27 @@
 
 State on 2026-10-04: **M0 and M1 done** (disc reader, all 18 XBAR packs decode). Pushed to `Guernica4u/pilotframe`. Friend may start Track B ([TRACK_B.md](TRACK_B.md)).
 
+## Full state snapshot (2026-10-05, written before a context compact)
+
+**Mission:** an open-source Titanfall that's always playable on PC, moddable, and ours (see PLAN.md "Why this exists"). Repo `Guernica4u/pilotframe` stays **private until it boots to the menu and you can pick a map and walk it with real pilot movement**.
+
+**Local files** (all in gitignored `Resources/`):
+- `TitanFall-XBOX360.iso`: the owner's 360 dump. Single XGD3 disc, build `R1X360_CL108433`.
+- `pc/Titanfall (USA) (Disc 1-3).iso` + `[LOGS]` (DiscImageCreator, 2022): the owner's PC retail discs. Plain split ZIP, 538 entries, about 50 GB, 214 VPKs, no encryption.
+- `dlc/`: **pending.** The owner is copying in their own old DLC download. Next step: list the files (never open exe/dll) and identify Expedition / Frontier's Edge / IMC Rising, PC or 360.
+- `extracted/`: decoded 360 packs + `*.list.txt`. `inventory.json`: 360 inventory.
+- `reference/`: Colony overhead/minimap, a town screenshot, `menu/main_menu_console.png`, `links.txt` (executions, terminations, animations, movement-basics videos, Fandom wiki).
+
+**Decisions:** PC is the main source, 360 supported at lower priority. Movement follows PC values. First map: Colony. Match the original graphics. Audio right after M3. Rebuild the original menu at runtime from the player's files. Setup screen with a Windows file picker accepts a 360 ISO, PC Disc 1 ISO, or PC install folder (auto-detected). Cache goes in `data/` next to the exe. DLC only from the owner's own download. Branding/logo is the owner's call (rule relaxed; owner keeps their logo). **Still non-negotiable:** no game files in git, clean-room code (no decompiled/leaked code, never read .xex/.lex/.exe/.dll), no game scripts.
+
+**R1Delta:** the owner installed it (it needed a Defender exclusion; the installer downloads files via curl). It may be used to *play* the original PC game as a side-by-side reference, e.g. OBS 60 fps recordings for M5. Never use its code. If it downloaded EA game content itself, don't feed that into this project.
+
+**Friend / Track B:** branch `track-b/movement-sandbox` adds `pf-movement` + `pf-sandbox` (Bevy 0.19.1, leafwing 0.21). The owner tested it, and it builds and runs, but they found it un-Titanfall-like (no parkour yet) and don't care about it for now. A parkour prompt was drafted for the friend. Local worktree: `C:\Documents 2.0\Vibecoding\pilotframe-trackb` (run with `CARGO_TARGET_DIR` set to the main repo's `target`, then `cargo run -p pf-sandbox`). PR not opened yet. The friend should merge `main` first.
+
+**Owner preferences:** Claude runs git/builds/pushes itself (minimal terminal for the owner), uses AskUserQuestion pop-ups for decisions, keeps replies short, and watches the weekly usage limit. Commit identity: `guernica4u <Guernica4u@proton.me>`. Commit messages via a temp file (PowerShell here-strings break `git commit -F -`).
+
+**Next action: Thursday, "start M2"**: PC Colony geometry on screen (steps below).
+
 ## Update 2026-10-05
 
 - **PC discs are usable:** `Resources/pc/Titanfall (USA) (Disc 1-3).iso`. Each holds part of one split ZIP (`Titanfall.cd` = central directory, `Titanfall.z01`… = data), with no encryption flags. Contents: `vpk/client_mp_*.bsp.pak000_*.vpk` (Respawn VPK v2.3, LZHAM) and more. Never open `.exe`/`.dll`/scripts.
