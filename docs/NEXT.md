@@ -23,6 +23,16 @@ State on 2026-10-04: **M0 and M1 done** (disc reader, all 18 XBAR packs decode).
 
 **Next action: Thursday, "start M2"**: PC Colony geometry on screen (steps below).
 
+## Progress 2026-10-07: game shell (menus + movement first)
+
+The owner chose to get **movement and menus right first**, in a test map, before more Colony visuals.
+
+- `track-b/movement-sandbox` is merged; `pf-sandbox` is now **`pf-game`**: `Screen` states MainMenu, MapSelect, Options, Loading, InGame, plus a pause menu (Esc). Map select: TEST MAP (the greybox) and COLONY (enabled if `Resources/pc_extracted/.../mp_colony.bsp` exists, or `PF_COLONY`). Options: mouse sensitivity and FOV, saved to `settings.ron` next to the exe.
+- **`pf-world`** (new lib) holds the map renderer that used to be in `pf-viewer` (world, props, lightmaps, fog) plus `collision_triangles()`; `pf-viewer` is now a thin fly-cam on top.
+- `pf-movement::StaticWorld::add_trimesh` (parry TriMesh). Colony collision = 187k world triangles (no prop collision yet). Player stands on Colony.
+- Dev: `PF_AUTOSTART=test|colony` skips menus; `PF_SANDBOX_SCREENSHOT=out.png` (+ `PF_SCREENSHOT_DELAY`) saves a screenshot and quits.
+- **Next:** TF1 parkour in `pf-movement` (wall-run, double jump, slide, mantle, wall-jump), tuned from `Resources/reference/video/training_full_r1delta_1080p60.mp4`; prop collision; menu art/fonts from the player's files.
+
 ## Progress 2026-10-06 (M2 started early, branch m2/pc-reader)
 
 - **Done:** `pf-iso9660` (ISO 9660 + multi-extent), `pf-zip` (split ZIP64 over the 3 discs, Deflate stream extract + CRC check), `pf-fmt-vpk` (Respawn VPK v2.3 dir: names + chunks), `Tools/pf-pc` (`list`, `extract`, `vpk`). Colony VPKs extract in ~6 s to `Resources/pc_extracted/vpk/` (CRC OK). The Colony dir lists 5,608 named files: `depot/r1dev/game/r1/maps/mp_colony.bsp` + 134 `.bsp_lump` files, 1,971 `.vtf`, 702 `.mdl`, etc. List: `Resources/pc_extracted/colony_files.txt`.

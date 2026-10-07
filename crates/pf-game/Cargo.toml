@@ -1,0 +1,19 @@
+[package]
+name = "pf-game"
+description = "Pilotframe game app: menus, map select, pilot movement in the test map or Colony"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# `file_watcher` reloads assets/movement.ron while the game runs.
+bevy = { workspace = true, features = ["file_watcher"] }
+leafwing-input-manager.workspace = true
+pf-movement.workspace = true
+ron.workspace = true
+pf-world = { path = "../pf-world" }
+serde.workspace = true
+
+[lints]
+workspace = true

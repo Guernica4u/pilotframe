@@ -36,7 +36,7 @@ Status: **Milestones 0 and 1 done. Milestone 2 (raw map geometry) next.** Format
 | Hosting | **Private GitHub repo**. Owner + one friend, each with their own Claude. **Stays private until it boots to a menu and loads a map** (no enemies needed). When it goes public, describe it as an "unofficial reimplementation" (not a "port" or "remake"). |
 | Setup UX | CLI first, GUI file picker later. |
 | Pace | Lots of time available, two people working in parallel. **Timeline is compressed** (see §5). |
-| Toolchain | Rust 1.99 stable (MSVC), VS 2022 C++ Build Tools, gh CLI. Bevy is pinned to the latest stable when the first Bevy crate is added. |
+| Toolchain | Rust 1.99 stable (MSVC), VS 2022 C++ Build Tools, gh CLI. **Bevy 0.19.1** (latest stable on 2026-10-04, first used by `pf-sandbox`), pinned workspace-wide in the root `Cargo.toml` together with leafwing-input-manager 0.21.0. |
 
 ---
 

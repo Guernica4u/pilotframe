@@ -1,6 +1,6 @@
 [package]
 name = "pf-viewer"
-description = "Fly around a Titanfall map's raw geometry (M2)"
+description = "Fly around a Titanfall map with no collision (map checking tool)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,9 +8,7 @@ publish.workspace = true
 
 [dependencies]
 bevy.workspace = true
-pf-fmt-bsp = { path = "../pf-fmt-bsp" }
-pf-fmt-vtf = { path = "../pf-fmt-vtf" }
-pf-fmt-mdl = { path = "../pf-fmt-mdl" }
+pf-world = { path = "../pf-world" }
 
 [lints]
 workspace = true

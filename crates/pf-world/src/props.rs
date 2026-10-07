@@ -134,7 +134,7 @@ pub fn spawn_props(
             scale: Vec3::splat(if prop.scale > 0.0 { prop.scale } else { 1.0 }),
         };
         commands
-            .spawn((transform, Visibility::default()))
+            .spawn((crate::MapEntity, transform, Visibility::default()))
             .with_children(|parent| {
                 for (mesh, material) in parts.iter() {
                     parent.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material.clone())));
