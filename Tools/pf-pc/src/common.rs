@@ -39,9 +39,60 @@ pub fn materials_for(zip: &SplitZip, bsp_path: &Path, have: &Path, out: &Path) -
     let by_path: BTreeMap<&str, &VpkFile> =
         dir.files.iter().map(|f| (f.path.as_str(), f)).collect();
 
-    // Pass 1: the missing .vmt files.
+    // Pass 0: prop models that aren't in the map's own pack.
+    let have_models = have.parent().unwrap_or(have).join("models");
+    let (prop_models, _) = bsp.static_props()?;
+    let mut model_paths = Vec::new();
+    for name in &prop_models {
+        let name = name.to_ascii_lowercase();
+        if !have_models
+            .join(name.trim_start_matches("models/"))
+            .exists()
+        {
+            for ext in ["mdl", "vvd", "dx11.vtx"] {
+                model_paths.push(format!("{}.{ext}", name.trim_end_matches(".mdl")));
+            }
+        }
+    }
+    let picked_models = pick(zip, &dir_data, &by_path, &model_paths, out)?;
+
+    // Materials every prop model needs that we don't have yet.
+    let mut model_materials = BTreeSet::new();
+    let picked: BTreeMap<&str, &[u8]> = picked_models
+        .iter()
+        .map(|(p, d)| (p.as_str(), d.as_slice()))
+        .collect();
+    for name in &prop_models {
+        let base = name.to_ascii_lowercase();
+        let base = base.trim_end_matches(".mdl");
+        let read = |ext: &str| -> Option<Vec<u8>> {
+            let rel = format!("{base}.{ext}");
+            picked
+                .get(rel.as_str())
+                .map(|d| d.to_vec())
+                .or_else(|| fs::read(have_models.join(rel.trim_start_matches("models/"))).ok())
+        };
+        let (Some(mdl), Some(vvd), Some(vtx)) = (read("mdl"), read("vvd"), read("dx11.vtx")) else {
+            continue;
+        };
+        let Ok(model) = pf_fmt_mdl::load(&mdl, &vvd, &vtx) else {
+            continue;
+        };
+        for mesh in model.meshes {
+            if !mesh
+                .materials
+                .iter()
+                .any(|m| have.join(format!("{m}.vmt")).exists())
+            {
+                model_materials.extend(mesh.materials);
+            }
+        }
+    }
+
+    // Pass 1: the missing .vmt files (world and props).
     let vmt_paths: Vec<String> = missing
         .iter()
+        .chain(&model_materials)
         .map(|n| format!("materials/{n}.vmt"))
         .collect();
     let vmts = pick(zip, &dir_data, &by_path, &vmt_paths, out)?;
@@ -140,7 +191,7 @@ fn pick(
             fs::create_dir_all(parent)?;
         }
         fs::write(&dest, &data)?;
-        println!("  ok  {}", f.path);
+
         result.push((f.path.clone(), data));
     }
     Ok(result)

@@ -13,6 +13,8 @@
 //! Bevy note: a Bevy app is a list of plugins and *systems* (plain functions).
 //! Systems ask for the data they need in their parameters and Bevy passes it in.
 
+mod props;
+
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -44,6 +46,12 @@ fn main() {
     let data = std::fs::read(&path).unwrap_or_else(|e| fail(&format!("{path}: {e}")));
     let bsp = pf_fmt_bsp::Bsp::parse(&data).unwrap_or_else(|e| fail(&e.to_string()));
     let geometry = bsp.geometry().unwrap_or_else(|e| fail(&e.to_string()));
+    let (prop_names, prop_list) = bsp.static_props().unwrap_or_default();
+    println!(
+        "{} static props using {} models",
+        prop_list.len(),
+        prop_names.len()
+    );
     // The map's playable box from the worldspawn entity; the vertex bounds also
     // include far-away sky geometry.
     let (min, max) = world_box(&bsp).unwrap_or_else(|| geometry.bounds());
@@ -78,9 +86,13 @@ fn main() {
         find_spawn(Path::new(&path)),
     ))
     .insert_resource(MaterialsDirs(materials_dirs))
+    .insert_resource(props::StaticProps {
+        names: prop_names,
+        props: prop_list,
+    })
     .insert_resource(LightingScale::from_env())
     .add_plugins(MaterialPlugin::<WorldMaterial>::default())
-    .add_systems(Startup, spawn_map)
+    .add_systems(Startup, (spawn_map, props::spawn_props))
     .add_systems(Update, (capture_cursor, fly));
     // Bake the shader into the exe so the viewer needs no assets folder.
     embedded_asset!(app, "world.wgsl");
@@ -182,6 +194,8 @@ impl MaterialExtension for WorldExtension {
 struct LightingScale {
     sky: f32,
     sun: f32,
+    /// Flat ambient for props, which have no lightmap (PF_PROP_AMBIENT).
+    prop_ambient: f32,
 }
 
 impl LightingScale {
@@ -195,6 +209,7 @@ impl LightingScale {
         Self {
             sky: get("PF_SKY_SCALE", 1.5),
             sun: get("PF_SUN_SCALE", 0.3),
+            prop_ambient: get("PF_PROP_AMBIENT", 0.3),
         }
     }
 }
@@ -379,6 +394,17 @@ fn to_bevy(p: [f32; 3]) -> Vec3 {
     Vec3::new(p[0], p[2], -p[1])
 }
 
+/// The sun as shader uniforms: (direction it travels, colour + debug view in w).
+fn sun_uniforms(g: &pf_fmt_bsp::Geometry) -> (Vec4, Vec4) {
+    match g.sun {
+        Some(sun) => (
+            to_bevy(sun.direction).normalize_or_zero().extend(0.0),
+            Vec4::new(sun.color[0], sun.color[1], sun.color[2], debug_view()),
+        ),
+        None => (Vec4::new(0.0, -1.0, 0.0, 0.0), Vec4::ZERO),
+    }
+}
+
 fn spawn_map(
     mut commands: Commands,
     geometry: Res<MapGeometry>,
@@ -401,13 +427,7 @@ fn spawn_map(
             )
         })
         .collect();
-    let (sun_direction, sun_color) = match g.sun {
-        Some(sun) => (
-            to_bevy(sun.direction).normalize_or_zero().extend(0.0),
-            Vec4::new(sun.color[0], sun.color[1], sun.color[2], debug_view()),
-        ),
-        None => (Vec4::new(0.0, -1.0, 0.0, 0.0), Vec4::ZERO),
-    };
+    let (sun_direction, sun_color) = sun_uniforms(g);
     println!("{} lightmap pages, sun: {:?}", pages.len(), g.sun);
 
     // Group triangles by (material, lightmap page): one Bevy mesh each.
@@ -578,10 +598,10 @@ fn spawn_map(
 /// (no height bands), so this is a close match, not exact.
 // TODO: read these values from the .ent file instead of hard-coding Colony's.
 fn colony_fog() -> DistanceFog {
-    let half_distance = 5000.0;
+    let half_distance = 7000.0;
     DistanceFog {
         // Alpha caps how much fog is mixed in, like fogmaxdensity.
-        color: Color::srgba_u8(187, 174, 180, 128),
+        color: Color::srgba_u8(187, 174, 180, 100),
         directional_light_color: Color::srgba_u8(142, 169, 189, 120),
         directional_light_exponent: 8.0,
         falloff: FogFalloff::Exponential {

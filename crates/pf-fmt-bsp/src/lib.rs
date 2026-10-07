@@ -38,6 +38,7 @@ pub mod lump {
     pub const VERTEX_NORMALS: usize = 0x1E;
     pub const TEXTURE_DATA_STRING_DATA: usize = 0x2B;
     pub const TEXTURE_DATA_STRING_TABLE: usize = 0x2C;
+    pub const GAME_LUMP: usize = 0x23;
     pub const WORLD_LIGHTS: usize = 0x36;
     pub const VERTEX_UNLIT: usize = 0x47;
     pub const VERTEX_LIT_FLAT: usize = 0x48;
@@ -150,6 +151,17 @@ pub struct Sun {
     pub color: [f32; 3],
     /// Sky ambient colour.
     pub ambient: [f32; 3],
+}
+
+/// One placed model (crate, tree, fence...).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StaticProp {
+    pub origin: [f32; 3],
+    /// Pitch, yaw, roll in degrees (Source convention).
+    pub angles: [f32; 3],
+    /// Index into the model name list.
+    pub model: u16,
+    pub scale: f32,
 }
 
 /// The map's static world geometry, in original units (Z up).
@@ -380,6 +392,60 @@ impl<'a> Bsp<'a> {
             color,
             ambient,
         }))
+    }
+
+    /// Static props from the game lump (0x23). Its directory is a count then
+    /// 16-byte entries (id `sprp` reversed, flags u16, version u16, absolute
+    /// file offset i32, length i32). `sprp` v12 (checked on Colony): model
+    /// name count + 128-byte names, leaf count (+ u16 leaves), prop count,
+    /// two more u32s, then 84-byte props: origin (3 x f32), angles (pitch, yaw,
+    /// roll in degrees, +12), model index u16 (+24), scale f32 (+72).
+    pub fn static_props(&self) -> io::Result<(Vec<String>, Vec<StaticProp>)> {
+        let lump = self.lump(lump::GAME_LUMP)?;
+        if lump.len() < 4 {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        let count = u32_at(lump, 0) as usize;
+        for i in 0..count.min(64) {
+            let entry = lump
+                .get(4 + i * 16..4 + i * 16 + 16)
+                .ok_or_else(|| invalid("game lump directory is cut off".into()))?;
+            if &entry[0..4] != b"prps" || u16_at(entry, 6) != 12 {
+                continue;
+            }
+            let (offset, length) = (u32_at(entry, 8) as usize, u32_at(entry, 12) as usize);
+            let s = self
+                .data
+                .get(offset..offset + length)
+                .ok_or_else(|| invalid("static prop lump runs past the end of the file".into()))?;
+            let cut = || invalid("static prop lump is cut off".into());
+            let num_names = u32_at(s.get(..4).ok_or_else(cut)?, 0) as usize;
+            let mut names = Vec::with_capacity(num_names);
+            for n in 0..num_names {
+                let raw = s.get(4 + n * 128..4 + (n + 1) * 128).ok_or_else(cut)?;
+                let end = raw.iter().position(|&b| b == 0).unwrap_or(raw.len());
+                names.push(String::from_utf8_lossy(&raw[..end]).replace('\\', "/"));
+            }
+            let mut at = 4 + num_names * 128;
+            let leaves = u32_at(s.get(at..at + 4).ok_or_else(cut)?, 0) as usize;
+            at += 4 + leaves * 2;
+            let num_props = u32_at(s.get(at..at + 4).ok_or_else(cut)?, 0) as usize;
+            at += 12;
+            let data = s.get(at..at + num_props * 84).ok_or_else(cut)?;
+            let props = data
+                .as_chunks::<84>()
+                .0
+                .iter()
+                .map(|r| StaticProp {
+                    origin: [f32_at(r, 0), f32_at(r, 4), f32_at(r, 8)],
+                    angles: [f32_at(r, 12), f32_at(r, 16), f32_at(r, 20)],
+                    model: u16_at(r, 24),
+                    scale: f32_at(r, 72),
+                })
+                .collect();
+            return Ok((names, props));
+        }
+        Ok((Vec::new(), Vec::new()))
     }
 
     /// Material names from the texture string table.
