@@ -123,8 +123,7 @@ pub fn step(
         return *state;
     }
     let mut s = *state;
-    // Duck at once; stand back up only when there's room overhead.
-    s.crouched = input.crouch || (s.crouched && !Body::new(tuning, false).fits(world, s.position));
+    duck(&mut s, input.crouch, tuning, world);
     let body = Body::new(tuning, s.crouched);
     s.position = body.push_out(world, s.position);
 
@@ -142,6 +141,33 @@ pub fn step(
             time,
             duration,
         } => parkour::mantle(s, from, to, time + dt, duration, tuning),
+    }
+}
+
+/// Crouch and stand, the Source way. On the ground the feet stay put and the head
+/// moves. In the air the head stays put and the feet move: ducking tucks them up,
+/// standing lowers them again, which needs that much room below (otherwise you
+/// stay ducked until you land). So ducking can't be used to climb.
+fn duck(s: &mut MovementState, want: bool, tuning: &MovementTuning, world: &impl CollisionWorld) {
+    let airborne = !s.on_ground && s.mode == Mode::Free;
+    let tuck = (tuning.capsule_height - tuning.crouch_height).max(0.0);
+    if want && !s.crouched {
+        s.crouched = true;
+        if airborne {
+            let body = Body::new(tuning, true);
+            s.position.y += body.sweep_distance(world, s.position, Vec3::Y, tuck);
+        }
+    } else if !want && s.crouched {
+        let standing = Body::new(tuning, false);
+        let target = if airborne {
+            s.position - Vec3::Y * tuck
+        } else {
+            s.position
+        };
+        if standing.fits(world, target) {
+            s.position = target;
+            s.crouched = false;
+        }
     }
 }
 

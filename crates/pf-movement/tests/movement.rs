@@ -722,3 +722,56 @@ fn mantles_off_a_wall_run_by_turning_onto_the_ledge() {
     assert!(mantled, "{state:?}");
     assert!((state.position.y - 110.0).abs() < 1.0, "{state:?}");
 }
+
+#[test]
+fn crouching_in_the_air_tucks_the_feet_and_cannot_gain_height() {
+    let world = floor();
+    let t = tuning();
+    let jump = MoveInput {
+        jump: true,
+        ..Default::default()
+    };
+    let start = settle(&world, Vec3::ZERO);
+    // Reference: the apex of a plain jump.
+    let mut plain = step(&start, &jump, &t, &world, DT);
+    let mut plain_apex = 0.0f32;
+    for _ in 0..60 {
+        plain = step(&plain, &MoveInput::default(), &t, &world, DT);
+        plain_apex = plain_apex.max(plain.position.y + 72.0);
+    }
+    // Same jump, spamming crouch: the head never goes higher than a plain jump's.
+    let mut state = step(&start, &jump, &t, &world, DT);
+    let mut head_apex = 0.0f32;
+    for i in 0..120 {
+        let input = MoveInput {
+            crouch: i % 4 < 2,
+            ..Default::default()
+        };
+        state = step(&state, &input, &t, &world, DT);
+        let height = if state.crouched { 48.0 } else { 72.0 };
+        head_apex = head_apex.max(state.position.y + height);
+    }
+    assert!(head_apex <= plain_apex + 1.0, "{head_apex} vs {plain_apex}");
+    assert!(state.on_ground, "{state:?}");
+}
+
+#[test]
+fn ducking_mid_air_raises_the_feet() {
+    let world = floor();
+    let t = tuning();
+    let mut state = MovementState::new(Vec3::new(0.0, 300.0, 0.0));
+    state = step(&state, &MoveInput::default(), &t, &world, DT);
+    let y = state.position.y;
+    let ducked = step(
+        &state,
+        &MoveInput {
+            crouch: true,
+            ..Default::default()
+        },
+        &t,
+        &world,
+        DT,
+    );
+    // 72 - 48 = 24 units higher, less one tick of falling.
+    assert!(ducked.position.y > y + 20.0, "{ducked:?}");
+}

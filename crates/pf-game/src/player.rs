@@ -191,7 +191,17 @@ fn tick_movement(
     // `time` is the fixed clock here, so this is exactly one tick.
     let next = step(&player.state, &input, tuning, &map.0, time.delta_secs());
     kick_view(&mut player, &next, tuning.gravity);
-    player.previous = player.state.position;
+    // Ducking or standing in the air moves the feet, not the head: shift the
+    // eased eye height and the blend start by the same amount so the view holds still.
+    let airborne = !player.state.on_ground && player.state.mode == Mode::Free;
+    let tuck = tuning.capsule_height - tuning.crouch_height;
+    let shift = match (player.state.crouched, next.crouched) {
+        (false, true) if airborne => tuck,
+        (true, false) if airborne => -tuck,
+        _ => 0.0,
+    };
+    player.eye -= shift;
+    player.previous = player.state.position + Vec3::Y * shift;
     player.state = next;
 
     if actions.just_pressed(&Action::Reset) || player.state.position.y < spawn.feet.y - KILL_DEPTH {
