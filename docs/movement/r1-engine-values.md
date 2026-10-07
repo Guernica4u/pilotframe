@@ -71,6 +71,26 @@ Pilot `.set` files override some of these (speeds, jump height 80, step height 1
 | `automantle_height_below/level/above` | -10 / 10 / 30 | Eye height relative to the ledge picks the animation: below -10 "below", up to 10 "level", up to 30 "above", higher "high" |
 | `automantle_duration_below/level/above/high` | 1.11 / 1.0 / 0.5 / 0.35 | Mantle durations for those cases |
 
+## View (camera feel)
+
+Defaults are loaded in the instruction just before each setting's name where it's registered, which is how these were read.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `viewpunch_base_springConstant{X,Y,Z}` | 65 | "Bigger number increases the speed at which the view corrects" |
+| `viewpunch_base_springDamping{X,Y,Z}` | 9 | "Bigger number makes the response more damped" |
+| `viewpunch_jump_*` | base pitch 2, yaw 0, roll 0.9; random 1, 1, 0.5 | Kick on a ground jump (`viewpunch_jump` 1 enables it) |
+| `viewpunch_doublejump_*` | base 4.5, 0, 0; random 1, 1, 2 | Double jump |
+| `viewpunch_wallrun_*` | base -1.5, 0, 5; random 0.5 each | Starting a wall-run |
+| `viewpunch_wallhangStart_*` | base 4, 2, 4; random 1, 1, 0.5 | Starting a wall-hang |
+| `viewpunch_wallhangEndWarning_*` | base -1, 0, -2; random 0.5 each | Hang about to end (not used yet) |
+| `viewpunch_land_*` | base 1.5, 0, 0; random 0.5, 0, 1.0 | Landing |
+| `viewpunch_zipline_*` | base 10, 0, 0; random 3, 10, 10 | Zipline (not used yet) |
+| `sprinttilt_accel` / `maxvel` / `turnrange` | 35 / 2 / 120 | Sprint turn tilt: fraction acceleration, max speed, turn rate (deg/s) for full tilt |
+| pilot `fov` | 70 | Source convention: horizontal degrees on a 4:3 screen (≈55° vertical) |
+
+Our reading (not stated by the game): a punch is an angular kick on that spring, with its starting speed = punch × √65. Landing scales the land punch from 0 at a 10-unit fall to full at 70 (pilot `viewkickFallDistMin/Max`); what `viewkickFallDistMaxScale` (12) multiplies is still unknown.
+
 ## Still unknown
 
 - Double jump height (not a stored setting; probably computed in code).

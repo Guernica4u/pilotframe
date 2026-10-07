@@ -14,6 +14,7 @@ use crate::level::{ChosenMap, LevelEntity, MapCollision, SpawnPoint};
 use crate::menu::playing;
 use crate::settings::Settings;
 use crate::tuning::{Tuning, TuningAsset};
+use crate::view;
 
 pub struct PlayerPlugin;
 
@@ -43,19 +44,16 @@ const METRES_PER_UNIT: f32 = 0.0254;
 /// How far the view tilts away from the wall during a wall-run, degrees
 /// (`wallrun_maxViewTilt`).
 const WALLRUN_ROLL_DEG: f32 = 15.0;
-/// How quickly the eye height (crouching) and tilt catch up, per second. Higher is snappier.
-const CAMERA_EASE: f32 = 12.0;
-/// Landing: the view dips by this many units per 100 units/s of fall speed, at
-/// most `LAND_DIP_MAX`, then springs back.
-const LAND_DIP_PER_100: f32 = 1.5;
-const LAND_DIP_MAX: f32 = 10.0;
-/// Spring that brings the view back after a landing (stiffness, damping).
-const DIP_STIFFNESS: f32 = 180.0;
-const DIP_DAMPING: f32 = 18.0;
-/// Head bob while running: up/down amplitude at sprint speed (units) and steps
-/// per 100 units travelled.
-const BOB_HEIGHT: f32 = 1.2;
-const BOB_STEPS_PER_100: f32 = 0.9;
+/// How quickly the wall-run tilt follows, per second (`wallrun_viewTiltSpeed`).
+const WALLRUN_TILT_SPEED: f32 = 6.0;
+/// How quickly the eye height catches up when crouching, per second.
+const CROUCH_EASE: f32 = 12.0;
+/// Landing kicks the view from nothing at this fall height to full at the next
+/// (pilot `viewkickFallDistMin` / `viewkickFallDistMax`), units.
+const LAND_KICK_FALL_MIN: f32 = 10.0;
+const LAND_KICK_FALL_MAX: f32 = 70.0;
+/// Most roll when turning while sprinting, degrees (pilot `sprinttiltMaxRoll`).
+const SPRINT_TILT_MAX_ROLL: f32 = 2.0;
 
 #[derive(Component)]
 struct Player {
@@ -70,12 +68,10 @@ struct Player {
     /// Smoothed camera height above the feet and wall-run tilt (radians).
     eye: f32,
     roll: f32,
-    /// Landing dip (units, negative = down) and its speed, and the head-bob phase.
-    dip: f32,
-    dip_speed: f32,
-    bob: f32,
-    /// Fall speed at the tick we landed, for the camera to react to. 0 = none.
-    landed_at: f32,
+    /// View punches and sprint tilt.
+    view: view::ViewEffects,
+    /// Yaw at the last frame, to measure how fast we're turning.
+    last_yaw: f32,
 }
 
 fn spawn_player(
@@ -94,17 +90,15 @@ fn spawn_player(
             sprint_latched: false,
             eye: pf_world::EYE_HEIGHT,
             roll: 0.0,
-            dip: 0.0,
-            dip_speed: 0.0,
-            bob: 0.0,
-            landed_at: 0.0,
+            view: default(),
+            last_yaw: spawn.yaw,
         },
         // leafwing adds the matching `ActionState<Action>` for us.
         input::default_bindings(),
         Camera3d::default(),
         // Default near/far planes assume metres; our units are inches.
         Projection::Perspective(PerspectiveProjection {
-            fov: settings.fov_degrees.to_radians(),
+            fov: view::vertical_fov(settings.fov),
             near: 1.0,
             far: 100_000.0,
             ..default()
@@ -122,7 +116,7 @@ fn apply_settings(settings: Res<Settings>, mut projection: Single<&mut Projectio
         return;
     }
     if let Projection::Perspective(p) = projection.as_mut() {
-        p.fov = settings.fov_degrees.to_radians();
+        p.fov = view::vertical_fov(settings.fov);
     }
 }
 
@@ -185,9 +179,7 @@ fn tick_movement(
 
     // `time` is the fixed clock here, so this is exactly one tick.
     let next = step(&player.state, &input, tuning, &map.0, time.delta_secs());
-    if next.on_ground && !player.state.on_ground {
-        player.landed_at = player.landed_at.max(-player.state.velocity.y);
-    }
+    kick_view(&mut player, &next, tuning.gravity);
     player.previous = player.state.position;
     player.state = next;
 
@@ -195,6 +187,39 @@ fn tick_movement(
         player.state = MovementState::new(spawn.feet);
         player.previous = spawn.feet;
         player.yaw = spawn.yaw;
+    }
+}
+
+/// View punches for what just happened this tick.
+fn kick_view(player: &mut Player, next: &MovementState, gravity: f32) {
+    let before = player.state;
+    let right = Quat::from_rotation_y(player.yaw) * Vec3::X;
+    // Which side a wall is on: -1 on the right, 1 on the left.
+    let side = |normal: Vec3| normal.dot(right).signum();
+    let view = &mut player.view;
+    if let Mode::WallRun { normal, .. } = next.mode
+        && !matches!(before.mode, Mode::WallRun { .. })
+    {
+        view.punch(&view::WALLRUN, side(normal), 1.0);
+    }
+    if let Mode::WallHang { normal, .. } = next.mode
+        && !matches!(before.mode, Mode::WallHang { .. })
+    {
+        view.punch(&view::WALLHANG, side(normal), 1.0);
+    }
+    if next.air_jumps > before.air_jumps {
+        view.punch(&view::DOUBLE_JUMP, 1.0, 1.0);
+    } else if before.on_ground && !next.on_ground && next.velocity.y > 1.0 {
+        view.punch(&view::JUMP, 1.0, 1.0);
+    }
+    if next.on_ground && !before.on_ground && before.velocity.y < 0.0 {
+        // How far we'd have fallen to land this fast: v² = 2gh.
+        let fall = before.velocity.y * before.velocity.y / (2.0 * gravity.max(1.0));
+        let scale = ((fall - LAND_KICK_FALL_MIN) / (LAND_KICK_FALL_MAX - LAND_KICK_FALL_MIN))
+            .clamp(0.0, 1.0);
+        if scale > 0.0 {
+            view.punch(&view::LAND, 1.0, scale);
+        }
     }
 }
 
@@ -215,9 +240,9 @@ fn place_camera(
 
     // Ease the eye height and tilt instead of snapping them. `1 - e^(-k·dt)` gives
     // the same feel at any frame rate.
-    let ease = 1.0 - (-CAMERA_EASE * time.delta_secs()).exp();
+    let dt = time.delta_secs();
     let eye = tuning.eye(player.state.crouched);
-    player.eye += (eye - player.eye) * ease;
+    player.eye += (eye - player.eye) * (1.0 - (-CROUCH_EASE * dt).exp());
     // Wall on the right: tilt left, and the other way round.
     let roll = match player.state.mode {
         Mode::WallRun { normal, .. } => {
@@ -226,31 +251,31 @@ fn place_camera(
         }
         _ => 0.0,
     };
-    player.roll += (roll - player.roll) * ease;
+    player.roll += (roll - player.roll) * (1.0 - (-WALLRUN_TILT_SPEED * dt).exp());
 
-    // Landing dip: kick the spring down, then let it settle back to zero.
-    let dt = time.delta_secs();
-    if player.landed_at > 0.0 {
-        let dip = (player.landed_at / 100.0 * LAND_DIP_PER_100).min(LAND_DIP_MAX);
-        player.dip_speed -= dip * DIP_STIFFNESS.sqrt();
-        player.landed_at = 0.0;
-    }
-    let accel = -DIP_STIFFNESS * player.dip - DIP_DAMPING * player.dip_speed;
-    player.dip_speed += accel * dt;
-    player.dip += player.dip_speed * dt;
-
-    // Head bob, only while running on the ground, scaled by speed.
-    let v = player.state.velocity;
-    let speed = Vec2::new(v.x, v.z).length();
-    let bob = if player.state.on_ground && speed > 20.0 {
-        player.bob += speed * dt / 100.0 * BOB_STEPS_PER_100 * std::f32::consts::PI;
-        (player.bob.sin().abs() - 0.5) * BOB_HEIGHT * (speed / 270.0).min(1.2)
+    // Punch springs and sprint tilt.
+    let turn_rate = if dt > 0.0 {
+        let mut d = player.yaw - player.last_yaw;
+        // Yaw wraps at a full turn; take the short way round.
+        d = (d + std::f32::consts::PI).rem_euclid(TAU) - std::f32::consts::PI;
+        d.to_degrees() / dt
     } else {
         0.0
     };
+    player.last_yaw = player.yaw;
+    let v = player.state.velocity;
+    let sprinting =
+        player.state.on_ground && Vec2::new(v.x, v.z).length() > tuning.walk_speed * 1.05;
+    player.view.update(dt, turn_rate, sprinting);
+    let kick = player.view.offsets(SPRINT_TILT_MAX_ROLL);
 
-    transform.translation = feet + Vec3::Y * (player.eye + player.dip + bob);
-    transform.rotation = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, player.roll);
+    transform.translation = feet + Vec3::Y * player.eye;
+    transform.rotation = Quat::from_euler(
+        EulerRot::YXZ,
+        player.yaw + kick.y,
+        player.pitch + kick.x,
+        player.roll + kick.z,
+    );
 }
 
 /// Deadzone, then a response curve. Keeps the direction, reshapes the length.

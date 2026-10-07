@@ -18,21 +18,22 @@ impl Plugin for SettingsPlugin {
 pub struct Settings {
     /// Multiplier on the base mouse turn rate (1.0 = default).
     pub mouse_sensitivity: f32,
-    /// Vertical field of view, degrees.
-    pub fov_degrees: f32,
+    /// Field of view in degrees, the way Titanfall counts it: horizontal, on a
+    /// 4:3 screen (its PC slider runs 70 to 90; the pilot default is 70).
+    pub fov: f32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             mouse_sensitivity: 1.0,
-            fov_degrees: 60.0,
+            fov: 70.0,
         }
     }
 }
 
 pub const SENSITIVITY_RANGE: (f32, f32, f32) = (0.25, 4.0, 0.25); // min, max, step
-pub const FOV_RANGE: (f32, f32, f32) = (50.0, 90.0, 5.0);
+pub const FOV_RANGE: (f32, f32, f32) = (70.0, 90.0, 5.0);
 
 impl Settings {
     fn path() -> Option<PathBuf> {
