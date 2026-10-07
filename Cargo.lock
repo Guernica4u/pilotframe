@@ -4267,7 +4267,9 @@ dependencies = [
 name = "pf-pc"
 version = "0.0.1"
 dependencies = [
+ "pf-fmt-bsp",
  "pf-fmt-vpk",
+ "pf-fmt-vtf",
  "pf-iso9660",
  "pf-lzham",
  "pf-vfs",

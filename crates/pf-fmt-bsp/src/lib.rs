@@ -97,6 +97,9 @@ pub struct WorldMesh {
     /// Texture coordinates for each triangle corner, parallel to `triangles`.
     /// In texture repeats (1.0 = one texture width), V pointing down the image.
     pub uvs: Vec<[[f32; 2]; 3]>,
+    /// Vertex colour (RGBA8) for each corner. Blend materials use the alpha to
+    /// mix their two textures.
+    pub colors: Vec<[[u8; 4]; 3]>,
 }
 
 /// The map's static world geometry, in original units (Z up).
@@ -213,27 +216,33 @@ impl<'a> Bsp<'a> {
             let verts = self.lump(vlump)?;
 
             // Every vertex kind starts with position index u32, normal index
-            // u32, then the texture UV as 2 x f32.
-            let vertex = |i: u16| -> io::Result<(u32, [f32; 2])> {
+            // u32, the texture UV as 2 x f32, then an RGBA8 colour.
+            let vertex = |i: u16| -> io::Result<(u32, [f32; 2], [u8; 4])> {
                 let v = (vertex_offset as usize + i as usize) * stride;
                 let rec = verts
-                    .get(v..v + 16)
+                    .get(v..v + 20)
                     .ok_or_else(|| bad("vertex index out of range"))?;
                 let p = u32_at(rec, 0);
                 if p as usize >= positions.len() {
                     return Err(bad("position index out of range"));
                 }
-                Ok((p, [f32_at(rec, 8), f32_at(rec, 12)]))
+                Ok((
+                    p,
+                    [f32_at(rec, 8), f32_at(rec, 12)],
+                    [rec[16], rec[17], rec[18], rec[19]],
+                ))
             };
             let tri_indices = indices
                 .get(first..first + tris * 3)
                 .ok_or_else(|| bad("mesh indices out of range"))?;
             let mut triangles = Vec::with_capacity(tris);
             let mut uvs = Vec::with_capacity(tris);
+            let mut colors = Vec::with_capacity(tris);
             for t in tri_indices.as_chunks::<3>().0 {
                 let [a, b, c] = [vertex(t[0])?, vertex(t[1])?, vertex(t[2])?];
                 triangles.push([a.0, b.0, c.0]);
                 uvs.push([a.1, b.1, c.1]);
+                colors.push([a.2, b.2, c.2]);
             }
 
             let material = tex_name
@@ -246,6 +255,7 @@ impl<'a> Bsp<'a> {
                 kind,
                 triangles,
                 uvs,
+                colors,
             });
         }
         Ok(Geometry {
