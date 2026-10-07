@@ -29,7 +29,7 @@ Status: **Milestones 0 and 1 done. Milestone 2 (raw map geometry) next.** Format
 | Public goal | Repo goes public when it **boots to the menu and you can pick a map and walk it with real pilot movement** (incl. wall-running). No enemies needed. |
 | DLC | **Only DLC the owner downloaded themselves** (e.g. an old PC install or the Xbox 360's hard drive). Never from other people. The stores are closed. Setup will pick DLC up if it's present. Base game first. |
 | (old) DLC | Base game only (15 maps + lobby + training). DLC maps aren't on any disc. They were downloads, and the stores are closed, so it's out of scope for now. |
-| Reference line | (Relaxed 2026-10-06.) **Anything legal may be read as reference**, including the owner's own game scripts. **All shipped code is written by us in Rust.** Leaks, decompiling the executables, and DRM bypass stay banned. |
+| Reference line | (Relaxed 2026-10-06, again 2026-10-07.) **Anything legal may be used as reference**, including the owner's game scripts and **decompiling the owner's own executables**, clean-room style (findings to `docs/`, code written from the notes). **All shipped code is written by us in Rust.** Leaks and DRM bypass stay banned. |
 | Third-party code | Open-source tools (bsp_tool, RSX, Northstar, R1Delta…) are **reference only**: we learn layouts and behaviour from them and write our own Rust, crediting them in `docs/RESEARCH.md`. Skip any files that come from leaked code. |
 | Measurement footage | No 360 console and no capture card, so we'll use **YouTube footage of the 360 version** that the owner picks, analysed frame by frame. Lower precision (360 ran ~30 fps at sub-720p), so we average over many clips. |
 | Codename | `Pilotframe` (`pf-*`) until a real name is chosen. |
@@ -45,12 +45,13 @@ Status: **Milestones 0 and 1 done. Milestone 2 (raw map geometry) next.** Format
 These go into `CONTRIBUTING.md` and `LEGAL.md` word for word once the repo exists.
 
 1. **Our code, in Rust.** Every line of project code is written by us. We never copy, paste, or line-by-line translate code from any source. Anything **legal** may be used as reference: the owner's own game files (data and scripts), open-source projects, public SDKs, docs, wikis, videos. (Relaxed 2026-10-06.)
-2. **Never, even as reference:** leaked source (Valve/Respawn leaks, or files in other projects derived from them), leaked XDK docs, decompiling/disassembling the game executables (`.exe`, `.dll`, `.xex`), and DRM circumvention.
-3. **Bring your own assets.** The repo, releases, CI artifacts, issues, wiki, and any website hold **zero** game-derived bytes: no textures, meshes, audio, maps, screenshots of converted assets in test fixtures, or hex dumps longer than a struct header. Only the player's local setup tool turns their own disc dump into a local cache next to the exe.
-4. **The engine never assumes original assets exist.** Every asset lookup goes through a content layer that can be satisfied by the original-derived cache, a community pack, or built-in placeholders.
-5. **Dependencies** (crates) must have GPL-3.0-compatible licenses. Other projects' code is read, never vendored.
-6. **Branding:** name, logo and icon are the owners' call (relaxed 2026-10-05). README and title screen carry the "unofficial / not affiliated" notice.
-7. **License:** `GPL-3.0-only`, plus this notice: *"This license covers only the code in this repository. It grants no rights to Electronic Arts' or Respawn Entertainment's code, data, assets, or trademarks."*
+2. **Decompiling the owner's own copy is allowed as reference** (owner's decision 2026-10-07), clean-room style: findings are written up in `docs/`, the Rust is written from those notes, and no decompiled code or disassembly is committed.
+3. **Never, even as reference:** leaked source (Valve/Respawn leaks, or files in other projects derived from them), leaked XDK docs, and DRM circumvention.
+4. **Bring your own assets.** The repo, releases, CI artifacts, issues, wiki, and any website hold **zero** game-derived bytes: no textures, meshes, audio, maps, screenshots of converted assets in test fixtures, or hex dumps longer than a struct header. Only the player's local setup tool turns their own disc dump into a local cache next to the exe.
+5. **The engine never assumes original assets exist.** Every asset lookup goes through a content layer that can be satisfied by the original-derived cache, a community pack, or built-in placeholders.
+6. **Dependencies** (crates) must have GPL-3.0-compatible licenses. Other projects' code is read, never vendored.
+7. **Branding:** name, logo and icon are the owners' call (relaxed 2026-10-05). README and title screen carry the "unofficial / not affiliated" notice.
+8. **License:** `GPL-3.0-only`, plus this notice: *"This license covers only the code in this repository. It grants no rights to Electronic Arts' or Respawn Entertainment's code, data, assets, or trademarks."*
 
 ---
 
