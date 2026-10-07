@@ -23,6 +23,11 @@ State on 2026-10-04: **M0 and M1 done** (disc reader, all 18 XBAR packs decode).
 
 **Next action: Thursday, "start M2"**: PC Colony geometry on screen (steps below).
 
+## Session plan (agreed 2026-10-07)
+
+- **Wed 2026-10-08:** finish movement (TF1 parkour in `pf-movement`: double jump, wall-run + time limit, wall-jump, slide, mantle, air control; measure from the training video) and polish Colony (skybox, prop lighting/collision, bump maps, brightness vs the gameplay video).
+- **Thu 2026-10-09 (after the limit reset):** menus done (original look from the player's files: fonts, backgrounds, layout per `docs/reference-ui.md`, plus the first-launch setup screen), then start the HUD (`docs/tf1-not-tf2.md` + `Resources/reference/hud/`) and weapons.
+
 ## Progress 2026-10-07: game shell (menus + movement first)
 
 The owner chose to get **movement and menus right first**, in a test map, before more Colony visuals.
