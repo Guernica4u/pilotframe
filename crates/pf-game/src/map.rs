@@ -312,3 +312,92 @@ fn checker_image() -> Image {
     });
     image
 }
+
+/// The parkour moves, run with the shipped movement.ron on this map's real
+/// pieces, so a tuning change that breaks the greybox shows up in `cargo test`.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pf_movement::{Mode, MoveInput, MovementState, MovementTuning, step};
+
+    const DT: f32 = 1.0 / 60.0;
+
+    fn tuning() -> MovementTuning {
+        ron::from_str(include_str!("../assets/movement.ron")).unwrap()
+    }
+
+    /// Run `input` for `seconds`, returning the end state and every mode seen.
+    fn run(
+        world: &StaticWorld,
+        mut state: MovementState,
+        input: MoveInput,
+        seconds: f32,
+    ) -> (MovementState, Vec<Mode>) {
+        let t = tuning();
+        let mut modes = Vec::new();
+        for _ in 0..(seconds / DT).round() as usize {
+            state = step(&state, &input, &t, world, DT);
+            modes.push(state.mode);
+        }
+        (state, modes)
+    }
+
+    fn sprint(yaw: f32) -> MoveInput {
+        MoveInput {
+            wish: Vec2::Y,
+            yaw,
+            sprint: true,
+            ..default()
+        }
+    }
+
+    fn jump(input: MoveInput) -> MoveInput {
+        MoveInput {
+            jump: true,
+            ..input
+        }
+    }
+
+    #[test]
+    fn wall_run_then_wall_jump_across_the_corridor() {
+        let world = test_map_collision();
+        // Inside the corridor, beside its right wall, facing down it (-Z).
+        let (state, _) = run(
+            &world,
+            MovementState::new(Vec3::new(125.0, 1.0, -1300.0)),
+            sprint(0.0),
+            0.8,
+        );
+        let (state, _) = run(&world, state, jump(sprint(0.0)), DT);
+        let (state, modes) = run(&world, state, sprint(0.0), 0.5);
+        assert!(matches!(state.mode, Mode::WallRun { .. }), "{modes:?}");
+        // Jump off: across to the left wall, which catches us again.
+        let (state, _) = run(&world, state, jump(sprint(0.0)), DT);
+        assert!(state.velocity.x < 0.0, "{state:?}");
+        // Steer towards it, as a player would.
+        let across = MoveInput {
+            wish: Vec2::new(-0.7, 0.7),
+            ..sprint(0.0)
+        };
+        let (_, modes) = run(&world, state, across, 1.0);
+        let caught = modes
+            .iter()
+            .any(|m| matches!(m, Mode::WallRun { normal, .. } if normal.x > 0.9));
+        assert!(caught, "the left wall didn't catch us: {modes:?}");
+    }
+
+    #[test]
+    fn mantles_the_96_unit_crate() {
+        let world = test_map_collision();
+        // The 96 crate spans x = -88..8, z = -948..-852. Run at it facing -Z.
+        let start = MovementState::new(Vec3::new(-40.0, 1.0, -700.0));
+        let (state, _) = run(&world, start, sprint(0.0), 0.4);
+        let (state, _) = run(&world, state, jump(sprint(0.0)), DT);
+        let (state, modes) = run(&world, state, sprint(0.0), 0.6);
+        assert!(
+            modes.iter().any(|m| matches!(m, Mode::Mantle { .. })),
+            "{modes:?}"
+        );
+        assert!((state.position.y - 96.0).abs() < 1.0, "{state:?}");
+    }
+}

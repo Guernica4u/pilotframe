@@ -103,10 +103,7 @@ fn load_level(mut commands: Commands, chosen: Res<ChosenMap>, mut next: ResMut<N
 /// Anything the level or the map renderer spawned.
 type LevelOrMap = Or<(With<LevelEntity>, With<pf_world::MapEntity>)>;
 
-fn clear_level(
-    mut commands: Commands,
-    level: Query<Entity, LevelOrMap>,
-) {
+fn clear_level(mut commands: Commands, level: Query<Entity, LevelOrMap>) {
     for e in &level {
         commands.entity(e).despawn();
     }

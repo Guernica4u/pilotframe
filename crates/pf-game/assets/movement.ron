@@ -1,30 +1,50 @@
 // Pilot movement tuning, read by pf-movement through the game (pf-game).
 //
-// EVERY VALUE HERE IS A PLACEHOLDER: round numbers chosen to feel roughly right,
-// not measurements. Real values come from frame-by-frame analysis of 360 footage
-// (PLAN §6). When a value is measured, update it here AND log its source and
-// error bar in docs/movement/values.md.
+// [set] = read from the pilot settings files on the PC discs
+//         (scripts/players/mp/pilot_*.set; every standard pilot class agrees).
+// [guess] = placeholder until measured from the owner's training and Colony
+//           footage. See docs/movement/values.md for each value's source.
 //
 // Units: game units (~1 inch), seconds, degrees.
 // The game reloads this file when you save it, no restart needed.
 (
     // Body
-    capsule_radius: 16.0,
-    capsule_height: 72.0,
-    eye_height: 60.0,
+    capsule_radius: 16.0,      // [set] hull_min/hull_max -16..16
+    capsule_height: 72.0,      // [set] stand hull_max z
+    eye_height: 60.0,          // [set] stand viewheight
+    crouch_height: 47.0,       // [set] crouch hull_max z
+    crouch_eye_height: 38.0,   // [set] crouch viewheight
 
     // Ground movement
-    walk_speed: 180.0,
-    sprint_speed: 270.0,
-    ground_accel: 1400.0,
-    ground_friction: 1600.0,
+    walk_speed: 180.6,         // [set] stand speed
+    sprint_speed: 269.85,      // [set] stand sprintspeed
+    crouch_speed: 89.25,       // [set] crouch speed
+    ground_accel: 1400.0,      // [guess]
+    ground_friction: 1600.0,   // [guess]
 
     // Air
-    air_accel: 300.0,
-    gravity: 750.0,
-    jump_height: 48.0,
+    air_accel: 300.0,          // [guess]
+    gravity: 750.0,            // [guess]
+    jump_height: 80.0,         // [set] jumpheight (read as the apex height)
+    double_jump_height: 60.0,  // [guess]
+
+    // Wall-run, wall jump, wall-hang
+    wallrun_speed: 340.0,      // [guess]
+    wallrun_accel: 600.0,      // [guess]
+    wallrun_min_speed: 150.0,  // [guess]
+    wallrun_gravity: 150.0,    // [guess]
+    wallrun_max_lift: 150.0,   // [guess]
+    wallrun_max_fall_speed: 450.0, // [guess]
+    wallrun_time_limit: 1.75,  // [guess] the Wall Runner kit adds to it
+    wall_jump_height: 60.0,    // [guess]
+    wall_jump_push: 280.0,     // [guess]
+    wall_hang_time_limit: 3.0, // [guess]
+
+    // Mantle (automantle is on for every pilot class)
+    mantle_reach: 70.0,        // [guess]
+    mantle_time: 0.35,         // [guess]
 
     // Terrain
-    max_slope_deg: 45.0,
-    step_height: 18.0,
+    max_slope_deg: 45.0,       // [guess]
+    step_height: 18.0,         // [set] stepheight
 )
