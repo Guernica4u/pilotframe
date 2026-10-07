@@ -94,6 +94,9 @@ pub struct WorldMesh {
     pub kind: VertexKind,
     /// Triangles as indices into [`Geometry::positions`].
     pub triangles: Vec<[u32; 3]>,
+    /// Texture coordinates for each triangle corner, parallel to `triangles`.
+    /// In texture repeats (1.0 = one texture width), V pointing down the image.
+    pub uvs: Vec<[[f32; 2]; 3]>,
 }
 
 /// The map's static world geometry, in original units (Z up).
@@ -209,26 +212,29 @@ impl<'a> Bsp<'a> {
             let (vlump, stride) = kind.lump();
             let verts = self.lump(vlump)?;
 
-            let position_of = |i: u16| -> io::Result<u32> {
+            // Every vertex kind starts with position index u32, normal index
+            // u32, then the texture UV as 2 x f32.
+            let vertex = |i: u16| -> io::Result<(u32, [f32; 2])> {
                 let v = (vertex_offset as usize + i as usize) * stride;
                 let rec = verts
-                    .get(v..v + 4)
+                    .get(v..v + 16)
                     .ok_or_else(|| bad("vertex index out of range"))?;
                 let p = u32_at(rec, 0);
                 if p as usize >= positions.len() {
                     return Err(bad("position index out of range"));
                 }
-                Ok(p)
+                Ok((p, [f32_at(rec, 8), f32_at(rec, 12)]))
             };
             let tri_indices = indices
                 .get(first..first + tris * 3)
                 .ok_or_else(|| bad("mesh indices out of range"))?;
-            let triangles = tri_indices
-                .as_chunks::<3>()
-                .0
-                .iter()
-                .map(|t| Ok([position_of(t[0])?, position_of(t[1])?, position_of(t[2])?]))
-                .collect::<io::Result<Vec<_>>>()?;
+            let mut triangles = Vec::with_capacity(tris);
+            let mut uvs = Vec::with_capacity(tris);
+            for t in tri_indices.as_chunks::<3>().0 {
+                let [a, b, c] = [vertex(t[0])?, vertex(t[1])?, vertex(t[2])?];
+                triangles.push([a.0, b.0, c.0]);
+                uvs.push([a.1, b.1, c.1]);
+            }
 
             let material = tex_name
                 .get(tex as usize)
@@ -239,6 +245,7 @@ impl<'a> Bsp<'a> {
                 material,
                 kind,
                 triangles,
+                uvs,
             });
         }
         Ok(Geometry {

@@ -1,0 +1,10 @@
+[package]
+name = "pf-fmt-vtf"
+description = "Valve Texture Format (.vtf) and material (.vmt) readers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
