@@ -2,7 +2,7 @@
 //! worlds. No Bevy, no game data.
 
 use glam::{Quat, Vec2, Vec3};
-use pf_movement::{MoveInput, MovementState, MovementTuning, StaticWorld, step};
+use pf_movement::{Mode, MoveInput, MovementState, MovementTuning, StaticWorld, step};
 
 const DT: f32 = 1.0 / 60.0;
 const RADIUS: f32 = 16.0;
@@ -13,9 +13,14 @@ fn tuning() -> MovementTuning {
     ron::from_str(
         "(
             capsule_radius: 16.0, capsule_height: 72.0, eye_height: 64.0,
-            walk_speed: 200.0, sprint_speed: 300.0,
+            crouch_height: 48.0, crouch_eye_height: 40.0,
+            walk_speed: 200.0, sprint_speed: 300.0, crouch_speed: 90.0,
             ground_accel: 2000.0, ground_friction: 2000.0, air_accel: 400.0,
-            gravity: 800.0, jump_height: 50.0,
+            gravity: 800.0, jump_height: 50.0, double_jump_height: 40.0,
+            wallrun_speed: 350.0, wallrun_accel: 500.0, wallrun_min_speed: 120.0,
+            wallrun_gravity: 100.0, wallrun_max_lift: 150.0, wallrun_max_fall_speed: 500.0,
+            wallrun_time_limit: 1.5, wall_jump_height: 40.0, wall_jump_push: 250.0,
+            wall_hang_time_limit: 3.0, mantle_reach: 80.0, mantle_time: 0.3,
             max_slope_deg: 45.0, step_height: 18.0,
         )",
     )
@@ -58,6 +63,7 @@ const FORWARD: MoveInput = MoveInput {
     yaw: 0.0,
     jump: false,
     sprint: false,
+    crouch: false,
 };
 
 /// Run `seconds` of the same input, calling `each` after every tick.
@@ -203,21 +209,26 @@ fn falls_under_gravity() {
 }
 
 #[test]
-fn cannot_jump_in_the_air() {
+fn one_double_jump_per_time_in_the_air() {
     let world = floor();
     let t = tuning();
+    let jump = MoveInput {
+        jump: true,
+        ..Default::default()
+    };
     let mut state = MovementState::new(Vec3::new(0.0, 500.0, 0.0));
-    state = step(
-        &state,
-        &MoveInput {
-            jump: true,
-            ..Default::default()
-        },
-        &t,
-        &world,
-        DT,
-    );
-    assert!(state.velocity.y < 0.0, "{state:?}");
+    state = step(&state, &MoveInput::default(), &t, &world, DT);
+    assert!(state.velocity.y < 0.0);
+    // The mid-air jump replaces the fall speed with a fresh upward one.
+    state = step(&state, &jump, &t, &world, DT);
+    let lift = (2.0 * 800.0 * 40.0f32).sqrt();
+    assert!((state.velocity.y - lift).abs() < 20.0, "{state:?}");
+    // A second one does nothing.
+    state = step(&state, &jump, &t, &world, DT);
+    assert!(state.velocity.y < lift - 5.0, "{state:?}");
+    // Landing gives it back.
+    state = run(&world, state, MoveInput::default(), 3.0, |_| {});
+    assert!(state.on_ground && state.air_jumps == 0, "{state:?}");
 }
 
 // ---- walls ----
@@ -482,4 +493,183 @@ fn lands_and_walks_on_a_triangle_mesh_floor() {
         assert!(s.position.y > -1.0, "fell through")
     });
     assert!(walked.position.z < -100.0, "should have walked forwards");
+}
+
+// ---- crouch ----
+
+#[test]
+fn crouch_is_slower_and_stays_down_under_a_low_ceiling() {
+    let mut world = floor();
+    // A 60-unit-high gap: fits crouched (48), not standing (72).
+    add_block(
+        &mut world,
+        Vec3::new(-300.0, 60.0, -400.0),
+        Vec3::new(300.0, 80.0, -200.0),
+    );
+    let crouch = MoveInput {
+        crouch: true,
+        ..FORWARD
+    };
+    let start = settle(&world, Vec3::ZERO);
+    let state = run(&world, start, crouch, 1.0, |_| {});
+    assert!((speed(&state) - 90.0).abs() < 1.0, "{state:?}");
+    // Keep going under the ceiling, then let go of crouch: still ducked.
+    let state = run(&world, state, crouch, 2.0, |_| {});
+    assert!(state.position.z < -200.0, "{state:?}");
+    let state = run(&world, state, MoveInput::default(), 0.2, |_| {});
+    assert!(state.crouched, "stood up into the ceiling: {state:?}");
+    assert!(state.position.y < 1.0);
+}
+
+// ---- wall-run / wall-hang / mantle ----
+
+/// A long, tall wall along the X axis with its face at z = -40.
+fn long_wall() -> StaticWorld {
+    let mut world = floor();
+    add_block(
+        &mut world,
+        Vec3::new(-2000.0, 0.0, -60.0),
+        Vec3::new(2000.0, 600.0, -40.0),
+    );
+    world
+}
+
+/// Sprint along the wall (towards -X, yaw 90° left), jump, then run `input`.
+fn wallrun_from_jump(world: &StaticWorld, input: MoveInput, seconds: f32) -> (MovementState, f32) {
+    let yaw = std::f32::consts::FRAC_PI_2;
+    let sprint = MoveInput {
+        wish: Vec2::new(0.0, 1.0),
+        yaw,
+        sprint: true,
+        ..Default::default()
+    };
+    let start = settle(world, Vec3::new(0.0, 0.0, -40.0 + RADIUS + 1.0));
+    let mut state = run(world, start, sprint, 1.0, |_| {});
+    state = step(
+        &state,
+        &MoveInput {
+            jump: true,
+            ..sprint
+        },
+        &tuning(),
+        world,
+        DT,
+    );
+    let mut ran = 0.0;
+    let state = run(world, state, MoveInput { yaw, ..input }, seconds, |s| {
+        if matches!(s.mode, Mode::WallRun { .. }) {
+            ran += DT;
+        }
+    });
+    (state, ran)
+}
+
+const HOLD_FORWARD: MoveInput = MoveInput {
+    wish: Vec2::new(0.0, 1.0),
+    yaw: 0.0,
+    jump: false,
+    sprint: false,
+    crouch: false,
+};
+
+#[test]
+fn wall_run_starts_beside_a_wall_and_ends_at_the_time_limit() {
+    let world = long_wall();
+    let (state, ran) = wallrun_from_jump(&world, HOLD_FORWARD, 3.0);
+    assert!(ran > 1.4 && ran < 1.6, "wall-ran for {ran} s");
+    assert!(state.on_ground, "should fall and land after: {state:?}");
+}
+
+#[test]
+fn wall_run_falls_slower_than_a_jump() {
+    let world = long_wall();
+    // A plain jump lands after about 0.7 s; a wall-run is still up after 1 s.
+    let (state, _) = wallrun_from_jump(&world, HOLD_FORWARD, 1.0);
+    assert!(matches!(state.mode, Mode::WallRun { .. }), "{state:?}");
+    assert!(state.position.y > 10.0, "{state:?}");
+    assert!(
+        speed(&state) > 300.0,
+        "should speed up along the wall: {state:?}"
+    );
+}
+
+#[test]
+fn wall_jump_pushes_away_and_up() {
+    let world = long_wall();
+    let (state, _) = wallrun_from_jump(&world, HOLD_FORWARD, 0.4);
+    assert!(matches!(state.mode, Mode::WallRun { .. }), "{state:?}");
+    let state = step(
+        &state,
+        &MoveInput {
+            jump: true,
+            yaw: std::f32::consts::FRAC_PI_2,
+            ..HOLD_FORWARD
+        },
+        &tuning(),
+        &world,
+        DT,
+    );
+    assert_eq!(state.mode, Mode::Free);
+    assert!(state.velocity.z > 200.0, "away from the wall: {state:?}");
+    assert!(state.velocity.y > 200.0, "{state:?}");
+    assert!(state.last_wall.is_some());
+}
+
+#[test]
+fn wall_hang_holds_still_until_crouch_is_released() {
+    let world = long_wall();
+    let hang = MoveInput {
+        crouch: true,
+        ..Default::default()
+    };
+    let (state, _) = wallrun_from_jump(&world, hang, 0.3);
+    assert!(matches!(state.mode, Mode::WallHang { .. }), "{state:?}");
+    let y = state.position.y;
+    let state = run(&world, state, hang, 1.0, |_| {});
+    assert!((state.position.y - y).abs() < 0.01, "{state:?}");
+    let state = run(&world, state, MoveInput::default(), 0.1, |_| {});
+    assert_eq!(state.mode, Mode::Free);
+    assert!(state.velocity.y < 0.0);
+}
+
+#[test]
+fn mantles_onto_a_ledge_within_reach() {
+    let mut world = floor();
+    // A 64-high block whose face is at z = -100.
+    add_block(
+        &mut world,
+        Vec3::new(-300.0, 0.0, -400.0),
+        Vec3::new(300.0, 64.0, -100.0),
+    );
+    let start = settle(&world, Vec3::ZERO);
+    let jump = MoveInput {
+        jump: true,
+        ..FORWARD
+    };
+    let state = step(&start, &jump, &tuning(), &world, DT);
+    let mut mantled = false;
+    let state = run(&world, state, FORWARD, 2.0, |s| {
+        mantled |= matches!(s.mode, Mode::Mantle { .. });
+    });
+    assert!(mantled, "never mantled: {state:?}");
+    assert!(
+        state.on_ground && (state.position.y - 64.0).abs() < 1.0,
+        "{state:?}"
+    );
+    assert!(state.position.z < -100.0, "{state:?}");
+}
+
+#[test]
+fn cannot_mantle_a_wall_that_is_too_tall() {
+    let world = long_wall();
+    let start = settle(&world, Vec3::ZERO);
+    let jump = MoveInput {
+        jump: true,
+        ..FORWARD
+    };
+    let state = step(&start, &jump, &tuning(), &world, DT);
+    let state = run(&world, state, FORWARD, 2.0, |s| {
+        assert!(!matches!(s.mode, Mode::Mantle { .. }), "{s:?}");
+    });
+    assert!(state.position.y < 1.0);
 }

@@ -70,5 +70,7 @@ mod tests {
         let tuning: MovementTuning = ron::from_str(include_str!("../assets/movement.ron")).unwrap();
         assert!(tuning.capsule_height > 2.0 * tuning.capsule_radius);
         assert!(tuning.eye_height < tuning.capsule_height);
+        assert!(tuning.crouch_eye_height < tuning.crouch_height);
+        assert!(tuning.crouch_height < tuning.capsule_height);
     }
 }

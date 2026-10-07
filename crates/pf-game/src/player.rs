@@ -6,7 +6,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 use bevy::prelude::*;
 use bevy::window::{CursorOptions, PrimaryWindow};
 use leafwing_input_manager::prelude::*;
-use pf_movement::{MoveInput, MovementState, step};
+use pf_movement::{Mode, MoveInput, MovementState, step};
 
 use crate::Screen;
 use crate::input::{self, Action, look};
@@ -40,6 +40,10 @@ impl Plugin for PlayerPlugin {
 const KILL_DEPTH: f32 = 4000.0;
 /// Inches to metres, for the HUD.
 const METRES_PER_UNIT: f32 = 0.0254;
+/// How far the view tilts away from the wall during a wall-run, degrees.
+const WALLRUN_ROLL_DEG: f32 = 12.0;
+/// How quickly the eye height (crouching) and tilt catch up, per second. Higher is snappier.
+const CAMERA_EASE: f32 = 12.0;
 
 #[derive(Component)]
 struct Player {
@@ -51,6 +55,9 @@ struct Player {
     yaw: f32,
     pitch: f32,
     sprint_latched: bool,
+    /// Smoothed camera height above the feet and wall-run tilt (radians).
+    eye: f32,
+    roll: f32,
 }
 
 fn spawn_player(
@@ -67,6 +74,8 @@ fn spawn_player(
             yaw: spawn.yaw,
             pitch: 0.0,
             sprint_latched: false,
+            eye: pf_world::EYE_HEIGHT,
+            roll: 0.0,
         },
         // leafwing adds the matching `ActionState<Action>` for us.
         input::default_bindings(),
@@ -148,6 +157,7 @@ fn tick_movement(
         // seen by exactly one tick even when a frame runs zero or several ticks.
         jump: actions.just_pressed(&Action::Jump),
         sprint: actions.pressed(&Action::Sprint) || player.sprint_latched,
+        crouch: actions.pressed(&Action::Crouch),
     };
 
     // `time` is the fixed clock here, so this is exactly one tick.
@@ -163,20 +173,37 @@ fn tick_movement(
 }
 
 fn place_camera(
+    time: Res<Time>,
     fixed: Res<Time<Fixed>>,
     tuning: Res<Tuning>,
     tunings: Res<Assets<TuningAsset>>,
-    player: Single<(&Player, &mut Transform)>,
+    player: Single<(&mut Player, &mut Transform)>,
 ) {
     let Some(tuning) = tunings.get(&tuning.0) else {
         return;
     };
-    let (player, mut transform) = player.into_inner();
+    let (mut player, mut transform) = player.into_inner();
     // How far we are between the last tick and the next one, 0..1.
     let blend = fixed.overstep_fraction();
     let feet = player.previous.lerp(player.state.position, blend);
-    transform.translation = feet + Vec3::Y * tuning.eye_height;
-    transform.rotation = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.0);
+
+    // Ease the eye height and tilt instead of snapping them. `1 - e^(-k·dt)` gives
+    // the same feel at any frame rate.
+    let ease = 1.0 - (-CAMERA_EASE * time.delta_secs()).exp();
+    let eye = tuning.eye(player.state.crouched);
+    player.eye += (eye - player.eye) * ease;
+    // Wall on the right: tilt left, and the other way round.
+    let roll = match player.state.mode {
+        Mode::WallRun { normal, .. } => {
+            let right = Quat::from_rotation_y(player.yaw) * Vec3::X;
+            -normal.dot(right) * WALLRUN_ROLL_DEG.to_radians()
+        }
+        _ => 0.0,
+    };
+    player.roll += (roll - player.roll) * ease;
+
+    transform.translation = feet + Vec3::Y * player.eye;
+    transform.rotation = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, player.roll);
 }
 
 /// Deadzone, then a response curve. Keeps the direction, reshapes the length.
@@ -210,16 +237,19 @@ fn spawn_hud(mut commands: Commands) {
     ));
 }
 
-const CONTROLS: &str = "WASD move   mouse look   Space jump   Shift sprint   R reset   Esc menu\n\
-                        Controller: sticks   A jump   L3 sprint   Back reset";
+const CONTROLS: &str = "WASD move   mouse look   Space jump (again in the air)   Shift sprint   Ctrl/C crouch, wall-hang   R reset   Esc menu\n\
+                        Controller: sticks   A jump   L3 sprint   B crouch   Back reset\n\
+                        Jump alongside a wall to wall-run. Jump at a ledge holding forward to mantle.";
 
 fn update_hud(player: Single<&Player>, mut text: Single<&mut Text, With<Hud>>) {
     let v = player.state.velocity;
     let speed = Vec2::new(v.x, v.z).length();
-    let ground = if player.state.on_ground {
-        "on ground"
-    } else {
-        "in air"
+    let ground = match player.state.mode {
+        Mode::WallRun { time, .. } => format!("wall-run {time:.2}s"),
+        Mode::WallHang { time, .. } => format!("wall-hang {time:.2}s"),
+        Mode::Mantle { .. } => "mantle".into(),
+        Mode::Free if player.state.on_ground => "on ground".into(),
+        Mode::Free => "in air".into(),
     };
     text.0 = format!(
         "speed {speed:4.0} u/s ({:4.1} m/s)   vertical {:+5.0} u/s   {ground}\n\n{CONTROLS}",

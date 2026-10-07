@@ -13,6 +13,7 @@
 //! surface, and sweep again with what's left of the tick.
 
 pub mod collision;
+mod parkour;
 mod tuning;
 
 use glam::{Vec2, Vec3};
@@ -40,6 +41,28 @@ pub struct MovementState {
     /// Units/s.
     pub velocity: Vec3,
     pub on_ground: bool,
+    /// Ducked: shorter capsule, slower walk. Stays true under a low ceiling even
+    /// after crouch is let go.
+    pub crouched: bool,
+    pub mode: Mode,
+    /// Mid-air jumps used. Refilled by landing or touching a wall.
+    pub air_jumps: u8,
+    /// Normal of the wall we last came off. That wall can't be wall-run again until
+    /// we land or touch a different one, so you can't climb a wall by re-grabbing it.
+    pub last_wall: Option<Vec3>,
+}
+
+/// What the pilot is doing beyond plain walking, falling and jumping.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Mode {
+    /// On the ground or in the air.
+    Free,
+    /// Running along a wall. `normal` points out of the wall, flat.
+    WallRun { normal: Vec3, time: f32 },
+    /// Holding still on a wall.
+    WallHang { normal: Vec3, time: f32 },
+    /// Climbing over a ledge from `from` to `to` (feet positions).
+    Mantle { from: Vec3, to: Vec3, time: f32 },
 }
 
 impl MovementState {
@@ -49,6 +72,10 @@ impl MovementState {
             position,
             velocity: Vec3::ZERO,
             on_ground: false,
+            crouched: false,
+            mode: Mode::Free,
+            air_jumps: 0,
+            last_wall: None,
         }
     }
 }
@@ -65,6 +92,8 @@ pub struct MoveInput {
     pub jump: bool,
     /// Sprint is held. Only counts while moving forwards.
     pub sprint: bool,
+    /// Crouch is held. In the air next to a wall, this hangs on it.
+    pub crouch: bool,
 }
 
 /// Advance one fixed tick of `dt` seconds.
@@ -79,19 +108,45 @@ pub fn step(
     if dt.is_nan() || dt <= 0.0 || !input.wish.is_finite() || !input.yaw.is_finite() {
         return *state;
     }
-    let body = Body {
-        capsule: tuning.capsule(),
-        min_ground_y: tuning.min_ground_normal_y(),
-    };
-    let mut pos = body.push_out(world, state.position);
-    let mut vel = state.velocity;
-    let wish = wish_velocity(input, tuning);
+    let mut s = *state;
+    // Duck at once; stand back up only when there's room overhead.
+    s.crouched = input.crouch || (s.crouched && !Body::new(tuning, false).fits(world, s.position));
+    let body = Body::new(tuning, s.crouched);
+    s.position = body.push_out(world, s.position);
+
+    match s.mode {
+        Mode::Free => free_move(s, input, tuning, &body, world, dt),
+        Mode::WallRun { normal, time } => {
+            parkour::wall_run(s, normal, time + dt, input, tuning, &body, world, dt)
+        }
+        Mode::WallHang { normal, time } => {
+            parkour::wall_hang(s, normal, time + dt, input, tuning, &body, world, dt)
+        }
+        Mode::Mantle { from, to, time } => parkour::mantle(s, from, to, time + dt, tuning),
+    }
+}
+
+/// Walking, jumping and falling, plus the checks that start wall-runs, wall-hangs
+/// and mantles.
+fn free_move(
+    mut s: MovementState,
+    input: &MoveInput,
+    tuning: &MovementTuning,
+    body: &Body,
+    world: &impl CollisionWorld,
+    dt: f32,
+) -> MovementState {
+    let mut pos = s.position;
+    let mut vel = s.velocity;
+    let wish = wish_velocity(input, tuning, s.crouched);
 
     // Ground is re-checked every tick rather than trusted from the last one.
     let mut ground = body.find_ground(world, pos, vel);
+    let mut jumped = false;
     if ground.is_some() && input.jump {
         vel.y = tuning.jump_speed();
         ground = None;
+        jumped = true;
     }
 
     if let Some(normal) = ground {
@@ -119,6 +174,12 @@ pub fn step(
             .snap_down(world, pos, tuning.step_height)
             .unwrap_or(pos);
     } else {
+        // The double jump replaces the fall speed rather than adding to it, so it
+        // always gives the same lift.
+        if input.jump && !jumped && s.air_jumps < 1 {
+            vel.y = tuning.launch_speed(tuning.double_jump_height);
+            s.air_jumps += 1;
+        }
         let flat = air_steer(horizontal(vel), wish, tuning.air_accel * dt);
         vel = Vec3::new(flat.x, vel.y, flat.z);
         // Half the gravity before the move and half after puts every tick exactly on
@@ -133,12 +194,16 @@ pub fn step(
     let ground = body.find_ground(world, pos, vel);
     if let Some(normal) = ground {
         vel = along_ground(horizontal(vel), normal);
+        s.air_jumps = 0;
+        s.last_wall = None;
     }
-    MovementState {
-        position: pos,
-        velocity: vel,
-        on_ground: ground.is_some(),
+    s.position = pos;
+    s.velocity = vel;
+    s.on_ground = ground.is_some();
+    if !s.on_ground && !jumped {
+        parkour::try_start(&mut s, input, tuning, body, world);
     }
+    s
 }
 
 /// Collision shape plus what counts as ground, shared by all the helpers.
@@ -161,6 +226,18 @@ struct Slide {
 }
 
 impl Body {
+    fn new(tuning: &MovementTuning, crouched: bool) -> Self {
+        Self {
+            capsule: tuning.capsule(crouched),
+            min_ground_y: tuning.min_ground_normal_y(),
+        }
+    }
+
+    /// The capsule isn't overlapping anything at `pos`.
+    fn fits(&self, world: &impl CollisionWorld, pos: Vec3) -> bool {
+        world.push_out(&self.capsule, pos, 0.0).length_squared() < 1e-4
+    }
+
     fn is_ground(&self, normal: Vec3) -> bool {
         normal.y >= self.min_ground_y
     }
@@ -299,12 +376,13 @@ impl Body {
 }
 
 /// Direction and speed the player is asking for, flat on the ground plane.
-fn wish_velocity(input: &MoveInput, tuning: &MovementTuning) -> Vec3 {
+fn wish_velocity(input: &MoveInput, tuning: &MovementTuning, crouched: bool) -> Vec3 {
     let wish = input.wish.clamp_length_max(1.0);
-    let (sin, cos) = input.yaw.sin_cos();
-    let forward = Vec3::new(-sin, 0.0, -cos);
-    let right = Vec3::new(cos, 0.0, -sin);
-    let speed = if input.sprint && wish.y > 0.0 {
+    let forward = parkour::facing(input.yaw);
+    let right = Vec3::new(-forward.z, 0.0, forward.x);
+    let speed = if crouched {
+        tuning.crouch_speed
+    } else if input.sprint && wish.y > 0.0 {
         tuning.sprint_speed
     } else {
         tuning.walk_speed

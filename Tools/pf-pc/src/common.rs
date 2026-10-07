@@ -124,6 +124,28 @@ pub fn materials_for(zip: &SplitZip, bsp_path: &Path, have: &Path, out: &Path) -
     Ok(())
 }
 
+/// `common-extract`: every `mp_common` file whose path contains `filter`
+/// (lowercase), apart from the blocked types.
+pub fn extract_matching(zip: &SplitZip, filter: &str, out: &Path) -> io::Result<()> {
+    let entry = zip
+        .find(COMMON_DIR)
+        .ok_or_else(|| io::Error::other("mp_common VPK not found on the discs"))?;
+    let mut dir_data = Vec::new();
+    zip.extract(entry, &mut dir_data)?;
+    let dir = VpkDir::parse(&dir_data)?;
+    let by_path: BTreeMap<&str, &VpkFile> =
+        dir.files.iter().map(|f| (f.path.as_str(), f)).collect();
+    let paths: Vec<String> = dir
+        .files
+        .iter()
+        .map(|f| f.path.clone())
+        .filter(|p| p.contains(filter))
+        .filter(|p| !crate::BLOCKED_EXT.iter().any(|x| p.ends_with(x)))
+        .collect();
+    pick(zip, &dir_data, &by_path, &paths, out)?;
+    Ok(())
+}
+
 /// Extract the named files (those that exist in the VPK) into `out/<path>`,
 /// streaming each needed archive once. Returns the files' contents.
 fn pick(
