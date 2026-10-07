@@ -83,10 +83,21 @@ fn load_level(mut commands: Commands, chosen: Res<ChosenMap>, mut next: ResMut<N
                     return;
                 }
             };
-            let (points, triangles) = pf_world::collision_triangles(&map.geometry);
+            // World and props go into one triangle mesh, so every movement
+            // query searches a single tree.
+            let (mut points, mut triangles) = pf_world::collision_triangles(&map.geometry);
+            let (prop_points, prop_triangles) =
+                pf_world::props::prop_collision(&map.props, &map.materials.0);
+            let base = points.len() as u32;
+            points.extend(prop_points);
+            triangles.extend(prop_triangles.iter().map(|t| t.map(|i| base + i)));
             let mut world = StaticWorld::new();
             world.add_trimesh(&points, &triangles);
-            info!("Colony collision: {} triangles", triangles.len());
+            info!(
+                "Colony collision: {} triangles ({} from props)",
+                triangles.len(),
+                prop_triangles.len()
+            );
             let (feet, yaw) = pf_world::spawn_point(&map.geometry);
             commands.insert_resource(MapCollision(world));
             // Spawn a little above the marker so we drop onto the floor.
