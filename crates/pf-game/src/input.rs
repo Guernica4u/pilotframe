@@ -37,8 +37,10 @@ pub enum Action {
     Sprint,
     /// Click once to sprint until you stop moving forwards (controller, L3).
     SprintToggle,
-    /// Held. Ducks on the ground; hangs on a wall in the air.
+    /// Held. Ducks.
     Crouch,
+    /// Held. Aim down sights; on a wall, this hangs on it.
+    Zoom,
     /// Back to the spawn point.
     Reset,
 }
@@ -56,6 +58,8 @@ pub fn default_bindings() -> InputMap<Action> {
         .with(Action::Crouch, KeyCode::ControlLeft)
         .with(Action::Crouch, KeyCode::KeyC)
         .with(Action::Crouch, GamepadButton::East)
+        .with(Action::Zoom, MouseButton::Right)
+        .with(Action::Zoom, GamepadButton::LeftTrigger2)
         .with(Action::Reset, KeyCode::KeyR)
         .with(Action::Reset, GamepadButton::Select)
 }

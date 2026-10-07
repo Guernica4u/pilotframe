@@ -50,6 +50,10 @@ pub struct MovementState {
     /// Normal of the wall we last came off. That wall can't be wall-run again until
     /// we land or touch a different one, so you can't climb a wall by re-grabbing it.
     pub last_wall: Option<Vec3>,
+    /// Wall-runs since last on the ground; later ones get less upward boost.
+    pub wallruns: u8,
+    /// Seconds left in which a ground jump still works after walking off a ledge.
+    pub jump_grace: f32,
 }
 
 /// What the pilot is doing beyond plain walking, falling and jumping.
@@ -57,12 +61,18 @@ pub struct MovementState {
 pub enum Mode {
     /// On the ground or in the air.
     Free,
-    /// Running along a wall. `normal` points out of the wall, flat.
+    /// Running along a wall. `normal` points out of the wall, flat. Past the time
+    /// limit the run turns into a slip, then you fall off.
     WallRun { normal: Vec3, time: f32 },
-    /// Holding still on a wall.
+    /// Hanging on a wall (aim down sights while on it).
     WallHang { normal: Vec3, time: f32 },
-    /// Climbing over a ledge from `from` to `to` (feet positions).
-    Mantle { from: Vec3, to: Vec3, time: f32 },
+    /// Climbing over a ledge from `from` to `to` (feet positions) over `duration`.
+    Mantle {
+        from: Vec3,
+        to: Vec3,
+        time: f32,
+        duration: f32,
+    },
 }
 
 impl MovementState {
@@ -76,6 +86,8 @@ impl MovementState {
             mode: Mode::Free,
             air_jumps: 0,
             last_wall: None,
+            wallruns: 0,
+            jump_grace: 0.0,
         }
     }
 }
@@ -92,8 +104,10 @@ pub struct MoveInput {
     pub jump: bool,
     /// Sprint is held. Only counts while moving forwards.
     pub sprint: bool,
-    /// Crouch is held. In the air next to a wall, this hangs on it.
+    /// Crouch is held.
     pub crouch: bool,
+    /// Aim down sights is held. On a wall, this hangs on it.
+    pub zoom: bool,
 }
 
 /// Advance one fixed tick of `dt` seconds.
@@ -122,12 +136,21 @@ pub fn step(
         Mode::WallHang { normal, time } => {
             parkour::wall_hang(s, normal, time + dt, input, tuning, &body, world, dt)
         }
-        Mode::Mantle { from, to, time } => parkour::mantle(s, from, to, time + dt, tuning),
+        Mode::Mantle {
+            from,
+            to,
+            time,
+            duration,
+        } => parkour::mantle(s, from, to, time + dt, duration, tuning),
     }
 }
 
 /// Walking, jumping and falling, plus the checks that start wall-runs, wall-hangs
 /// and mantles.
+///
+/// Ground and air control follow the Source engine's model, which Titanfall's is
+/// built on (see docs/movement/r1-engine-values.md): friction first, then
+/// accelerate towards the wished-for velocity without ever pushing past it.
 fn free_move(
     mut s: MovementState,
     input: &MoveInput,
@@ -143,19 +166,19 @@ fn free_move(
     // Ground is re-checked every tick rather than trusted from the last one.
     let mut ground = body.find_ground(world, pos, vel);
     let mut jumped = false;
-    if ground.is_some() && input.jump {
+    // Just walked off a ledge: a jump still counts as a ground jump for a moment.
+    let can_ground_jump = ground.is_some() || (s.jump_grace > 0.0 && vel.y <= 0.0);
+    if can_ground_jump && input.jump {
         vel.y = tuning.jump_speed();
         ground = None;
         jumped = true;
+        s.jump_grace = 0.0;
     }
 
     if let Some(normal) = ground {
-        let rate = if wish == Vec3::ZERO {
-            tuning.ground_friction
-        } else {
-            tuning.ground_accel
-        };
-        let intended = along_ground(move_towards(horizontal(vel), wish, rate * dt), normal);
+        let flat = friction(horizontal(vel), tuning.friction, tuning.stop_speed, dt);
+        let flat = accelerate(flat, wish, tuning.acceleration * dt);
+        let intended = along_ground(flat, normal);
 
         let start = pos;
         let plain = body.slide(world, start, intended, dt, true);
@@ -180,7 +203,10 @@ fn free_move(
             vel.y = tuning.launch_speed(tuning.double_jump_height);
             s.air_jumps += 1;
         }
-        let flat = air_steer(horizontal(vel), wish, tuning.air_accel * dt);
+        // Air control: steer, but only add speed up to `air_speed` in the wished
+        // direction. Momentum above that is kept, never added to.
+        let air_wish = wish.clamp_length_max(tuning.air_speed);
+        let flat = accelerate(horizontal(vel), air_wish, tuning.air_acceleration * dt);
         vel = Vec3::new(flat.x, vel.y, flat.z);
         // Half the gravity before the move and half after puts every tick exactly on
         // the true parabola, so jump height doesn't depend on the tick rate.
@@ -196,6 +222,13 @@ fn free_move(
         vel = along_ground(horizontal(vel), normal);
         s.air_jumps = 0;
         s.last_wall = None;
+        s.wallruns = 0;
+        s.jump_grace = tuning.jump_grace_time;
+    } else {
+        s.jump_grace = (s.jump_grace - dt).max(0.0);
+        if jumped {
+            s.jump_grace = 0.0;
+        }
     }
     s.position = pos;
     s.velocity = vel;
@@ -390,14 +423,32 @@ fn wish_velocity(input: &MoveInput, tuning: &MovementTuning, crouched: bool) -> 
     (right * wish.x + forward * wish.y) * speed
 }
 
-/// Air control: steer towards `wish` without ever gaining speed beyond the faster
-/// of the current speed and the wished-for speed. Placeholder until M5.
-fn air_steer(current: Vec3, wish: Vec3, accel: f32) -> Vec3 {
-    if wish == Vec3::ZERO {
+/// Source-style friction on a flat velocity: lose `friction` × max(speed,
+/// `stop_speed`) per second, so fast movement fades smoothly and slow movement
+/// stops crisply.
+fn friction(flat: Vec3, friction: f32, stop_speed: f32, dt: f32) -> Vec3 {
+    let speed = flat.length();
+    if speed < 1e-3 {
+        return Vec3::ZERO;
+    }
+    let drop = speed.max(stop_speed) * friction * dt;
+    flat * ((speed - drop).max(0.0) / speed)
+}
+
+/// Source-style acceleration: push towards `wish`'s direction by at most
+/// `max_step`, and only until the speed in that direction reaches `wish`'s length.
+/// Speed you already have in other directions is left alone.
+fn accelerate(current: Vec3, wish: Vec3, max_step: f32) -> Vec3 {
+    let wish_speed = wish.length();
+    if wish_speed < 1e-3 {
         return current;
     }
-    let cap = current.length().max(wish.length());
-    (current + wish.normalize() * accel).clamp_length_max(cap)
+    let dir = wish / wish_speed;
+    let add = wish_speed - current.dot(dir);
+    if add <= 0.0 {
+        return current;
+    }
+    current + dir * add.min(max_step)
 }
 
 fn horizontal(v: Vec3) -> Vec3 {
@@ -408,16 +459,6 @@ fn horizontal(v: Vec3) -> Vec3 {
 /// ramps don't change how fast you cover ground.
 fn along_ground(flat: Vec3, normal: Vec3) -> Vec3 {
     flat - Vec3::Y * (flat.dot(normal) / normal.y)
-}
-
-fn move_towards(current: Vec3, target: Vec3, max_delta: f32) -> Vec3 {
-    let delta = target - current;
-    let dist = delta.length();
-    if dist <= max_delta || dist < 1e-6 {
-        target
-    } else {
-        current + delta / dist * max_delta
-    }
 }
 
 /// Remove only the part of `v` that pushes into `normal`.
@@ -481,13 +522,34 @@ mod tests {
     }
 
     #[test]
-    fn air_steer_never_adds_speed() {
-        let v = air_steer(
+    fn accelerate_never_pushes_past_the_wished_speed() {
+        let v = accelerate(
             Vec3::new(300.0, 0.0, 0.0),
-            Vec3::new(0.0, 0.0, -100.0),
-            50.0,
+            Vec3::new(0.0, 0.0, -60.0),
+            500.0,
         );
-        assert!(v.length() <= 300.0 + 1e-3);
-        assert!(v.z < 0.0);
+        // Sideways momentum is kept; the new direction only gets up to 60.
+        assert!(
+            (v.x - 300.0).abs() < 1e-3 && (v.z + 60.0).abs() < 1e-3,
+            "{v}"
+        );
+        let v = accelerate(
+            Vec3::new(300.0, 0.0, 0.0),
+            Vec3::new(200.0, 0.0, 0.0),
+            500.0,
+        );
+        assert_eq!(v.x, 300.0);
+    }
+
+    #[test]
+    fn friction_fades_then_stops() {
+        let mut v = Vec3::new(270.0, 0.0, 0.0);
+        let mut t = 0.0;
+        while v.x > 0.0 {
+            v = friction(v, 4.0, 100.0, 1.0 / 60.0);
+            t += 1.0 / 60.0;
+        }
+        // About a quarter second down to 100, a quarter more to stop.
+        assert!(t > 0.4 && t < 0.6, "{t}");
     }
 }

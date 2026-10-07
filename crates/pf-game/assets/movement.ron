@@ -1,51 +1,76 @@
 // Pilot movement tuning, read by pf-movement through the game (pf-game).
 //
-// [set] = read from the pilot settings files on the PC discs
-//         (scripts/players/mp/pilot_*.set; every standard pilot class agrees).
-// [wiki]  = the Titanfall fandom wiki (community source, medium confidence).
-// [guess] = placeholder until measured from the owner's training and Colony
-//           footage. See docs/movement/values.md for each value's source.
+// [set]    = the pilot settings files on the PC discs (scripts/players/mp/pilot_*.set).
+// [engine] = the game's own engine defaults, read from the owner's client.dll
+//            (docs/movement/r1-engine-values.md has each one's name and description).
+// [wiki]   = the Titanfall fandom wiki (community source, medium confidence).
+// [guess]  = placeholder, still to be measured.
 //
 // Units: game units (~1 inch), seconds, degrees.
 // The game reloads this file when you save it, no restart needed.
 (
     // Body
-    capsule_radius: 16.0,      // [set] hull_min/hull_max -16..16
+    capsule_radius: 16.0,      // [set] hull ±16
     capsule_height: 72.0,      // [set] stand hull_max z
     eye_height: 60.0,          // [set] stand viewheight
     crouch_height: 47.0,       // [set] crouch hull_max z
     crouch_eye_height: 38.0,   // [set] crouch viewheight
 
-    // Ground movement
-    walk_speed: 180.6,         // [set] stand speed
-    sprint_speed: 269.85,      // [set] stand sprintspeed
+    // Ground
+    walk_speed: 180.6,         // [set] speed
+    sprint_speed: 269.85,      // [set] sprintspeed
     crouch_speed: 89.25,       // [set] crouch speed
-    ground_accel: 1400.0,      // [guess]
-    ground_friction: 1600.0,   // [guess]
+    acceleration: 2500.0,      // [engine] acceleration (deceleration -1: friction stops you)
+    friction: 4.0,             // [engine] sv_friction
+    stop_speed: 100.0,         // [engine] sv_stopspeed
 
     // Air
-    air_accel: 300.0,          // [guess]
-    gravity: 900.0,            // [guess] raised 2026-10-07: 750 felt too light
-    jump_height: 80.0,         // [set] jumpheight (read as the apex height)
-    double_jump_height: 60.0,  // [guess]
+    air_speed: 60.0,           // [engine] airSpeed
+    air_acceleration: 500.0,   // [engine] airAcceleration
+    gravity: 750.0,            // [engine] sv_gravity
+    jump_height: 80.0,         // [set] jumpheight
+    double_jump_height: 60.0,  // [guess] not a stored setting
+    jump_grace_time: 0.2,      // [engine] jump_graceperiod
 
-    // Wall-run, wall jump, wall-hang
-    wallrun_speed: 340.0,      // [guess]
-    wallrun_accel: 600.0,      // [guess]
-    wallrun_min_speed: 150.0,  // [guess]
-    wallrun_gravity: 150.0,    // [guess]
-    wallrun_max_lift: 150.0,   // [guess]
-    wallrun_max_fall_speed: 450.0, // [guess]
-    wallrun_time_limit: 1.75,  // [wiki] 3.5 with the Enhanced Parkour Kit
-    wall_jump_height: 60.0,    // [guess]
-    wall_jump_push: 280.0,     // [guess]
-    wall_hang_time_limit: 11.0, // [wiki] 22 with the Enhanced Parkour Kit
+    // Wall-run
+    wallrun_time_limit: 1.75,  // [wiki] (3.5 with the Enhanced Parkour Kit)
+    wallrun_slip_time: 0.7,    // [engine] wallrun_sliptime
+    wallrun_slip_speed: 70.0,  // [engine] wallrun_slipvel
+    wallrun_slip_slowdown: 0.5, // [engine] wallrun_slipslowdown
+    wallrun_up_boost: 250.0,   // [engine] wallrun_upWallBoost
+    wallrun_gravity_ramp_time: 0.7, // [engine] wallrun_gravityRampUpTime
+    wallrun_max_speed: 240.0,  // [engine] wallrun_maxSpeedHorizontal
+    wallrun_accelerate: 7.0,   // [engine] wallrun_accelerateHorizontal
+    wallrun_friction: 4.0,     // [engine] wallrun_friction
+    wallrun_max_speed_vertical: 300.0, // [engine] wallrun_maxSpeedVertical
+    wallrun_accelerate_vertical: 450.0, // [engine] wallrun_accelerateVertical
+    wallrun_upward_push: 0.65, // [engine] wallrun_upwardAutoPush
+    wallrun_min_speed: 100.0,  // [guess]
+    wallrun_fall_away_speed: 100.0, // [engine] wallrun_fallAwaySpeed
+    wallrun_strength_loss_start: 3.0, // [engine] wallrun_strengthLossStart
+    wallrun_strength_loss_end: 5.0,   // [engine] wallrun_strengthLossEnd
+    wall_jump_up_speed: 250.0,      // [engine] wallrun_jumpUpSpeed
+    wall_jump_outward_speed: 150.0, // [engine] wallrun_jumpOutwardSpeed
+    wall_jump_input_speed: 100.0,   // [engine] wallrun_jumpInputDirSpeed
 
-    // Mantle (automantle is on for every pilot class)
-    mantle_reach: 90.0,        // [guess] raised 2026-10-07: 70 was hard to hit
-    mantle_time: 0.35,         // [guess]
+    // Wall-hang (aim down sights on a wall)
+    wall_hang_time_limit: 11.0, // [wiki] (22 with the Enhanced Parkour Kit)
+    wall_hang_stop_time: 0.5,   // [engine] wallrun_hangStopTime
+    wall_hang_slip_time: 1.0,   // [engine] wallrun_hangsliptime
+
+    // Mantle
+    mantle_height: 80.0,        // [engine] automantle_height
+    mantle_max_view_angle: 65.0, // [engine] automantle_maxangle_view
+    mantle_max_view_angle_wallrun: 45.0, // [engine] automantle_wallrun_maxangle_view
+    mantle_eye_below: -10.0,    // [engine] automantle_height_below
+    mantle_eye_level: 10.0,     // [engine] automantle_height_level
+    mantle_eye_above: 30.0,     // [engine] automantle_height_above
+    mantle_time_below: 1.11,    // [engine] automantle_duration_below
+    mantle_time_level: 1.0,     // [engine] automantle_duration_level
+    mantle_time_above: 0.5,     // [engine] automantle_duration_above
+    mantle_time_high: 0.35,     // [engine] automantle_duration_high
 
     // Terrain
-    max_slope_deg: 45.0,       // [guess]
-    step_height: 18.0,         // [set] stepheight
+    max_slope_deg: 45.0,        // [guess]
+    step_height: 18.0,          // [set] stepheight
 )
