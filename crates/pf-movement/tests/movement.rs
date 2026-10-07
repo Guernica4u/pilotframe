@@ -682,3 +682,23 @@ fn letting_go_of_forward_ends_a_wall_run() {
     let state = run(&world, state, MoveInput::default(), DT, |_| {});
     assert_eq!(state.mode, Mode::Free);
 }
+
+#[test]
+fn mantles_off_a_wall_run_by_turning_onto_the_ledge() {
+    // A long wall only 110 high: too tall to jump onto, low enough to mantle.
+    let mut world = floor();
+    add_block(
+        &mut world,
+        Vec3::new(-2000.0, 0.0, -400.0),
+        Vec3::new(2000.0, 110.0, -40.0),
+    );
+    let (state, _) = wallrun_from_jump(&world, HOLD_FORWARD, 0.2);
+    assert!(matches!(state.mode, Mode::WallRun { .. }), "{state:?}");
+    // Turn to face the wall (-Z) and keep pushing forward.
+    let mut mantled = false;
+    let state = run(&world, state, HOLD_FORWARD, 1.0, |s| {
+        mantled |= matches!(s.mode, Mode::Mantle { .. });
+    });
+    assert!(mantled, "{state:?}");
+    assert!((state.position.y - 110.0).abs() < 1.0, "{state:?}");
+}

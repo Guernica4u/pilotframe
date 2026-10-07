@@ -25,7 +25,7 @@
 
     // Air
     air_accel: 300.0,          // [guess]
-    gravity: 750.0,            // [guess]
+    gravity: 900.0,            // [guess] raised 2026-10-07: 750 felt too light
     jump_height: 80.0,         // [set] jumpheight (read as the apex height)
     double_jump_height: 60.0,  // [guess]
 
@@ -42,7 +42,7 @@
     wall_hang_time_limit: 11.0, // [wiki] 22 with the Enhanced Parkour Kit
 
     // Mantle (automantle is on for every pilot class)
-    mantle_reach: 70.0,        // [guess]
+    mantle_reach: 90.0,        // [guess] raised 2026-10-07: 70 was hard to hit
     mantle_time: 0.35,         // [guess]
 
     // Terrain
