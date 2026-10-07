@@ -124,6 +124,57 @@ pub fn materials_for(zip: &SplitZip, bsp_path: &Path, have: &Path, out: &Path) -
     Ok(())
 }
 
+/// `model-materials`: the materials and textures that the given local models
+/// use, pulled from `mp_common` into `out` (skipping ones `out` already has).
+pub fn model_materials(zip: &SplitZip, models: &[&Path], out: &Path) -> io::Result<()> {
+    let entry = zip
+        .find(COMMON_DIR)
+        .ok_or_else(|| io::Error::other("mp_common VPK not found on the discs"))?;
+    let mut dir_data = Vec::new();
+    zip.extract(entry, &mut dir_data)?;
+    let dir = VpkDir::parse(&dir_data)?;
+    let by_path: BTreeMap<&str, &VpkFile> =
+        dir.files.iter().map(|f| (f.path.as_str(), f)).collect();
+    let have = out.join("materials");
+
+    let mut vmt_paths = BTreeSet::new();
+    for mdl in models {
+        let read = |ext: &str| fs::read(mdl.with_extension(ext));
+        let model = pf_fmt_mdl::load(&read("mdl")?, &read("vvd")?, &read("dx11.vtx")?)?;
+        for mesh in model.meshes {
+            // Every $cdmaterials candidate the VPK actually has.
+            for m in mesh.materials {
+                let path = format!(
+                    "materials/{}.vmt",
+                    m.to_ascii_lowercase().replace('\\', "/")
+                );
+                if by_path.contains_key(path.as_str()) && !out.join(&path).exists() {
+                    vmt_paths.insert(path);
+                }
+            }
+        }
+    }
+    let vmt_paths: Vec<String> = vmt_paths.into_iter().collect();
+    let vmts = pick(zip, &dir_data, &by_path, &vmt_paths, out)?;
+
+    let mut textures = BTreeSet::new();
+    for (_, data) in &vmts {
+        let vmt = Vmt::parse(&String::from_utf8_lossy(data));
+        for key in ["$basetexture", "$basetexture2", "$bumpmap"] {
+            if let Some(t) = vmt.params.get(key) {
+                let t = t.replace('\\', "/").to_ascii_lowercase();
+                let t = t.trim_end_matches(".vtf");
+                if !have.join(format!("{t}.vtf")).exists() {
+                    textures.insert(format!("materials/{t}.vtf"));
+                }
+            }
+        }
+    }
+    let textures: Vec<String> = textures.into_iter().collect();
+    pick(zip, &dir_data, &by_path, &textures, out)?;
+    Ok(())
+}
+
 /// `common-extract`: every `mp_common` file whose path contains `filter`
 /// (lowercase), apart from the blocked types.
 pub fn extract_matching(zip: &SplitZip, filter: &str, out: &Path) -> io::Result<()> {

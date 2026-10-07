@@ -7,6 +7,7 @@
 //!   pf-pc vpk-extract <file_dir.vpk> <filter> <out_dir>
 //!   pf-pc <disc1.iso> materials-for <map.bsp> <map_materials_dir> <out_dir>
 //!   pf-pc <disc1.iso> common-extract <filter> <out_dir>
+//!   pf-pc <disc1.iso> model-materials <out_dir> <model.mdl>...
 //!
 //! Discs 2 and 3 are found next to disc 1 by replacing "Disc 1" in the name.
 //! `filter` is a case-insensitive substring of the archive path.
@@ -69,6 +70,11 @@ fn run() -> io::Result<()> {
                     e.size, e.compressed_size, e.method, e.name
                 );
             }
+        }
+        Some("model-materials") => {
+            let out = Path::new(args.get(2).ok_or_else(usage)?);
+            let models: Vec<&Path> = args[3..].iter().map(Path::new).collect();
+            common::model_materials(&zip, &models, out)?;
         }
         Some("common-extract") => {
             let get = |i: usize| args.get(i).ok_or_else(usage);

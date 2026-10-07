@@ -18,6 +18,7 @@ mod player;
 mod settings;
 mod tuning;
 mod view;
+mod viewmodel;
 
 use bevy::prelude::*;
 

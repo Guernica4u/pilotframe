@@ -79,6 +79,9 @@ fn spawn_player(
     spawn: Res<SpawnPoint>,
     settings: Res<Settings>,
     chosen: Res<ChosenMap>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     let mut player = commands.spawn((
         LevelEntity,
@@ -108,6 +111,14 @@ fn spawn_player(
     if *chosen == ChosenMap::Colony {
         player.insert(pf_world::colony_fog());
     }
+    let camera = player.id();
+    crate::viewmodel::spawn(
+        &mut commands,
+        camera,
+        &mut meshes,
+        &mut materials,
+        &mut images,
+    );
 }
 
 /// Settings can change in the pause menu; keep the camera in step.
