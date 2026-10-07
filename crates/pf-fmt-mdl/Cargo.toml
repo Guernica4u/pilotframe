@@ -1,10 +1,13 @@
 [package]
 name = "pf-fmt-mdl"
-description = "Source studio model reader (MDL v52 + VVD + VTX), static meshes"
+description = "Source studio model reader (MDL v52 + VVD + VTX): meshes, skeleton and animations"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+
+[dependencies]
+glam.workspace = true
 
 [lints]
 workspace = true

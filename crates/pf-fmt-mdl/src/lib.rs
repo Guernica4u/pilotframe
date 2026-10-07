@@ -13,6 +13,7 @@
 
 use std::io;
 
+pub mod anim;
 mod phy;
 pub use phy::{Collision, load_phy};
 
@@ -27,6 +28,9 @@ pub struct ModelMesh {
     pub positions: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
     pub uvs: Vec<[f32; 2]>,
+    /// Per vertex: up to three bones (model bone indices) and their weights.
+    pub bones: Vec<[u8; 3]>,
+    pub weights: Vec<[f32; 3]>,
     pub indices: Vec<u32>,
 }
 
@@ -126,6 +130,8 @@ pub fn load(mdl: &[u8], vvd: &[u8], vtx: &[u8]) -> io::Result<Model> {
                 positions: Vec::new(),
                 normals: Vec::new(),
                 uvs: Vec::new(),
+                bones: Vec::new(),
+                weights: Vec::new(),
                 indices: Vec::new(),
             };
             for g in 0..groups {
@@ -142,6 +148,8 @@ pub fn load(mdl: &[u8], vvd: &[u8], vtx: &[u8]) -> io::Result<Model> {
                     out.positions.push(vert.0);
                     out.normals.push(vert.1);
                     out.uvs.push(vert.2);
+                    out.bones.push(vert.3);
+                    out.weights.push(vert.4);
                 }
                 for i in 0..num_indices {
                     let idx = x.u16(group + index_off + i * 2)? as u32;
@@ -163,7 +171,8 @@ pub fn load(mdl: &[u8], vvd: &[u8], vtx: &[u8]) -> io::Result<Model> {
 /// topology fields): 33 bytes. Titanfall's `.dx11.vtx` files use this.
 const STRIP_GROUP_LEN: usize = 33;
 
-type Vertex = ([f32; 3], [f32; 3], [f32; 2]);
+/// Position, normal, UV, bone indices, bone weights.
+type Vertex = ([f32; 3], [f32; 3], [f32; 2], [u8; 3], [f32; 3]);
 
 /// LOD 0 vertices from a `.vvd`, applying the fixup table if present.
 fn vvd_lod0(vvd: &[u8]) -> io::Result<Vec<Vertex>> {
@@ -176,10 +185,19 @@ fn vvd_lod0(vvd: &[u8]) -> io::Result<Vec<Vertex>> {
     let data_start = r.u32(56)? as usize;
     let read = |i: usize| -> io::Result<Vertex> {
         let at = data_start + i * VVD_VERTEX_LEN;
+        // mstudioboneweight_t: 3 f32 weights, 3 u8 bones, u8 bone count.
+        let used = r.bytes(at + 15, 1)?[0].min(3) as usize;
+        let mut weights = [r.f32(at)?, r.f32(at + 4)?, r.f32(at + 8)?];
+        for w in weights.iter_mut().skip(used) {
+            *w = 0.0;
+        }
+        let b = r.bytes(at + 12, 3)?;
         Ok((
             [r.f32(at + 16)?, r.f32(at + 20)?, r.f32(at + 24)?],
             [r.f32(at + 28)?, r.f32(at + 32)?, r.f32(at + 36)?],
             [r.f32(at + 40)?, r.f32(at + 44)?],
+            [b[0], b[1], b[2]],
+            weights,
         ))
     };
     if num_fixups == 0 {
@@ -226,6 +244,9 @@ impl<'a> Reader<'a> {
     }
     fn u16(&self, at: usize) -> io::Result<u16> {
         Ok(u16::from_le_bytes(self.bytes(at, 2)?.try_into().unwrap()))
+    }
+    fn i16(&self, at: usize) -> io::Result<i16> {
+        Ok(self.u16(at)? as i16)
     }
     fn u32(&self, at: usize) -> io::Result<u32> {
         Ok(u32::from_le_bytes(self.bytes(at, 4)?.try_into().unwrap()))

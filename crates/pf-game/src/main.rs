@@ -56,6 +56,7 @@ fn main() {
             pf_world::WorldPlugin,
             level::LevelPlugin,
             player::PlayerPlugin,
+            viewmodel::ViewmodelPlugin,
             menu::MenuPlugin,
             dev::DevPlugin,
         ))

@@ -41,6 +41,9 @@ pub enum Action {
     Crouch,
     /// Held. Aim down sights; on a wall, this hangs on it.
     Zoom,
+    /// Held. Fire the weapon.
+    Fire,
+    Reload,
     /// Back to the spawn point.
     Reset,
 }
@@ -60,7 +63,11 @@ pub fn default_bindings() -> InputMap<Action> {
         .with(Action::Crouch, GamepadButton::East)
         .with(Action::Zoom, MouseButton::Right)
         .with(Action::Zoom, GamepadButton::LeftTrigger2)
-        .with(Action::Reset, KeyCode::KeyR)
+        .with(Action::Fire, MouseButton::Left)
+        .with(Action::Fire, GamepadButton::RightTrigger2)
+        .with(Action::Reload, KeyCode::KeyR)
+        .with(Action::Reload, GamepadButton::West)
+        .with(Action::Reset, KeyCode::Backspace)
         .with(Action::Reset, GamepadButton::Select)
 }
 
