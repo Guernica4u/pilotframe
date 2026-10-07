@@ -25,7 +25,7 @@ State on 2026-10-04: **M0 and M1 done** (disc reader, all 18 XBAR packs decode).
 
 ## Session plan (agreed 2026-10-07)
 
-- **Wed 2026-10-08:** finish movement (TF1 parkour in `pf-movement`: double jump, wall-run + time limit, wall-jump, slide, mantle, air control; measure from the training video) and polish Colony (skybox, prop lighting/collision, bump maps, brightness vs the gameplay video).
+- **Wed 2026-10-08:** finish movement (TF1 parkour in `pf-movement`: double jump, wall-run + time limit, wall-jump, wall-hang, mantle, crouch, air control (no slide in TF1); measure from the training video) and polish Colony (skybox, prop lighting/collision, bump maps, brightness vs the gameplay video).
 - **Thu 2026-10-09 (after the limit reset):** menus done (original look from the player's files: fonts, backgrounds, layout per `docs/reference-ui.md`, plus the first-launch setup screen), then start the HUD (`docs/tf1-not-tf2.md` + `Resources/reference/hud/`) and weapons.
 
 ## Progress 2026-10-07: game shell (menus + movement first)
@@ -36,7 +36,7 @@ The owner chose to get **movement and menus right first**, in a test map, before
 - **`pf-world`** (new lib) holds the map renderer that used to be in `pf-viewer` (world, props, lightmaps, fog) plus `collision_triangles()`; `pf-viewer` is now a thin fly-cam on top.
 - `pf-movement::StaticWorld::add_trimesh` (parry TriMesh). Colony collision = 187k world triangles (no prop collision yet). Player stands on Colony.
 - Dev: `PF_AUTOSTART=test|colony` skips menus; `PF_SANDBOX_SCREENSHOT=out.png` (+ `PF_SCREENSHOT_DELAY`) saves a screenshot and quits.
-- **Next:** TF1 parkour in `pf-movement` (wall-run, double jump, slide, mantle, wall-jump), tuned from `Resources/reference/video/training_full_r1delta_1080p60.mp4`; prop collision; menu art/fonts from the player's files.
+- **Next:** TF1 parkour in `pf-movement` (wall-run, double jump, wall-hang, mantle, wall-jump, crouch; no slide in TF1), tuned from `Resources/reference/video/training_full_r1delta_1080p60.mp4`; prop collision; menu art/fonts from the player's files.
 
 ## Progress 2026-10-06 (M2 started early, branch m2/pc-reader)
 

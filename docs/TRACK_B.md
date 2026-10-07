@@ -15,7 +15,7 @@ No game files are needed for any of this.
 - **`crates/pf-movement`**: Layer 0, no Bevy, no `std::fs`. A pure fixed-tick function: (state, input, collision queries) → new state. Original game units (~1 inch). Collision goes through a trait, backed by the test map now and real map data later.
 - **`crates/pf-sandbox`**: a Bevy app with a homemade greybox map (floor, ramps, steps, boxes, long walls for wall-running), a first-person camera, and a capsule controller driven by `pf-movement` on `FixedUpdate`. Pin the latest stable Bevy and record the version.
 - **Input:** keyboard/mouse and controller both first-class, through named actions (e.g. `leafwing-input-manager` if its license and Bevy version fit).
-- **Order:** walk, sprint, jump, gravity, slopes, steps. Then (M5) double jump, slide, wall-run, wall-hang, air control.
+- **Order:** walk, sprint, jump, gravity, slopes, steps. Then (M5) double jump, wall-run, wall-hang, crouch, mantle, air control. (No slide: that's Titanfall 2.)
 - **Tuning values** go in a `.ron` file, never hard-coded. Placeholders for now. Real values come from 360 footage later, each logged with its source in `docs/movement/`.
 - **Tests:** unit tests for `pf-movement` without Bevy (jump apex height, can't pass through walls, step-up height).
 

@@ -7,6 +7,7 @@ Notes from the owner (2026-10-05) so we don't build TF2 features by mistake. Mos
 | Campaign | **No single player.** Multiplayer only (plus the "campaign multiplayer" playlist). | Has a single-player campaign. |
 | Grunts | **More voice lines.** Carry a **wider range of weapons, including anti-titan weapons.** | Fewer lines, smaller loadouts. |
 | Burn cards | **Yes.** One-use perks picked before a spawn. | Replaced by Boosts. |
+| Sliding | **No slide.** Crouch only. | Has sliding (and slide-hopping). |
 | Titans | **Fewer chassis (Atlas, Ogre, Stryder), built DIY**: you pick weapon, tactical, ordnance and kits yourself. | Premade titan classes (Ion, Scorch, etc.) with fixed kits. |
 
 ## HUD (from R1Delta, PC)

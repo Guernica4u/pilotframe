@@ -142,7 +142,7 @@ Key decisions (with short explanations):
 
 - **Layer 0 crates don't depend on Bevy and never call `std::fs`.** They take a `&[u8]` or a `ReadAt` trait object. That gives three wins: fast unit tests, reuse in the setup tool, and the same parsers compiling to WASM (§3).
 - **`binrw`** for parsing: a Rust crate where you declare a struct plus attributes like `#[br(big)]` and it generates the reading code. It handles 360-vs-PC endianness with one flag. It's like C# `BinaryReader` plus attributes, but checked at compile time.
-- **Physics/collision:** I recommend a **custom kinematic character controller** in `pf-sim` that uses `parry3d` (a collision-query library) for shape casts, instead of driving the player with a rigid-body engine. Source-style movement (wall-runs, slides) is easier to make faithful when you control every step. Rigid-body physics (ragdolls, debris) can come later from **Avian**, which is Bevy-native. Recorded as an ADR in docs/decisions.
+- **Physics/collision:** I recommend a **custom kinematic character controller** in `pf-sim` that uses `parry3d` (a collision-query library) for shape casts, instead of driving the player with a rigid-body engine. Source-style movement (wall-runs, wall-hangs) is easier to make faithful when you control every step. Rigid-body physics (ragdolls, debris) can come later from **Avian**, which is Bevy-native. Recorded as an ADR in docs/decisions.
 - **Units and axes:** the simulation uses **original game units** (≈1 inch) internally, so values copy straight from measurements. The converter switches Source's Z-up to Bevy's Y-up once, when writing the cache.
 - **Fixed-timestep simulation from day one** (Bevy's `FixedUpdate` schedule, e.g. 60 Hz to start. **Check what tick the original used**). Movement is a pure function of (state, input, world). That's what makes later multiplayer prediction and replays possible without a rewrite.
 - **Bevy version:** pin the newest stable release when we start, and only upgrade between milestones. Bevy breaks APIs every ~3–4 months, and AI coding tools often produce code for older Bevy versions. Each upgrade gets its own small PR.
@@ -229,7 +229,7 @@ The original estimates, kept for reference:
 | **2** | **Raw map geometry** | One map's vertices/indices (meshes lump) appear in a Bevy window with a fly camera, flat-shaded, no textures. Endianness confirmed. | 2–4 weeks |
 | **3** | **Fly through a full textured map** | Textures untiled and correct, materials mapped, lightmaps (or vertex lighting) applied, static props placed, sky. Runs smoothly on a 3060 Ti. Setup converts the map into the cache. The game loads **only** from the cache. | 1–3 months |
 | **4** | **Walk the map with collision** | Capsule-shaped player, gravity, ground movement, steps/slopes, can't walk through walls. Collision source decided (collision lump vs render mesh). KBM + controller. | 3–6 weeks |
-| **5** | **Faithful pilot movement** | Sprint, jump, double jump, wall-run, wall-hang, slide, air control, mantle. Each parameter is backed by a measurement in `docs/movement/` with an error bar. Side-by-side video comparison passes our tolerance (§6). | 2–4 months, then ongoing tuning |
+| **5** | **Faithful pilot movement** | Sprint, jump, double jump, wall-run, wall-hang, crouch, air control, mantle (TF1 has no slide). Each parameter is backed by a measurement in `docs/movement/` with an error bar. Side-by-side video comparison passes our tolerance (§6). | 2–4 months, then ongoing tuning |
 | **6** | **One titan + embark/disembark** | Titan movement (walk/dash), camera, embark animation, disembark, titanfall drop-in. Uses original model + animations from the cache, or a greybox stand-in. | 2–3 months |
 | **7** | **Grunts / AI** | Navmesh generated per map at setup/load time (we can't rely on the original's nav data being parseable), grunts spawn, path, take cover, shoot. | 2–4 months |
 | **8** | **Weapons** | Data-driven weapon defs, hitscan + projectiles, ADS, recoil, damage, a few signature weapons, anti-titan weapon, smart pistol. | 2–4 months |
@@ -250,13 +250,13 @@ Movement code lives in the engine, inside the XEX we won't touch. So we treat th
 
 **Step 2 — record controlled clips:**
 - Best source: the **Xbox One version running on your Xbox One/Series console** (higher, steadier frame rate than the 360) captured with a **60 fps capture card** (Elgato-class, ~$100–180). Recording yourself playing your own copy raises no legal issues. If you have a Series X/S, use it: smoother frames give better data. The 360 version is the fallback.
-- Fixed test routines in a known spot (training/gauntlet if still accessible, see Q2): standing jump, sprint from rest, double jump at apex, wall-run along a long flat wall, slide from sprint, wall-hang duration, fall from known heights.
+- Fixed test routines in a known spot (training/gauntlet if still accessible, see Q2): standing jump, sprint from rest, double jump at apex, wall-run along a long flat wall, wall-hang duration, fall from known heights.
 - Reduce noise: fixed FOV setting, aim at a fixed marker, a controller with consistent inputs (or KBM on the 360? No. Controller).
 
 **Step 3 — extract numbers (`tools/pf-motion`):**
 - Frame-step video (60 fps → ~16.7 ms resolution, averaged over many trials).
 - **Our biggest advantage:** we have the **real map geometry** from M3. We can render the same spot in our engine and match camera position to video frames (known wall lengths, door heights, prop sizes). That gives **position over time**, from which velocity and acceleration follow. Plain stopwatch measurements can't do that.
-- Timings (wall-run max duration, double-jump window, slide duration) come from frame counts on HUD/animation cues.
+- Timings (wall-run max duration, double-jump window, wall-hang duration) come from frame counts on HUD/animation cues.
 - Fit curves: e.g. jump height vs time → launch velocity + gravity. Sprint ramp-up → acceleration.
 
 **Step 4 — compare:** a side-by-side tool plays our engine's replay of the same inputs next to the recorded clip. Tolerances per quantity (e.g. ±3% speeds, ±1 frame timings) are agreed before tuning.
