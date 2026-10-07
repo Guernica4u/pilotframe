@@ -5,10 +5,13 @@
 //!   pf-pc <disc1.iso> extract <filter> <out_dir>
 //!   pf-pc vpk <file_dir.vpk>           (list the named files inside a VPK)
 //!   pf-pc vpk-extract <file_dir.vpk> <filter> <out_dir>
+//!   pf-pc <disc1.iso> materials-for <map.bsp> <map_materials_dir> <out_dir>
 //!
 //! Discs 2 and 3 are found next to disc 1 by replacing "Disc 1" in the name.
 //! `filter` is a case-insensitive substring of the archive path.
 //! Executables, DLLs and scripts are never extracted.
+
+mod common;
 
 use pf_iso9660::IsoImage;
 use pf_vfs::{FileSource, ReadAt, Vfs, VfsFile};
@@ -65,6 +68,15 @@ fn run() -> io::Result<()> {
                     e.size, e.compressed_size, e.method, e.name
                 );
             }
+        }
+        Some("materials-for") => {
+            let get = |i: usize| args.get(i).ok_or_else(usage);
+            common::materials_for(
+                &zip,
+                Path::new(get(2)?),
+                Path::new(get(3)?),
+                Path::new(get(4)?),
+            )?;
         }
         Some("extract") => {
             let filter = args.get(2).ok_or_else(usage)?.to_ascii_lowercase();

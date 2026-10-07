@@ -139,6 +139,45 @@ impl SplitZip {
     }
 }
 
+/// A `Write` sink that keeps only some byte ranges of what passes through it.
+/// Use with [`SplitZip::extract`] to pull a few pieces out of a huge Deflate
+/// member in one pass without saving the whole thing.
+pub struct RangeCapture {
+    pos: u64,
+    /// (start, length), with the captured bytes in `data` at the same index.
+    ranges: Vec<(u64, u64)>,
+    pub data: Vec<Vec<u8>>,
+}
+
+impl RangeCapture {
+    pub fn new(ranges: Vec<(u64, u64)>) -> Self {
+        let data = ranges.iter().map(|_| Vec::new()).collect();
+        Self {
+            pos: 0,
+            ranges,
+            data,
+        }
+    }
+}
+
+impl Write for RangeCapture {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let (start, end) = (self.pos, self.pos + buf.len() as u64);
+        for (i, &(r_start, r_len)) in self.ranges.iter().enumerate() {
+            let (lo, hi) = (r_start.max(start), (r_start + r_len).min(end));
+            if lo < hi {
+                self.data[i].extend_from_slice(&buf[(lo - start) as usize..(hi - start) as usize]);
+            }
+        }
+        self.pos = end;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 pub fn parse_central_dir(cd: &[u8]) -> io::Result<Vec<ZipEntry>> {
     let mut entries = Vec::new();
     let mut at = 0usize;
