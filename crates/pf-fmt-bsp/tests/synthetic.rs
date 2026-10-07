@@ -62,7 +62,11 @@ fn reads_one_triangle() {
     assert_eq!(g.materials, ["world/test/wall"]);
     assert_eq!(g.meshes.len(), 1);
     assert_eq!(g.meshes[0].kind, VertexKind::Unlit);
-    assert_eq!(g.meshes[0].triangles, [[0, 1, 2]]);
+    let positions = g.meshes[0].triangles[0].map(|c| c.position);
+    assert_eq!(positions, [0, 1, 2]);
+    assert_eq!(g.meshes[0].triangles.len(), 1);
+    assert_eq!(g.meshes[0].lightmap, None, "unlit meshes have no lightmap");
+    assert!(g.lightmaps.is_empty() && g.sun.is_none());
     assert_eq!(g.meshes[0].material, 0);
     assert_eq!(g.bounds(), ([0., 0., 0.], [64., 64., 0.]));
 }

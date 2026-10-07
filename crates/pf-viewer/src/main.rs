@@ -1,5 +1,5 @@
 //! Map viewer: loads a Titanfall `.bsp` and lets you fly around it with the
-//! original textures (no lightmaps or props yet).
+//! original textures and baked lighting (no props or skybox yet).
 //!
 //! Usage: `cargo run -p pf-viewer --release -- <path/to/mp_colony.bsp> [materials_dir]`
 //!
@@ -72,11 +72,12 @@ fn main() {
     })
     .insert_resource(MapGeometry(geometry, min, max))
     .insert_resource(MaterialsDirs(materials_dirs))
-    .add_plugins(MaterialPlugin::<BlendMaterial>::default())
+    .insert_resource(LightingScale::from_env())
+    .add_plugins(MaterialPlugin::<WorldMaterial>::default())
     .add_systems(Startup, spawn_map)
     .add_systems(Update, (capture_cursor, fly));
-    // Bake the blend shader into the exe so the viewer needs no assets folder.
-    embedded_asset!(app, "blend.wgsl");
+    // Bake the shader into the exe so the viewer needs no assets folder.
+    embedded_asset!(app, "world.wgsl");
     app.run();
 }
 
@@ -92,24 +93,88 @@ struct MapGeometry(pf_fmt_bsp::Geometry, [f32; 3], [f32; 3]);
 #[derive(Resource)]
 struct MaterialsDirs(Vec<PathBuf>);
 
-/// Standard PBR material plus a second texture, for blend materials.
-type BlendMaterial = ExtendedMaterial<StandardMaterial, BlendExtension>;
+/// Standard PBR inputs plus the original's lighting data; see `world.wgsl`.
+type WorldMaterial = ExtendedMaterial<StandardMaterial, WorldExtension>;
 
-/// The extra data `blend.wgsl` reads. Bevy note: `AsBindGroup` turns these
+/// The extra data `world.wgsl` reads. Bevy note: `AsBindGroup` turns these
 /// fields into GPU bindings; 100+ keeps clear of the standard material's slots.
+/// `Option` textures get a blank stand-in when missing.
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
-struct BlendExtension {
+struct WorldExtension {
     #[texture(100)]
     #[sampler(101)]
-    texture2: Handle<Image>,
+    texture2: Option<Handle<Image>>,
+    #[texture(102)]
+    #[sampler(103)]
+    lightmap_sky: Option<Handle<Image>>,
+    #[texture(104)]
+    lightmap_realtime: Option<Handle<Image>>,
+    /// x: has texture2, y: has lightmap, z: sky scale, w: sun scale.
+    #[uniform(105)]
+    settings: Vec4,
+    #[uniform(106)]
+    sun_direction: Vec4,
+    #[uniform(107)]
+    sun_color: Vec4,
 }
 
-impl MaterialExtension for BlendExtension {
+impl MaterialExtension for WorldExtension {
     fn fragment_shader() -> ShaderRef {
-        "embedded://pf_viewer/blend.wgsl".into()
+        "embedded://pf_viewer/world.wgsl".into()
     }
 }
 
+/// Brightness of the two lightmap terms, tuned by eye against reference shots. The exact decode isn't known yet, so
+/// these are tunable: `PF_SKY_SCALE` and `PF_SUN_SCALE` environment variables.
+#[derive(Resource, Clone, Copy)]
+struct LightingScale {
+    sky: f32,
+    sun: f32,
+}
+
+impl LightingScale {
+    fn from_env() -> Self {
+        let get = |key: &str, default: f32| {
+            std::env::var(key)
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(default)
+        };
+        Self {
+            sky: get("PF_SKY_SCALE", 1.5),
+            sun: get("PF_SUN_SCALE", 0.3),
+        }
+    }
+}
+
+/// `PF_LM_DEBUG` picks a debug view in world.wgsl (0 = normal).
+fn debug_view() -> f32 {
+    std::env::var("PF_LM_DEBUG")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.0)
+}
+
+/// A lightmap layer as a linear RGBA8 texture (no mips, clamped).
+fn lightmap_image(width: u32, height: u32, data: Vec<u8>) -> Image {
+    let mut image = Image {
+        data: Some(data),
+        ..default()
+    };
+    image.texture_descriptor.size = Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+    image.texture_descriptor.format = TextureFormat::Rgba8Unorm;
+    image.asset_usage = RenderAssetUsages::RENDER_WORLD;
+    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        mag_filter: ImageFilterMode::Linear,
+        min_filter: ImageFilterMode::Linear,
+        ..default()
+    });
+    image
+}
 /// `world_mins` / `world_maxs` from the worldspawn entity.
 fn world_box(bsp: &pf_fmt_bsp::Bsp) -> Option<([f32; 3], [f32; 3])> {
     let ents = bsp.entities().ok()?;
@@ -145,6 +210,14 @@ fn find_materials_dirs(map: &Path) -> Vec<PathBuf> {
 fn read_first(dirs: &[PathBuf], relative: &str) -> Option<Vec<u8>> {
     dirs.iter()
         .find_map(|d| std::fs::read(d.join(relative)).ok())
+}
+
+/// A material's textures once they're on the GPU.
+#[derive(Clone)]
+struct LoadedTextures {
+    texture: Option<Handle<Image>>,
+    texture2: Option<Handle<Image>>,
+    alpha: AlphaMode,
 }
 
 /// What we need from a `.vmt` to draw it.
@@ -254,30 +327,46 @@ fn spawn_map(
     mut commands: Commands,
     geometry: Res<MapGeometry>,
     materials_dirs: Res<MaterialsDirs>,
+    scale: Res<LightingScale>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut blend_materials: ResMut<Assets<BlendMaterial>>,
+    mut materials: ResMut<Assets<WorldMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     let g = &geometry.0;
 
-    // Group triangles (with UVs and colours) by material: one Bevy mesh each.
-    #[derive(Default)]
-    struct Group {
-        tris: Vec<[u32; 3]>,
-        uvs: Vec<[[f32; 2]; 3]>,
-        colors: Vec<[[u8; 4]; 3]>,
-    }
-    let mut groups: HashMap<u32, Group> = HashMap::new();
+    // Lightmap pages become textures shared by every mesh on that page.
+    let pages: Vec<(Handle<Image>, Handle<Image>)> = g
+        .lightmaps
+        .iter()
+        .map(|p| {
+            (
+                images.add(lightmap_image(p.width, p.height, p.sky.clone())),
+                images.add(lightmap_image(p.width, p.height, p.realtime.clone())),
+            )
+        })
+        .collect();
+    let (sun_direction, sun_color) = match g.sun {
+        Some(sun) => (
+            to_bevy(sun.direction).normalize_or_zero().extend(0.0),
+            Vec4::new(sun.color[0], sun.color[1], sun.color[2], debug_view()),
+        ),
+        None => (Vec4::new(0.0, -1.0, 0.0, 0.0), Vec4::ZERO),
+    };
+    println!("{} lightmap pages, sun: {:?}", pages.len(), g.sun);
+
+    // Group triangles by (material, lightmap page): one Bevy mesh each.
+    type Key = (u32, Option<u16>);
+    let mut groups: HashMap<Key, Vec<[pf_fmt_bsp::Corner; 3]>> = HashMap::new();
     for m in &g.meshes {
-        let group = groups.entry(m.material).or_default();
-        group.tris.extend(&m.triangles);
-        group.uvs.extend(&m.uvs);
-        group.colors.extend(&m.colors);
+        groups
+            .entry((m.material, m.lightmap))
+            .or_default()
+            .extend(&m.triangles);
     }
     let (mut textured, mut blended, mut flat) = (0, 0, 0);
+    let mut loaded_materials: HashMap<u32, Option<LoadedTextures>> = HashMap::new();
 
-    for (material, group) in groups {
+    for ((material, lightmap), tris) in groups {
         let name = g
             .materials
             .get(material as usize)
@@ -287,24 +376,34 @@ fn spawn_map(
         if name.starts_with("tools/") {
             continue;
         }
-        let loaded = load_material(&materials_dirs.0, &name);
+        // Load each material's textures once, even if it spans several pages.
+        let loaded = loaded_materials
+            .entry(material)
+            .or_insert_with(|| {
+                load_material(&materials_dirs.0, &name).map(|m| LoadedTextures {
+                    texture: m.texture.map(|i| images.add(i)),
+                    texture2: m.texture2.map(|i| images.add(i)),
+                    alpha: m.alpha,
+                })
+            })
+            .clone();
         let is_blend = loaded.as_ref().is_some_and(|m| m.texture2.is_some());
 
-        // Unshared vertices with one normal per triangle (flat shading) until we
-        // read the map's own normals and lightmaps.
-        let n_verts = group.tris.len() * 3;
+        let n_verts = tris.len() * 3;
         let mut positions = Vec::with_capacity(n_verts);
         let mut normals = Vec::with_capacity(n_verts);
         let mut uvs: Vec<[f32; 2]> = Vec::with_capacity(n_verts);
+        let mut lightmap_uvs: Vec<[f32; 2]> = Vec::with_capacity(n_verts);
         let mut blend: Vec<[f32; 4]> = Vec::with_capacity(n_verts);
-        for ((t, uv), col) in group.tris.iter().zip(&group.uvs).zip(&group.colors) {
-            let [a, b, c] = t.map(|i| to_bevy(g.positions[i as usize]));
-            let n = (b - a).cross(c - a).normalize_or_zero();
-            positions.extend([a, b, c]);
-            normals.extend([n, n, n]);
-            uvs.extend(uv);
-            // Only the alpha matters: it's the blend amount for blend.wgsl.
-            blend.extend(col.map(|c| [1.0, 1.0, 1.0, c[3] as f32 / 255.0]));
+        for tri in &tris {
+            for c in tri {
+                positions.push(to_bevy(g.positions[c.position as usize]));
+                normals.push(to_bevy(c.normal).normalize_or_zero());
+                uvs.push(c.uv);
+                lightmap_uvs.push(c.lightmap_uv);
+                // Only the alpha matters: it's the blend amount.
+                blend.push([1.0, 1.0, 1.0, c.color[3] as f32 / 255.0]);
+            }
         }
         let count = positions.len() as u32;
         let mut mesh = Mesh::new(
@@ -314,17 +413,14 @@ fn spawn_map(
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, lightmap_uvs)
         .with_inserted_indices(Indices::U32((0..count).collect()));
         if is_blend {
             mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, blend);
         }
 
         let (texture, texture2, alpha) = match loaded {
-            Some(m) => (
-                m.texture.map(|i| images.add(i)),
-                m.texture2.map(|i| images.add(i)),
-                m.alpha,
-            ),
+            Some(m) => (m.texture, m.texture2, m.alpha),
             None => (None, None, AlphaMode::Opaque),
         };
         match (&texture, &texture2) {
@@ -332,33 +428,41 @@ fn spawn_map(
             (Some(_), None) => textured += 1,
             _ => flat += 1,
         }
-        let base = StandardMaterial {
-            base_color: if texture.is_some() {
-                Color::WHITE
-            } else {
-                color_for(&name)
+        let page = lightmap.and_then(|l| pages.get(l as usize));
+        let material = WorldMaterial {
+            base: StandardMaterial {
+                base_color: if texture.is_some() {
+                    Color::WHITE
+                } else {
+                    color_for(&name)
+                },
+                base_color_texture: texture,
+                alpha_mode: alpha,
+                // Winding isn't confirmed yet, so draw both sides.
+                cull_mode: None,
+                double_sided: true,
+                ..default()
             },
-            base_color_texture: texture,
-            alpha_mode: alpha,
-            perceptual_roughness: 0.9,
-            // Winding isn't confirmed yet, so draw both sides.
-            cull_mode: None,
-            double_sided: true,
-            ..default()
+            extension: WorldExtension {
+                settings: Vec4::new(
+                    if texture2.is_some() { 1.0 } else { 0.0 },
+                    if page.is_some() { 1.0 } else { 0.0 },
+                    scale.sky,
+                    scale.sun,
+                ),
+                texture2,
+                lightmap_sky: page.map(|p| p.0.clone()),
+                lightmap_realtime: page.map(|p| p.1.clone()),
+                sun_direction,
+                sun_color,
+            },
         };
-
-        let mesh = Mesh3d(meshes.add(mesh));
-        match texture2 {
-            Some(texture2) => commands.spawn((
-                mesh,
-                MeshMaterial3d(blend_materials.add(BlendMaterial {
-                    base,
-                    extension: BlendExtension { texture2 },
-                })),
-            )),
-            None => commands.spawn((mesh, MeshMaterial3d(materials.add(base)))),
-        };
+        commands.spawn((
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(materials.add(material)),
+        ));
     }
+
     println!("materials: {textured} textured, {blended} blended, {flat} flat colour");
 
     commands.spawn((
