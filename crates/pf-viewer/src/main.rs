@@ -65,12 +65,18 @@ fn main() {
         }),
         ..default()
     }))
-    .insert_resource(ClearColor(Color::srgb(0.55, 0.65, 0.78)))
+    // Overcast grey close to the fog colour until the real skybox is drawn.
+    .insert_resource(ClearColor(Color::srgb_u8(170, 172, 176)))
     .insert_resource(GlobalAmbientLight {
         brightness: 1500.0,
         ..default()
     })
-    .insert_resource(MapGeometry(geometry, min, max))
+    .insert_resource(MapGeometry(
+        geometry,
+        min,
+        max,
+        find_spawn(Path::new(&path)),
+    ))
     .insert_resource(MaterialsDirs(materials_dirs))
     .insert_resource(LightingScale::from_env())
     .add_plugins(MaterialPlugin::<WorldMaterial>::default())
@@ -86,8 +92,54 @@ fn fail(msg: &str) -> ! {
     std::process::exit(1);
 }
 
+/// Geometry, playable box (min, max) and where to start the camera.
 #[derive(Resource)]
-struct MapGeometry(pf_fmt_bsp::Geometry, [f32; 3], [f32; 3]);
+struct MapGeometry(pf_fmt_bsp::Geometry, [f32; 3], [f32; 3], Option<Spawn>);
+
+/// Roughly a standing pilot's eye height, in units.
+const EYE_HEIGHT: f32 = 60.0;
+
+struct Spawn {
+    origin: [f32; 3],
+    yaw_degrees: f32,
+}
+
+/// The first pilot spawn point from `<map>_spawn.ent` (entity data, KeyValues
+/// blocks), found in a `maps` folder above the map file.
+fn find_spawn(map: &Path) -> Option<Spawn> {
+    let stem = map.file_stem()?.to_str()?;
+    let file = map
+        .ancestors()
+        .map(|dir| dir.join("maps").join(format!("{stem}_spawn.ent")))
+        .find(|f| f.is_file())?;
+    let text = std::fs::read_to_string(file).ok()?;
+    for block in text.split('{').skip(1) {
+        let block = block.split('}').next().unwrap_or_default();
+        let value = |key: &str| {
+            block.lines().find_map(|l| {
+                let parts: Vec<&str> = l.split('"').collect();
+                (parts.get(1) == Some(&key))
+                    .then(|| parts.get(3).copied())
+                    .flatten()
+            })
+        };
+        if value("classname") != Some("info_spawnpoint_human_start") {
+            continue;
+        }
+        let nums = |s: &str| -> Vec<f32> {
+            s.split_whitespace()
+                .filter_map(|n| n.parse().ok())
+                .collect()
+        };
+        let origin = nums(value("origin")?);
+        let angles = nums(value("angles").unwrap_or("0 0 0"));
+        return Some(Spawn {
+            origin: [*origin.first()?, *origin.get(1)?, *origin.get(2)?],
+            yaw_degrees: angles.get(1).copied().unwrap_or(0.0),
+        });
+    }
+    None
+}
 
 /// Folders to look for `.vmt`/`.vtf` files in, in order.
 #[derive(Resource)]
@@ -218,6 +270,7 @@ struct LoadedTextures {
     texture: Option<Handle<Image>>,
     texture2: Option<Handle<Image>>,
     alpha: AlphaMode,
+    decal: bool,
 }
 
 /// What we need from a `.vmt` to draw it.
@@ -226,6 +279,8 @@ struct LoadedMaterial {
     /// `$basetexture2` for blend materials.
     texture2: Option<Image>,
     alpha: AlphaMode,
+    /// `$decal`: drawn on top of another surface, so it needs a depth offset.
+    decal: bool,
 }
 
 /// Read `<name>.vmt` and its textures. Any failure just means "no texture";
@@ -251,6 +306,7 @@ fn load_material(dirs: &[PathBuf], name: &str) -> Option<LoadedMaterial> {
         texture: load("$basetexture"),
         texture2: load("$basetexture2"),
         alpha,
+        decal: flag("$decal"),
     })
 }
 
@@ -384,6 +440,7 @@ fn spawn_map(
                     texture: m.texture.map(|i| images.add(i)),
                     texture2: m.texture2.map(|i| images.add(i)),
                     alpha: m.alpha,
+                    decal: m.decal,
                 })
             })
             .clone();
@@ -419,9 +476,9 @@ fn spawn_map(
             mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, blend);
         }
 
-        let (texture, texture2, alpha) = match loaded {
-            Some(m) => (m.texture, m.texture2, m.alpha),
-            None => (None, None, AlphaMode::Opaque),
+        let (texture, texture2, alpha, decal) = match loaded {
+            Some(m) => (m.texture, m.texture2, m.alpha, m.decal),
+            None => (None, None, AlphaMode::Opaque, false),
         };
         match (&texture, &texture2) {
             (Some(_), Some(_)) => blended += 1,
@@ -438,6 +495,9 @@ fn spawn_map(
                 },
                 base_color_texture: texture,
                 alpha_mode: alpha,
+                // Posters and grime sit exactly on a wall; nudge them towards the
+                // camera so they stop flickering through it (z-fighting).
+                depth_bias: if decal { 100.0 } else { 0.0 },
                 // Winding isn't confirmed yet, so draw both sides.
                 cull_mode: None,
                 double_sided: true,
@@ -465,19 +525,32 @@ fn spawn_map(
 
     println!("materials: {textured} textured, {blended} blended, {flat} flat colour");
 
+    // Not used for surface lighting (world.wgsl uses the baked data), but Bevy's
+    // fog takes its glow direction from it, so point it along the map's sun.
     commands.spawn((
         DirectionalLight {
             illuminance: 8000.0,
             ..default()
         },
-        Transform::from_xyz(0.3, 1.0, 0.5).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::default().looking_to(sun_direction.truncate(), Vec3::Y),
     ));
 
-    // Start above the middle of the map, looking down at it.
-    let (min, max) = (geometry.1, geometry.2);
-    let centre = (to_bevy(min) + to_bevy(max)) * 0.5;
-    let height = (max[2] - min[2]).max(1000.0) + 1500.0;
-    let pitch = -0.7;
+    // Start where a pilot would: the first pilot spawn point, at eye height.
+    // Without a spawn file, start above the middle of the map looking down.
+    let (translation, yaw, pitch) = match &geometry.3 {
+        Some(spawn) => (
+            to_bevy(spawn.origin) + Vec3::Y * EYE_HEIGHT,
+            // Source yaw 0 faces +X; Bevy yaw 0 faces -Z. See to_bevy.
+            (spawn.yaw_degrees - 90.0).to_radians(),
+            0.0,
+        ),
+        None => {
+            let (min, max) = (geometry.1, geometry.2);
+            let centre = (to_bevy(min) + to_bevy(max)) * 0.5;
+            let height = (max[2] - min[2]).max(1000.0) + 1500.0;
+            (centre + Vec3::Y * height, 0.0, -0.7)
+        }
+    };
     commands.spawn((
         Camera3d::default(),
         // Default near/far planes assume metres; our units are inches.
@@ -487,10 +560,34 @@ fn spawn_map(
             far: 100_000.0,
             ..default()
         }),
-        Transform::from_translation(centre + Vec3::new(0.0, height, 0.0))
-            .with_rotation(Quat::from_euler(EulerRot::YXZ, 0.0, pitch, 0.0)),
-        FlyCamera { yaw: 0.0, pitch },
+        Transform::from_translation(translation).with_rotation(Quat::from_euler(
+            EulerRot::YXZ,
+            yaw,
+            pitch,
+            0.0,
+        )),
+        FlyCamera { yaw, pitch },
+        colony_fog(),
     ));
+}
+
+/// Distance haze approximating the map's `env_fog_controller` (from
+/// `mp_colony_env.ent`): colour 187 174 180, max density 0.5, half-distance
+/// about 2000-5000 units starting 500 out, and a blue-grey glow (142 169 189,
+/// strength 3) looking towards the sun. Bevy's fog is simpler than Respawn's
+/// (no height bands), so this is a close match, not exact.
+// TODO: read these values from the .ent file instead of hard-coding Colony's.
+fn colony_fog() -> DistanceFog {
+    let half_distance = 5000.0;
+    DistanceFog {
+        // Alpha caps how much fog is mixed in, like fogmaxdensity.
+        color: Color::srgba_u8(187, 174, 180, 128),
+        directional_light_color: Color::srgba_u8(142, 169, 189, 120),
+        directional_light_exponent: 8.0,
+        falloff: FogFalloff::Exponential {
+            density: std::f32::consts::LN_2 / half_distance,
+        },
+    }
 }
 
 /// A stable, fairly bright colour per material name.
