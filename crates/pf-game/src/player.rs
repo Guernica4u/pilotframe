@@ -44,6 +44,17 @@ const METRES_PER_UNIT: f32 = 0.0254;
 const WALLRUN_ROLL_DEG: f32 = 12.0;
 /// How quickly the eye height (crouching) and tilt catch up, per second. Higher is snappier.
 const CAMERA_EASE: f32 = 12.0;
+/// Landing: the view dips by this many units per 100 units/s of fall speed, at
+/// most `LAND_DIP_MAX`, then springs back.
+const LAND_DIP_PER_100: f32 = 1.5;
+const LAND_DIP_MAX: f32 = 10.0;
+/// Spring that brings the view back after a landing (stiffness, damping).
+const DIP_STIFFNESS: f32 = 180.0;
+const DIP_DAMPING: f32 = 18.0;
+/// Head bob while running: up/down amplitude at sprint speed (units) and steps
+/// per 100 units travelled.
+const BOB_HEIGHT: f32 = 1.2;
+const BOB_STEPS_PER_100: f32 = 0.9;
 
 #[derive(Component)]
 struct Player {
@@ -58,6 +69,12 @@ struct Player {
     /// Smoothed camera height above the feet and wall-run tilt (radians).
     eye: f32,
     roll: f32,
+    /// Landing dip (units, negative = down) and its speed, and the head-bob phase.
+    dip: f32,
+    dip_speed: f32,
+    bob: f32,
+    /// Fall speed at the tick we landed, for the camera to react to. 0 = none.
+    landed_at: f32,
 }
 
 fn spawn_player(
@@ -76,6 +93,10 @@ fn spawn_player(
             sprint_latched: false,
             eye: pf_world::EYE_HEIGHT,
             roll: 0.0,
+            dip: 0.0,
+            dip_speed: 0.0,
+            bob: 0.0,
+            landed_at: 0.0,
         },
         // leafwing adds the matching `ActionState<Action>` for us.
         input::default_bindings(),
@@ -162,6 +183,9 @@ fn tick_movement(
 
     // `time` is the fixed clock here, so this is exactly one tick.
     let next = step(&player.state, &input, tuning, &map.0, time.delta_secs());
+    if next.on_ground && !player.state.on_ground {
+        player.landed_at = player.landed_at.max(-player.state.velocity.y);
+    }
     player.previous = player.state.position;
     player.state = next;
 
@@ -202,7 +226,28 @@ fn place_camera(
     };
     player.roll += (roll - player.roll) * ease;
 
-    transform.translation = feet + Vec3::Y * player.eye;
+    // Landing dip: kick the spring down, then let it settle back to zero.
+    let dt = time.delta_secs();
+    if player.landed_at > 0.0 {
+        let dip = (player.landed_at / 100.0 * LAND_DIP_PER_100).min(LAND_DIP_MAX);
+        player.dip_speed -= dip * DIP_STIFFNESS.sqrt();
+        player.landed_at = 0.0;
+    }
+    let accel = -DIP_STIFFNESS * player.dip - DIP_DAMPING * player.dip_speed;
+    player.dip_speed += accel * dt;
+    player.dip += player.dip_speed * dt;
+
+    // Head bob, only while running on the ground, scaled by speed.
+    let v = player.state.velocity;
+    let speed = Vec2::new(v.x, v.z).length();
+    let bob = if player.state.on_ground && speed > 20.0 {
+        player.bob += speed * dt / 100.0 * BOB_STEPS_PER_100 * std::f32::consts::PI;
+        (player.bob.sin().abs() - 0.5) * BOB_HEIGHT * (speed / 270.0).min(1.2)
+    } else {
+        0.0
+    };
+
+    transform.translation = feet + Vec3::Y * (player.eye + player.dip + bob);
     transform.rotation = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, player.roll);
 }
 

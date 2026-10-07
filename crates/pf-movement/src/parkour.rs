@@ -47,15 +47,7 @@ pub(crate) fn try_start(
     world: &impl CollisionWorld,
 ) {
     let face = facing(input.yaw);
-    if input.wish.y >= MANTLE_WISH
-        && let Some(to) = find_ledge(s.position, face, tuning, body, world)
-    {
-        s.mode = Mode::Mantle {
-            from: s.position,
-            to,
-            time: 0.0,
-        };
-        s.velocity = Vec3::ZERO;
+    if try_mantle(s, input, tuning, body, world) {
         return;
     }
 
@@ -107,6 +99,10 @@ pub(crate) fn wall_run(
     };
     if input.jump {
         return wall_jump(s, normal, tuning, body, world, dt);
+    }
+    // Running along a wall into a ledge, or turning onto the top of the wall.
+    if try_mantle(&mut s, input, tuning, body, world) {
+        return s;
     }
     if input.crouch {
         s.mode = Mode::WallHang { normal, time: 0.0 };
@@ -165,6 +161,9 @@ pub(crate) fn wall_hang(
     if input.jump {
         return wall_jump(s, normal, tuning, body, world, dt);
     }
+    if try_mantle(&mut s, input, tuning, body, world) {
+        return s;
+    }
     if !input.crouch || time > tuning.wall_hang_time_limit {
         return detach(s, normal);
     }
@@ -202,6 +201,29 @@ pub(crate) fn mantle(
         s.on_ground = false;
     }
     s
+}
+
+/// Pushing forward at a ledge in reach: start climbing onto it.
+fn try_mantle(
+    s: &mut MovementState,
+    input: &MoveInput,
+    tuning: &MovementTuning,
+    body: &Body,
+    world: &impl CollisionWorld,
+) -> bool {
+    if input.wish.y < MANTLE_WISH {
+        return false;
+    }
+    let Some(to) = find_ledge(s.position, facing(input.yaw), tuning, body, world) else {
+        return false;
+    };
+    s.mode = Mode::Mantle {
+        from: s.position,
+        to,
+        time: 0.0,
+    };
+    s.velocity = Vec3::ZERO;
+    true
 }
 
 /// Jump off the wall: keep the speed along it, add a push away and a fresh jump.

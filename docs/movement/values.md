@@ -21,7 +21,7 @@ Every number in [`crates/pf-game/assets/movement.ron`](../../crates/pf-game/asse
 | `ground_accel` | 1400 | guess | none | Frames from standstill to top speed |
 | `ground_friction` | 1600 | guess | none | Frames from top speed to a stop after releasing the stick |
 | `air_accel` | 300 | guess | none | How fast direction changes mid-air |
-| `gravity` | 750 | guess | none | Fit a parabola to jump height over time |
+| `gravity` | 900 | guess (750 felt too light to the owner) | none | Fit a parabola to jump height over time |
 | `double_jump_height` | 60 | guess | none | Height gained by the second jump |
 | `wallrun_speed` | 340 | guess | none | Speed along a long wall after ~1 s of running |
 | `wallrun_accel` | 600 | guess | none | Frames to reach that speed |
@@ -33,7 +33,7 @@ Every number in [`crates/pf-game/assets/movement.ron`](../../crates/pf-game/asse
 | `wall_jump_height` | 60 | guess | none | Height gained jumping off a wall |
 | `wall_jump_push` | 280 | guess | none | Sideways distance covered after a wall jump |
 | `wall_hang_time_limit` | 11 | wiki: Enhanced Parkour Kit page (22 s with the kit) | medium | |
-| `mantle_reach` | 70 | guess | none | Tallest ledge mantled from a jump |
+| `mantle_reach` | 90 | guess (70 was hard to hit) | none | Tallest ledge mantled from a jump |
 | `mantle_time` | 0.35 | guess | none | Frames from ledge grab to standing |
 | `max_slope_deg` | 45 | guess | none | Steepest ramp in the maps you can walk up |
 
