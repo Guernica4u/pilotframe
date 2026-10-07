@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 bevy.workspace = true
 pf-fmt-bsp = { path = "../pf-fmt-bsp" }
+pf-fmt-vtf = { path = "../pf-fmt-vtf" }
 
 [lints]
 workspace = true

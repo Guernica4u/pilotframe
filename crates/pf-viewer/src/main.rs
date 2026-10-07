@@ -1,7 +1,11 @@
-//! M2 map viewer: loads a Titanfall `.bsp` and lets you fly around its raw
-//! geometry. Each material gets its own flat colour; no textures yet.
+//! Map viewer: loads a Titanfall `.bsp` and lets you fly around it with the
+//! original textures (no lightmaps or props yet).
 //!
-//! Usage: `cargo run -p pf-viewer --release -- <path/to/mp_colony.bsp>`
+//! Usage: `cargo run -p pf-viewer --release -- <path/to/mp_colony.bsp> [materials_dir]`
+//!
+//! `materials_dir` defaults to the nearest `materials` folder above the map
+//! (the layout `pf-pc vpk-extract` produces). Materials that can't be found
+//! fall back to a flat colour.
 //!
 //! Controls: click to capture the mouse (Esc releases), WASD to fly, Space/Ctrl
 //! up/down, Shift for speed.
@@ -10,11 +14,15 @@
 //! Systems ask for the data they need in their parameters and Bevy passes it in.
 
 use bevy::asset::RenderAssetUsages;
+use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use pf_fmt_vtf::{Format, Vtf, vmt::Vmt};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 /// Flying speed in game units (~inches) per second.
 const SPEED: f32 = 800.0;
@@ -23,9 +31,13 @@ const MOUSE_SENSITIVITY: f32 = 0.002;
 
 fn main() {
     let path = std::env::args().nth(1).unwrap_or_else(|| {
-        eprintln!("usage: pf-viewer <map.bsp>");
+        eprintln!("usage: pf-viewer <map.bsp> [materials_dir]");
         std::process::exit(2);
     });
+    let materials_dir = std::env::args()
+        .nth(2)
+        .map(PathBuf::from)
+        .or_else(|| find_materials_dir(Path::new(&path)));
     let data = std::fs::read(&path).unwrap_or_else(|e| fail(&format!("{path}: {e}")));
     let bsp = pf_fmt_bsp::Bsp::parse(&data).unwrap_or_else(|e| fail(&e.to_string()));
     let geometry = bsp.geometry().unwrap_or_else(|e| fail(&e.to_string()));
@@ -57,6 +69,7 @@ fn main() {
             ..default()
         })
         .insert_resource(MapGeometry(geometry, min, max))
+        .insert_resource(MaterialsDir(materials_dir))
         .add_systems(Startup, spawn_map)
         .add_systems(Update, (capture_cursor, fly))
         .run();
@@ -69,6 +82,9 @@ fn fail(msg: &str) -> ! {
 
 #[derive(Resource)]
 struct MapGeometry(pf_fmt_bsp::Geometry, [f32; 3], [f32; 3]);
+
+#[derive(Resource)]
+struct MaterialsDir(Option<PathBuf>);
 
 /// `world_mins` / `world_maxs` from the worldspawn entity.
 fn world_box(bsp: &pf_fmt_bsp::Bsp) -> Option<([f32; 3], [f32; 3])> {
@@ -87,6 +103,96 @@ fn world_box(bsp: &pf_fmt_bsp::Bsp) -> Option<([f32; 3], [f32; 3])> {
     Some((read("world_mins")?, read("world_maxs")?))
 }
 
+/// Walk up from the map file looking for a `materials` folder.
+fn find_materials_dir(map: &Path) -> Option<PathBuf> {
+    map.ancestors()
+        .map(|dir| dir.join("materials"))
+        .find(|dir| dir.is_dir())
+}
+
+/// What we need from a `.vmt` to draw it.
+struct LoadedMaterial {
+    texture: Option<Image>,
+    alpha: AlphaMode,
+}
+
+/// Read `<materials>/<name>.vmt` and its base texture. Any failure just means
+/// "no texture"; the caller falls back to a flat colour.
+fn load_material(dir: &Path, name: &str) -> Option<LoadedMaterial> {
+    let text = std::fs::read(dir.join(format!("{name}.vmt"))).ok()?;
+    let vmt = Vmt::parse(&String::from_utf8_lossy(&text));
+    let flag = |k: &str| vmt.params.get(k).is_some_and(|v| v.trim() == "1");
+    let alpha = if flag("$translucent") {
+        AlphaMode::Blend
+    } else if flag("$alphatest") {
+        AlphaMode::Mask(0.5)
+    } else {
+        AlphaMode::Opaque
+    };
+    let texture = vmt.base_texture().and_then(|t| {
+        let bytes = std::fs::read(dir.join(format!("{t}.vtf"))).ok()?;
+        vtf_to_image(&bytes)
+    });
+    Some(LoadedMaterial { texture, alpha })
+}
+
+/// Turn a VTF into a GPU texture. DXT data is uploaded as-is (BC1/2/3) and the
+/// GPU decodes it, the same way the original game does.
+fn vtf_to_image(bytes: &[u8]) -> Option<Image> {
+    let vtf = Vtf::parse(bytes).ok()?;
+    if vtf.is_cubemap() || vtf.depth > 1 {
+        return None;
+    }
+    let mut data = vtf.mip_chain().ok()??;
+    let format = match vtf.format {
+        Format::Dxt1 => TextureFormat::Bc1RgbaUnormSrgb,
+        Format::Dxt3 => TextureFormat::Bc2RgbaUnormSrgb,
+        Format::Dxt5 => TextureFormat::Bc3RgbaUnormSrgb,
+        Format::Bgra8888 => TextureFormat::Bgra8UnormSrgb,
+        Format::Rgba8888 => TextureFormat::Rgba8UnormSrgb,
+        Format::Bgr888 => {
+            data = data
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .flat_map(|p| [p[0], p[1], p[2], 255])
+                .collect();
+            TextureFormat::Bgra8UnormSrgb
+        }
+        Format::Other(_) => return None,
+    };
+    // Block-compressed textures must be a multiple of 4 pixels across.
+    let compressed = matches!(vtf.format, Format::Dxt1 | Format::Dxt3 | Format::Dxt5);
+    if compressed && (!vtf.width.is_multiple_of(4) || !vtf.height.is_multiple_of(4)) {
+        return None;
+    }
+
+    let mut image = Image {
+        data: Some(data),
+        ..default()
+    };
+    image.texture_descriptor.size = Extent3d {
+        width: vtf.width,
+        height: vtf.height,
+        depth_or_array_layers: 1,
+    };
+    image.texture_descriptor.dimension = TextureDimension::D2;
+    image.texture_descriptor.format = format;
+    image.texture_descriptor.mip_level_count = vtf.mip_count;
+    image.asset_usage = RenderAssetUsages::RENDER_WORLD;
+    // World textures tile, so wrap UVs; trilinear + anisotropic filtering.
+    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::Repeat,
+        address_mode_v: ImageAddressMode::Repeat,
+        mag_filter: ImageFilterMode::Linear,
+        min_filter: ImageFilterMode::Linear,
+        mipmap_filter: ImageFilterMode::Linear,
+        anisotropy_clamp: 8,
+        ..default()
+    });
+    Some(image)
+}
+
 #[derive(Component, Default)]
 struct FlyCamera {
     yaw: f32,
@@ -102,36 +208,44 @@ fn to_bevy(p: [f32; 3]) -> Vec3 {
 fn spawn_map(
     mut commands: Commands,
     geometry: Res<MapGeometry>,
+    materials_dir: Res<MaterialsDir>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     let g = &geometry.0;
 
-    // Group triangles by material so each material is one Bevy mesh.
-    let mut groups: HashMap<u32, Vec<[u32; 3]>> = HashMap::new();
+    // Group triangles (and their UVs) by material so each material is one Bevy mesh.
+    type Group = (Vec<[u32; 3]>, Vec<[[f32; 2]; 3]>);
+    let mut groups: HashMap<u32, Group> = HashMap::new();
     for m in &g.meshes {
-        groups.entry(m.material).or_default().extend(&m.triangles);
+        let group = groups.entry(m.material).or_default();
+        group.0.extend(&m.triangles);
+        group.1.extend(&m.uvs);
     }
+    let (mut textured, mut flat) = (0, 0);
 
-    for (material, tris) in groups {
+    for (material, (tris, tri_uvs)) in groups {
         let name = g
             .materials
             .get(material as usize)
-            .map(String::as_str)
-            .unwrap_or("");
+            .map(|n| n.to_ascii_lowercase())
+            .unwrap_or_default();
         // Tool materials (skybox, nodraw, triggers, ...) are invisible in game.
-        if name.to_ascii_lowercase().starts_with("tools/") {
+        if name.starts_with("tools/") {
             continue;
         }
-        // Unshared vertices with one normal per triangle: flat shading makes the
-        // shapes easy to read without textures.
+        // Unshared vertices with one normal per triangle (flat shading) until we
+        // read the map's own normals and lightmaps.
         let mut positions = Vec::with_capacity(tris.len() * 3);
         let mut normals = Vec::with_capacity(tris.len() * 3);
-        for t in &tris {
+        let mut uvs: Vec<[f32; 2]> = Vec::with_capacity(tris.len() * 3);
+        for (t, uv) in tris.iter().zip(&tri_uvs) {
             let [a, b, c] = t.map(|i| to_bevy(g.positions[i as usize]));
             let n = (b - a).cross(c - a).normalize_or_zero();
             positions.extend([a, b, c]);
             normals.extend([n, n, n]);
+            uvs.extend(uv);
         }
         let count = positions.len() as u32;
         let mesh = Mesh::new(
@@ -140,12 +254,33 @@ fn spawn_map(
         )
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
         .with_inserted_indices(Indices::U32((0..count).collect()));
+
+        let loaded = materials_dir
+            .0
+            .as_deref()
+            .and_then(|dir| load_material(dir, &name));
+        let (texture, alpha) = match loaded {
+            Some(m) => (m.texture.map(|i| images.add(i)), m.alpha),
+            None => (None, AlphaMode::Opaque),
+        };
+        if texture.is_some() {
+            textured += 1;
+        } else {
+            flat += 1;
+        }
 
         commands.spawn((
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: color_for(name),
+                base_color: if texture.is_some() {
+                    Color::WHITE
+                } else {
+                    color_for(&name)
+                },
+                base_color_texture: texture,
+                alpha_mode: alpha,
                 perceptual_roughness: 0.9,
                 // Winding isn't confirmed yet, so draw both sides.
                 cull_mode: None,
@@ -154,6 +289,7 @@ fn spawn_map(
             })),
         ));
     }
+    println!("materials: {textured} textured, {flat} flat colour");
 
     commands.spawn((
         DirectionalLight {
