@@ -128,11 +128,7 @@ pub fn spawn_props(
             continue;
         };
 
-        let transform = Transform {
-            translation: to_bevy(prop.origin),
-            rotation: source_rotation(prop.angles),
-            scale: Vec3::splat(if prop.scale > 0.0 { prop.scale } else { 1.0 }),
-        };
+        let transform = prop_transform(prop);
         commands
             .spawn((crate::MapEntity, transform, Visibility::default()))
             .with_children(|parent| {
@@ -144,6 +140,53 @@ pub fn spawn_props(
     }
     let models = loaded.values().filter(|p| p.is_some()).count();
     println!("props: {placed} placed from {models} models, {missing} skipped (model not found)");
+}
+
+/// Collision triangles (Bevy space) for every prop whose model has a `.phy`
+/// collision model. Props without one (grass, wires, decals) don't block movement,
+/// as in the original.
+pub fn prop_collision(props: &StaticProps, materials: &[PathBuf]) -> (Vec<Vec3>, Vec<[u32; 3]>) {
+    let dirs = models_dirs(materials);
+    let mut shapes: HashMap<u16, Option<pf_fmt_mdl::Collision>> = HashMap::new();
+    let (mut points, mut triangles) = (Vec::new(), Vec::new());
+    for prop in &props.props {
+        let shape = shapes.entry(prop.model).or_insert_with(|| {
+            let name = props.names.get(prop.model as usize)?.to_ascii_lowercase();
+            read_phy(&dirs, &name)
+        });
+        let Some(shape) = shape else {
+            continue;
+        };
+        let transform = prop_transform(prop);
+        let base = points.len() as u32;
+        points.extend(
+            shape
+                .points
+                .iter()
+                .map(|&p| transform.transform_point(to_bevy(p))),
+        );
+        triangles.extend(shape.triangles.iter().map(|t| t.map(|i| base + i)));
+    }
+    (points, triangles)
+}
+
+/// The `.phy` next to model `<name>`, if it's a single solid (not a ragdoll).
+fn read_phy(dirs: &[PathBuf], name: &str) -> Option<pf_fmt_mdl::Collision> {
+    let rel = name.trim_start_matches("models/");
+    let data = dirs
+        .iter()
+        .find_map(|dir| std::fs::read(dir.join(rel).with_extension("phy")).ok())?;
+    pf_fmt_mdl::load_phy(&data)
+        .ok()
+        .filter(|c| c.solids == 1 && !c.triangles.is_empty())
+}
+
+fn prop_transform(prop: &pf_fmt_bsp::StaticProp) -> Transform {
+    Transform {
+        translation: to_bevy(prop.origin),
+        rotation: source_rotation(prop.angles),
+        scale: Vec3::splat(if prop.scale > 0.0 { prop.scale } else { 1.0 }),
+    }
 }
 
 /// Source angles (pitch, yaw, roll in degrees) as a Bevy rotation.

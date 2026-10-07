@@ -13,6 +13,9 @@
 
 use std::io;
 
+mod phy;
+pub use phy::{Collision, load_phy};
+
 const VVD_VERTEX_LEN: usize = 48;
 
 /// One drawable mesh of a model, in model space (Source units, Z up).

@@ -35,7 +35,9 @@ State on 2026-10-04: **M0 and M1 done** (disc reader, all 18 XBAR packs decode).
 - **`pf-movement` parkour** (`src/parkour.rs`): `MovementState.mode` = Free / WallRun / WallHang / Mantle. Double jump (one per air time, refilled on ground or wall), wall-run (catches walls within 20 units, time limit, reduced gravity, can't re-grab the same wall), wall jump, wall-hang (hold crouch in the air beside a wall), auto-mantle (jumping at a ledge while holding forward), crouch (stays down under low ceilings). No slide. 8 new unit tests, plus 3 tests in `pf-game/src/map.rs` that run the moves on the greybox with the shipped `movement.ron`.
 - `pf-game`: Crouch action (Ctrl / C / pad B), eased crouch camera, 12° view tilt on wall-runs, HUD shows the mode.
 - **Hand-off:** `docs/tasks/measure-movement.md` is a frame-counting task for a helper agent (Qwen) to measure the guessed timings from the training video.
-- **Next:** play-test and tune by feel, then with the measured numbers; prop collision on Colony; Colony polish (skybox, prop lighting).
+- Wall-run 1.75 s / wall-hang 11 s from the Titanfall wiki (Enhanced Parkour Kit doubles both). Training prompt: hold forward to keep wall-running. The training video can't show the time limit (its walls end first).
+- **Prop collision done:** `pf_fmt_mdl::load_phy` reads `.phy` collision models (convex pieces; physics space is metres with Source (x,y,z) stored as (x,-z,y)). 434/448 Colony `.phy` bounds match their render meshes (trees collide on the trunk only; ragdolls skipped). `pf_world::props::prop_collision` puts 242k prop triangles into Colony's one trimesh (429k total). Check: `cargo run -p pf-fmt-mdl --example check_phy -- Resources/pc_extracted`.
+- **Next:** play-test and tune by feel; Colony polish (skybox, prop lighting); menus on Thursday.
 
 ## Progress 2026-10-07: game shell (menus + movement first)
 
