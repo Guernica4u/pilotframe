@@ -56,7 +56,7 @@ const LAND_KICK_FALL_MAX: f32 = 70.0;
 const SPRINT_TILT_MAX_ROLL: f32 = 2.0;
 
 #[derive(Component)]
-struct Player {
+pub struct Player {
     state: MovementState,
     /// Position at the previous tick. The camera blends between the two so motion
     /// looks smooth even when the screen refreshes faster than the tick rate.
@@ -79,6 +79,9 @@ fn spawn_player(
     spawn: Res<SpawnPoint>,
     settings: Res<Settings>,
     chosen: Res<ChosenMap>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     let mut player = commands.spawn((
         LevelEntity,
@@ -108,6 +111,14 @@ fn spawn_player(
     if *chosen == ChosenMap::Colony {
         player.insert(pf_world::colony_fog());
     }
+    let camera = player.id();
+    crate::viewmodel::spawn(
+        &mut commands,
+        camera,
+        &mut meshes,
+        &mut materials,
+        &mut images,
+    );
 }
 
 /// Settings can change in the pause menu; keep the camera in step.
@@ -190,6 +201,13 @@ fn tick_movement(
     }
 }
 
+impl Player {
+    /// The movement state after the latest tick.
+    pub fn movement(&self) -> &MovementState {
+        &self.state
+    }
+}
+
 /// View punches for what just happened this tick.
 fn kick_view(player: &mut Player, next: &MovementState, gravity: f32) {
     let before = player.state;
@@ -223,7 +241,7 @@ fn kick_view(player: &mut Player, next: &MovementState, gravity: f32) {
     }
 }
 
-fn place_camera(
+pub fn place_camera(
     time: Res<Time>,
     fixed: Res<Time<Fixed>>,
     tuning: Res<Tuning>,
@@ -309,11 +327,15 @@ fn spawn_hud(mut commands: Commands) {
     ));
 }
 
-const CONTROLS: &str = "WASD move   mouse look   Space jump (again in the air)   Shift sprint   Ctrl/C crouch   Right mouse aim (wall-hang)   R reset   Esc menu\n\
-                        Controller: sticks   A jump   L3 sprint   B crouch   LT aim   Back reset\n\
+const CONTROLS: &str = "WASD move   mouse look   Space jump (again in the air)   Shift sprint   Ctrl/C crouch   Right mouse aim (wall-hang)   Left mouse fire   R reload   Backspace reset   Esc menu\n\
+                        Controller: sticks   A jump   L3 sprint   B crouch   LT aim   RT fire   X reload   Back reset\n\
                         Jump alongside a wall to wall-run. Jump at a ledge holding forward to mantle.";
 
-fn update_hud(player: Single<&Player>, mut text: Single<&mut Text, With<Hud>>) {
+fn update_hud(
+    player: Single<&Player>,
+    weapon: Option<Single<&crate::viewmodel::Viewmodel>>,
+    mut text: Single<&mut Text, With<Hud>>,
+) {
     let v = player.state.velocity;
     let speed = Vec2::new(v.x, v.z).length();
     let ground = match player.state.mode {
@@ -323,8 +345,9 @@ fn update_hud(player: Single<&Player>, mut text: Single<&mut Text, With<Hud>>) {
         Mode::Free if player.state.on_ground => "on ground".into(),
         Mode::Free => "in air".into(),
     };
+    let ammo = weapon.map_or(String::new(), |w| format!("   ammo {}", w.ammo()));
     text.0 = format!(
-        "speed {speed:4.0} u/s ({:4.1} m/s)   vertical {:+5.0} u/s   {ground}\n\n{CONTROLS}",
+        "speed {speed:4.0} u/s ({:4.1} m/s)   vertical {:+5.0} u/s   {ground}{ammo}\n\n{CONTROLS}",
         speed * METRES_PER_UNIT,
         v.y,
     );

@@ -4473,6 +4473,9 @@ version = "0.0.1"
 [[package]]
 name = "pf-fmt-mdl"
 version = "0.0.1"
+dependencies = [
+ "glam 0.32.1",
+]
 
 [[package]]
 name = "pf-fmt-vpk"
@@ -4491,6 +4494,8 @@ version = "0.0.1"
 dependencies = [
  "bevy",
  "leafwing-input-manager",
+ "pf-fmt-mdl",
+ "pf-fmt-vtf",
  "pf-movement",
  "pf-world",
  "ron",

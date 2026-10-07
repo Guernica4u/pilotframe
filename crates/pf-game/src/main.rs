@@ -18,6 +18,7 @@ mod player;
 mod settings;
 mod tuning;
 mod view;
+mod viewmodel;
 
 use bevy::prelude::*;
 
@@ -55,6 +56,7 @@ fn main() {
             pf_world::WorldPlugin,
             level::LevelPlugin,
             player::PlayerPlugin,
+            viewmodel::ViewmodelPlugin,
             menu::MenuPlugin,
             dev::DevPlugin,
         ))

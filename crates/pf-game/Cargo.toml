@@ -13,6 +13,8 @@ leafwing-input-manager.workspace = true
 pf-movement.workspace = true
 ron.workspace = true
 pf-world = { path = "../pf-world" }
+pf-fmt-mdl = { path = "../pf-fmt-mdl" }
+pf-fmt-vtf = { path = "../pf-fmt-vtf" }
 serde.workspace = true
 
 [lints]
