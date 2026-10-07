@@ -17,6 +17,7 @@ mod menu;
 mod player;
 mod settings;
 mod tuning;
+mod view;
 
 use bevy::prelude::*;
 

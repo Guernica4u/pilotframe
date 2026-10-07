@@ -28,4 +28,4 @@ Every number in [`crates/pf-game/assets/movement.ron`](../../crates/pf-game/asse
 
 Other unused values from the settings files: `fov 70`, `health 200`, `ziplineSpeed 600`, `hardFallDist 20`, `impactSpeed 380`, `meleeLungeSpeed 200`, `sprinttiltMaxRoll 2`.
 
-Camera, in `pf-game/src/player.rs`: wall-run view tilt 15° (`wallrun_maxViewTilt`), plus our own landing dip and head bob (to be replaced by the engine's viewkick values).
+Camera (`pf-game/src/view.rs`, `player.rs`): view punches on jump, double jump, landing, wall-run and wall-hang on the engine's spring; sprint turn tilt; wall-run tilt 15° at speed 6; field of view in Source's convention (70 = 4:3 horizontal). Values in [r1-engine-values.md](r1-engine-values.md#view-camera-feel).

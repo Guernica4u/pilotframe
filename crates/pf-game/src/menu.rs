@@ -273,7 +273,7 @@ fn sensitivity_label(s: &Settings) -> String {
 }
 
 fn fov_label(s: &Settings) -> String {
-    format!("FIELD OF VIEW   < {:.0} >", s.fov_degrees)
+    format!("FIELD OF VIEW   < {:.0} >", s.fov)
 }
 
 fn spawn_options(mut commands: Commands, mut selected: ResMut<Selected>, settings: Res<Settings>) {
@@ -430,7 +430,7 @@ fn apply(
             settings.save();
         }
         MenuAction::Fov => {
-            settings.fov_degrees = step_setting(settings.fov_degrees, dir, FOV_RANGE);
+            settings.fov = step_setting(settings.fov, dir, FOV_RANGE);
             settings.save();
         }
     }
