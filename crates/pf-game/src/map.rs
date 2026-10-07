@@ -12,26 +12,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use pf_movement::StaticWorld;
 
-pub struct MapPlugin;
-
-impl Plugin for MapPlugin {
-    fn build(&self, app: &mut App) {
-        // Rust note: `insert_resource` stores one global value of a type. Systems
-        // ask for it with `Res<MapCollision>`.
-        app.insert_resource(MapCollision(collision(&layout())))
-            .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
-            // Fill light so faces turned away from the sun aren't black.
-            .insert_resource(GlobalAmbientLight {
-                brightness: 2500.0,
-                ..default()
-            })
-            .add_systems(Startup, spawn_map);
-    }
-}
-
-/// The collision side of the map, read by the movement tick.
-#[derive(Resource)]
-pub struct MapCollision(pub StaticWorld);
+use crate::level::LevelEntity;
 
 /// Where the player starts and resets to.
 pub const SPAWN: Vec3 = Vec3::new(0.0, 1.0, 0.0);
@@ -205,20 +186,33 @@ fn layout() -> Vec<Piece> {
     p
 }
 
-fn collision(pieces: &[Piece]) -> StaticWorld {
+/// The test map's collision, read by the movement tick.
+pub fn test_map_collision() -> StaticWorld {
     let mut world = StaticWorld::new();
-    for piece in pieces {
+    for piece in &layout() {
         world.add_box(piece.center, piece.half, piece.rotation);
     }
     world
 }
 
-fn spawn_map(
+pub fn spawn_test_map(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
+    commands.insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)));
+    // Fill light so faces turned away from the sun aren't black.
+    commands.insert_resource(GlobalAmbientLight {
+        brightness: 2500.0,
+        ..default()
+    });
+    commands.insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)));
+    // Fill light so faces turned away from the sun aren't black.
+    commands.insert_resource(GlobalAmbientLight {
+        brightness: 2500.0,
+        ..default()
+    });
     let checker = images.add(checker_image());
     let mut material_for = std::collections::HashMap::new();
 
@@ -237,6 +231,7 @@ fn spawn_map(
         // Bevy note: an entity is just an ID; what it *is* comes from the
         // components spawned on it. Mesh + material + transform = a visible object.
         commands.spawn((
+            LevelEntity,
             Mesh3d(meshes.add(box_mesh(piece.half))),
             MeshMaterial3d(material),
             Transform::from_translation(piece.center).with_rotation(piece.rotation),
@@ -244,6 +239,7 @@ fn spawn_map(
     }
 
     commands.spawn((
+        LevelEntity,
         DirectionalLight {
             illuminance: 8_000.0,
             shadow_maps_enabled: true,

@@ -448,3 +448,38 @@ fn walking_off_a_ledge_falls() {
     assert!(was_airborne);
     assert!(state.on_ground && state.position.y < 0.5, "{state:?}");
 }
+
+/// A floor made of two triangles (like map geometry) behaves like a box floor:
+/// you land on it, stand on it, and can walk across it.
+#[test]
+fn lands_and_walks_on_a_triangle_mesh_floor() {
+    let mut world = StaticWorld::new();
+    let s = 2000.0;
+    let points = [
+        Vec3::new(-s, 0.0, -s),
+        Vec3::new(s, 0.0, -s),
+        Vec3::new(s, 0.0, s),
+        Vec3::new(-s, 0.0, s),
+    ];
+    assert!(world.add_trimesh(&points, &[[0, 2, 1], [0, 3, 2]]));
+    assert!(!StaticWorld::new().add_trimesh(&[], &[]));
+
+    let dropped = run(
+        &world,
+        MovementState::new(Vec3::new(0.0, 100.0, 0.0)),
+        MoveInput::default(),
+        2.0,
+        |_| {},
+    );
+    assert!(dropped.on_ground, "should land on the mesh");
+    assert!(
+        dropped.position.y.abs() < 1.0,
+        "feet at the floor, got {}",
+        dropped.position.y
+    );
+
+    let walked = run(&world, dropped, FORWARD, 1.0, |s| {
+        assert!(s.position.y > -1.0, "fell through")
+    });
+    assert!(walked.position.z < -100.0, "should have walked forwards");
+}

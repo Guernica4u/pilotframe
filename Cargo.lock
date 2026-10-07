@@ -4486,6 +4486,18 @@ name = "pf-fmt-vtf"
 version = "0.0.1"
 
 [[package]]
+name = "pf-game"
+version = "0.0.1"
+dependencies = [
+ "bevy",
+ "leafwing-input-manager",
+ "pf-movement",
+ "pf-world",
+ "ron",
+ "serde",
+]
+
+[[package]]
 name = "pf-inventory"
 version = "0.0.1"
 dependencies = [
@@ -4544,17 +4556,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pf-sandbox"
-version = "0.0.1"
-dependencies = [
- "bevy",
- "leafwing-input-manager",
- "pf-movement",
- "ron",
- "serde",
-]
-
-[[package]]
 name = "pf-testdata"
 version = "0.0.1"
 
@@ -4564,6 +4565,14 @@ version = "0.0.1"
 
 [[package]]
 name = "pf-viewer"
+version = "0.0.1"
+dependencies = [
+ "bevy",
+ "pf-world",
+]
+
+[[package]]
+name = "pf-world"
 version = "0.0.1"
 dependencies = [
  "bevy",

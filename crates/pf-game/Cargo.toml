@@ -1,6 +1,6 @@
 [package]
-name = "pf-sandbox"
-description = "Greybox movement sandbox: drives pf-movement in a Bevy app (Track B)"
+name = "pf-game"
+description = "Pilotframe game app: menus, map select, pilot movement in the test map or Colony"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,6 +12,7 @@ bevy = { workspace = true, features = ["file_watcher"] }
 leafwing-input-manager.workspace = true
 pf-movement.workspace = true
 ron.workspace = true
+pf-world = { path = "../pf-world" }
 serde.workspace = true
 
 [lints]

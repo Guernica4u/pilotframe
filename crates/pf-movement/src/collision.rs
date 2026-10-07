@@ -90,6 +90,21 @@ impl StaticWorld {
         true
     }
 
+    /// A triangle mesh (world space), e.g. a whole map's level geometry. parry
+    /// builds a BVH over it, so big meshes stay fast. Triangles collide from both
+    /// sides. Returns `false` if the mesh is empty or invalid.
+    pub fn add_trimesh(&mut self, points: &[Vec3], triangles: &[[u32; 3]]) -> bool {
+        if points.is_empty() || triangles.is_empty() {
+            return false;
+        }
+        let points: Vec<Vector> = points.iter().map(|&p| to_parry(p)).collect();
+        let Ok(shape) = SharedShape::trimesh(points, triangles.to_vec()) else {
+            return false;
+        };
+        self.colliders.push((Pose::identity(), shape));
+        true
+    }
+
     pub fn len(&self) -> usize {
         self.colliders.len()
     }

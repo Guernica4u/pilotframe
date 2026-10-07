@@ -1,4 +1,4 @@
-// Pilot movement tuning, read by pf-movement through the sandbox.
+// Pilot movement tuning, read by pf-movement through the game (pf-game).
 //
 // EVERY VALUE HERE IS A PLACEHOLDER: round numbers chosen to feel roughly right,
 // not measurements. Real values come from frame-by-frame analysis of 360 footage
@@ -6,7 +6,7 @@
 // error bar in docs/movement/values.md.
 //
 // Units: game units (~1 inch), seconds, degrees.
-// The sandbox reloads this file when you save it, no restart needed.
+// The game reloads this file when you save it, no restart needed.
 (
     // Body
     capsule_radius: 16.0,

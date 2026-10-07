@@ -15,7 +15,7 @@ Unofficial Rust + Bevy rebuild of Titanfall (2014), using assets from each playe
 
 - `crates/`: libraries. Layer 0 crates (`pf-vfs`, `pf-xdvdfs`, `pf-fmt-*`, later `pf-movement`, `pf-sim`) have **no Bevy dependency and no `std::fs`** outside native-only code, so they compile to wasm32.
 - `Tools/`: research CLIs (`pf-inventory`, `pf-probe`, `pf-bpk`).
-- Bevy crates come later (`pf-world`, `pf-render`, `pf-player`, `pf-game`). Pin one Bevy version workspace-wide.
+- Bevy crates: `pf-world` (draws a map, gives its collision), `pf-viewer` (fly-through tool), `pf-game` (the game: menus, map select, player). Bevy is pinned workspace-wide (0.19.1).
 
 ## Conventions
 

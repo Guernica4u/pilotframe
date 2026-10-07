@@ -6,12 +6,16 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use leafwing_input_manager::prelude::*;
 
+use crate::menu::playing;
+
 pub struct InputPlugin;
 
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
+        // The mouse is captured only while playing; Esc opens the pause menu
+        // (menu.rs), which releases it.
         app.add_plugins(InputManagerPlugin::<Action>::default())
-            .add_systems(Update, capture_cursor);
+            .add_systems(Update, recapture_on_click.run_if(playing));
     }
 }
 
@@ -66,20 +70,24 @@ pub mod look {
     pub const STICK_DEADZONE: f32 = 0.12;
 }
 
-/// Click in the window to capture the mouse for look; Escape releases it.
-fn capture_cursor(
+/// If the mouse got released while playing (alt-tab), a click takes it back.
+fn recapture_on_click(
     mut cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
 ) {
     if mouse.just_pressed(MouseButton::Left) {
-        cursor.grab_mode = CursorGrabMode::Locked;
-        cursor.visible = false;
+        set_captured(&mut cursor, true);
     }
-    if keys.just_pressed(KeyCode::Escape) {
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
-    }
+}
+
+/// Lock and hide the mouse for look, or free it for menus.
+pub fn set_captured(cursor: &mut CursorOptions, captured: bool) {
+    cursor.grab_mode = if captured {
+        CursorGrabMode::Locked
+    } else {
+        CursorGrabMode::None
+    };
+    cursor.visible = !captured;
 }
 
 pub fn cursor_captured(cursor: &CursorOptions) -> bool {
