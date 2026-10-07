@@ -673,3 +673,12 @@ fn cannot_mantle_a_wall_that_is_too_tall() {
     });
     assert!(state.position.y < 1.0);
 }
+
+#[test]
+fn letting_go_of_forward_ends_a_wall_run() {
+    let world = long_wall();
+    let (state, _) = wallrun_from_jump(&world, HOLD_FORWARD, 0.4);
+    assert!(matches!(state.mode, Mode::WallRun { .. }), "{state:?}");
+    let state = run(&world, state, MoveInput::default(), DT, |_| {});
+    assert_eq!(state.mode, Mode::Free);
+}

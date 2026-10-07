@@ -2,6 +2,7 @@
 //
 // [set] = read from the pilot settings files on the PC discs
 //         (scripts/players/mp/pilot_*.set; every standard pilot class agrees).
+// [wiki]  = the Titanfall fandom wiki (community source, medium confidence).
 // [guess] = placeholder until measured from the owner's training and Colony
 //           footage. See docs/movement/values.md for each value's source.
 //
@@ -35,10 +36,10 @@
     wallrun_gravity: 150.0,    // [guess]
     wallrun_max_lift: 150.0,   // [guess]
     wallrun_max_fall_speed: 450.0, // [guess]
-    wallrun_time_limit: 1.75,  // [guess] the Wall Runner kit adds to it
+    wallrun_time_limit: 1.75,  // [wiki] 3.5 with the Enhanced Parkour Kit
     wall_jump_height: 60.0,    // [guess]
     wall_jump_push: 280.0,     // [guess]
-    wall_hang_time_limit: 3.0, // [guess]
+    wall_hang_time_limit: 11.0, // [wiki] 22 with the Enhanced Parkour Kit
 
     // Mantle (automantle is on for every pilot class)
     mantle_reach: 70.0,        // [guess]

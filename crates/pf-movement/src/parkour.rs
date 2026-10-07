@@ -24,6 +24,8 @@ const WALL_STICK: f32 = 20.0;
 const DETACH_PUSH: f32 = 40.0;
 /// Steering at least this much away from the wall (dot product) lets go of it.
 const STEER_AWAY: f32 = 0.5;
+/// Forward stick/key must be held at least this much to keep wall-running.
+const HOLD_FORWARD: f32 = 0.3;
 /// A mantle only starts when pushing forward at least this much and facing the wall
 /// at least this squarely (dot products).
 const MANTLE_WISH: f32 = 0.5;
@@ -113,7 +115,9 @@ pub(crate) fn wall_run(
     }
     let wish = wish_velocity(input, tuning, false);
     let steering_away = wish.normalize_or_zero().dot(normal) > STEER_AWAY;
-    if time > tuning.wallrun_time_limit || steering_away {
+    // The training mission: "HOLD forward to run along the wall".
+    let holding_forward = input.wish.y > HOLD_FORWARD;
+    if time > tuning.wallrun_time_limit || steering_away || !holding_forward {
         return detach(s, normal);
     }
 
