@@ -45,7 +45,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 
     var light = vec3(1.0);
 #ifdef VERTEX_UVS_B
-    if settings.y > 0.5 {
+    if settings.y > 0.5 && settings.y < 1.5 {
         let sky = textureSample(lightmap_sky, lightmap_sampler, in.uv_b);
         let mask = textureSample(lightmap_realtime, lightmap_sampler, in.uv_b).r;
         // The map's own normals are authored correctly; Source winds triangles
@@ -58,6 +58,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         if sun_color.w > 1.5 && sun_color.w < 2.5 { light = vec3(n_dot_l); }
     }
 #endif
+    // Props (y = 2) have no lightmap: flat ambient + sun x N.L, no shadows yet.
+    if settings.y > 1.5 {
+        let n = normalize(in.world_normal);
+        let n_dot_l = max(dot(n, -sun_direction.xyz), 0.0);
+        light = vec3(settings.z) + sun_color.rgb * n_dot_l * settings.w;
+    }
 
     var out: FragmentOutput;
     out.color = vec4(albedo.rgb * light, albedo.a);

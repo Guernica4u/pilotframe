@@ -4227,6 +4227,10 @@ name = "pf-fmt-bsp"
 version = "0.0.1"
 
 [[package]]
+name = "pf-fmt-mdl"
+version = "0.0.1"
+
+[[package]]
 name = "pf-fmt-vpk"
 version = "0.0.1"
 dependencies = [
@@ -4268,6 +4272,7 @@ name = "pf-pc"
 version = "0.0.1"
 dependencies = [
  "pf-fmt-bsp",
+ "pf-fmt-mdl",
  "pf-fmt-vpk",
  "pf-fmt-vtf",
  "pf-iso9660",
@@ -4298,6 +4303,7 @@ version = "0.0.1"
 dependencies = [
  "bevy",
  "pf-fmt-bsp",
+ "pf-fmt-mdl",
  "pf-fmt-vtf",
 ]
 

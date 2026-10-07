@@ -1,0 +1,10 @@
+[package]
+name = "pf-fmt-mdl"
+description = "Source studio model reader (MDL v52 + VVD + VTX), static meshes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
