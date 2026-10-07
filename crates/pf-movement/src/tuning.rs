@@ -1,6 +1,7 @@
 //! Every movement number lives here and is loaded from a `.ron` file, so tuning
 //! never needs a code change. There's deliberately no `Default`: values come from
-//! data, each with its source logged in `docs/movement/values.md`.
+//! data, each with its source logged in `docs/movement/values.md` (and the engine
+//! defaults in `docs/movement/r1-engine-values.md`).
 
 use serde::Deserialize;
 
@@ -28,13 +29,18 @@ pub struct MovementTuning {
     pub sprint_speed: f32,
     /// Top ground speed while crouched, units/s.
     pub crouch_speed: f32,
-    /// How fast ground speed approaches the wished-for speed, units/s².
-    pub ground_accel: f32,
-    /// How fast ground speed bleeds off with no input, units/s².
-    pub ground_friction: f32,
-    /// Steering acceleration in the air, units/s². Never raises speed above the
-    /// faster of your current speed and the wished-for speed.
-    pub air_accel: f32,
+    /// How fast ground speed builds towards the wished-for speed, units/s².
+    pub acceleration: f32,
+    /// Ground friction: each second you lose `friction` × max(speed, stop_speed).
+    pub friction: f32,
+    /// Below this speed friction stops you at a constant rate instead of a fading one.
+    pub stop_speed: f32,
+
+    /// Air control only steers up to this speed in any one direction, units/s.
+    /// Above it you keep your momentum but can't add to it (Source-style).
+    pub air_speed: f32,
+    /// Steering acceleration in the air, units/s².
+    pub air_acceleration: f32,
 
     /// Downward acceleration, units/s².
     pub gravity: f32,
@@ -42,32 +48,70 @@ pub struct MovementTuning {
     pub jump_height: f32,
     /// Height gained by the mid-air jump (one per time in the air), units.
     pub double_jump_height: f32,
+    /// After walking off a ledge you can still jump for this long, seconds.
+    pub jump_grace_time: f32,
 
-    /// Speed a wall-run builds up to along the wall, units/s.
-    pub wallrun_speed: f32,
-    /// How fast wall-run speed approaches `wallrun_speed`, units/s².
-    pub wallrun_accel: f32,
-    /// Slower than this along the wall and you can't start, or you slip off, units/s.
-    pub wallrun_min_speed: f32,
-    /// Downward acceleration while wall-running, units/s². Much less than `gravity`.
-    pub wallrun_gravity: f32,
-    /// Most upward speed kept when a wall-run starts, units/s.
-    pub wallrun_max_lift: f32,
-    /// Falling faster than this, a wall won't catch you, units/s.
-    pub wallrun_max_fall_speed: f32,
-    /// Longest a single wall-run lasts, seconds.
+    /// Longest a wall-run lasts before you start slipping, seconds.
     pub wallrun_time_limit: f32,
-    /// Height of a jump off a wall, units.
-    pub wall_jump_height: f32,
-    /// Speed away from the wall a wall jump adds, units/s.
-    pub wall_jump_push: f32,
-    /// Longest you can hang on a wall, seconds.
+    /// How long the slip lasts before you fall off, seconds.
+    pub wallrun_slip_time: f32,
+    /// Downward kick when slipping starts, units/s.
+    pub wallrun_slip_speed: f32,
+    /// Fraction of speed lost when slipping starts.
+    pub wallrun_slip_slowdown: f32,
+    /// Upward speed given when a wall-run starts, units/s.
+    pub wallrun_up_boost: f32,
+    /// Gravity starts at zero on a wall and ramps to full over this, seconds.
+    pub wallrun_gravity_ramp_time: f32,
+    /// Top speed along the wall, units/s.
+    pub wallrun_max_speed: f32,
+    /// Acceleration along the wall (Source-style factor: units/s² per unit/s).
+    pub wallrun_accelerate: f32,
+    /// Friction along the wall (same meaning as `friction`).
+    pub wallrun_friction: f32,
+    /// Fastest you move up or down the wall, units/s.
+    pub wallrun_max_speed_vertical: f32,
+    /// Upward acceleration from pushing forward along the wall, before
+    /// `wallrun_upward_push` scales it, units/s².
+    pub wallrun_accelerate_vertical: f32,
+    /// How much of `wallrun_accelerate_vertical` holding forward gives, 0..1.
+    pub wallrun_upward_push: f32,
+    /// Slower than this along the wall and you can't start a wall-run, units/s.
+    pub wallrun_min_speed: f32,
+    /// Speed away from the wall when you let go or fall off, units/s.
+    pub wallrun_fall_away_speed: f32,
+    /// Wall-runs (without landing) before the upward boost starts fading, and the
+    /// count at which it's gone.
+    pub wallrun_strength_loss_start: f32,
+    pub wallrun_strength_loss_end: f32,
+    /// Jumping off a wall: speed up, away from the wall, and towards your input.
+    pub wall_jump_up_speed: f32,
+    pub wall_jump_outward_speed: f32,
+    pub wall_jump_input_speed: f32,
+    /// Longest you can hang on a wall before slipping, seconds.
     pub wall_hang_time_limit: f32,
+    /// Time to come to a stop when a wall-hang starts, seconds.
+    pub wall_hang_stop_time: f32,
+    /// How long the slip at the end of a hang lasts, seconds.
+    pub wall_hang_slip_time: f32,
 
-    /// Highest ledge, above the feet, that a mantle can pull you onto, units.
-    pub mantle_reach: f32,
-    /// How long climbing over a ledge takes, seconds.
-    pub mantle_time: f32,
+    /// Highest ledge above the feet that a mantle can reach, units.
+    pub mantle_height: f32,
+    /// Most the view may point away from the wall to start a mantle, degrees
+    /// (`_wallrun` while wall-running).
+    pub mantle_max_view_angle: f32,
+    pub mantle_max_view_angle_wallrun: f32,
+    /// Eye height relative to the ledge that picks the mantle speed: below
+    /// `mantle_eye_below` takes `mantle_time_below`, below `mantle_eye_level` takes
+    /// `mantle_time_level`, below `mantle_eye_above` takes `mantle_time_above`,
+    /// otherwise `mantle_time_high`. Units and seconds.
+    pub mantle_eye_below: f32,
+    pub mantle_eye_level: f32,
+    pub mantle_eye_above: f32,
+    pub mantle_time_below: f32,
+    pub mantle_time_level: f32,
+    pub mantle_time_above: f32,
+    pub mantle_time_high: f32,
 
     /// Steepest slope that counts as ground, degrees from flat.
     pub max_slope_deg: f32,
@@ -111,5 +155,18 @@ impl MovementTuning {
     /// A surface is walkable if its normal's up component is at least this.
     pub fn min_ground_normal_y(&self) -> f32 {
         self.max_slope_deg.to_radians().cos()
+    }
+
+    /// How long a mantle takes, from where the eyes are relative to the ledge top.
+    pub fn mantle_time(&self, eye_above_ledge: f32) -> f32 {
+        if eye_above_ledge < self.mantle_eye_below {
+            self.mantle_time_below
+        } else if eye_above_ledge < self.mantle_eye_level {
+            self.mantle_time_level
+        } else if eye_above_ledge < self.mantle_eye_above {
+            self.mantle_time_above
+        } else {
+            self.mantle_time_high
+        }
     }
 }

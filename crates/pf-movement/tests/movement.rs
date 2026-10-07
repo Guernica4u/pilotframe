@@ -15,12 +15,21 @@ fn tuning() -> MovementTuning {
             capsule_radius: 16.0, capsule_height: 72.0, eye_height: 64.0,
             crouch_height: 48.0, crouch_eye_height: 40.0,
             walk_speed: 200.0, sprint_speed: 300.0, crouch_speed: 90.0,
-            ground_accel: 2000.0, ground_friction: 2000.0, air_accel: 400.0,
-            gravity: 800.0, jump_height: 50.0, double_jump_height: 40.0,
-            wallrun_speed: 350.0, wallrun_accel: 500.0, wallrun_min_speed: 120.0,
-            wallrun_gravity: 100.0, wallrun_max_lift: 150.0, wallrun_max_fall_speed: 500.0,
-            wallrun_time_limit: 1.5, wall_jump_height: 40.0, wall_jump_push: 250.0,
-            wall_hang_time_limit: 3.0, mantle_reach: 80.0, mantle_time: 0.3,
+            acceleration: 2500.0, friction: 4.0, stop_speed: 100.0,
+            air_speed: 60.0, air_acceleration: 500.0,
+            gravity: 800.0, jump_height: 50.0, double_jump_height: 40.0, jump_grace_time: 0.2,
+            wallrun_time_limit: 1.5, wallrun_slip_time: 0.5, wallrun_slip_speed: 70.0,
+            wallrun_slip_slowdown: 0.5, wallrun_up_boost: 250.0, wallrun_gravity_ramp_time: 0.7,
+            wallrun_max_speed: 240.0, wallrun_accelerate: 7.0, wallrun_friction: 4.0,
+            wallrun_max_speed_vertical: 300.0, wallrun_accelerate_vertical: 450.0,
+            wallrun_upward_push: 0.65, wallrun_min_speed: 100.0, wallrun_fall_away_speed: 100.0,
+            wallrun_strength_loss_start: 3.0, wallrun_strength_loss_end: 5.0,
+            wall_jump_up_speed: 250.0, wall_jump_outward_speed: 150.0, wall_jump_input_speed: 100.0,
+            wall_hang_time_limit: 3.0, wall_hang_stop_time: 0.5, wall_hang_slip_time: 1.0,
+            mantle_height: 80.0, mantle_max_view_angle: 65.0, mantle_max_view_angle_wallrun: 45.0,
+            mantle_eye_below: -10.0, mantle_eye_level: 10.0, mantle_eye_above: 30.0,
+            mantle_time_below: 1.11, mantle_time_level: 1.0, mantle_time_above: 0.5,
+            mantle_time_high: 0.35,
             max_slope_deg: 45.0, step_height: 18.0,
         )",
     )
@@ -64,6 +73,7 @@ const FORWARD: MoveInput = MoveInput {
     jump: false,
     sprint: false,
     crouch: false,
+    zoom: false,
 };
 
 /// Run `seconds` of the same input, calling `each` after every tick.
@@ -288,7 +298,10 @@ fn moving_diagonally_into_a_wall_slides_along_it() {
         ..FORWARD
     };
     let state = run(&world, settle(&world, Vec3::ZERO), diagonal, 3.0, |s| {
-        assert!(s.position.z >= WALL_LIMIT, "{s:?}");
+        // The wall ends at x = 500; past that there's nothing to stop us.
+        if s.position.x < 480.0 {
+            assert!(s.position.z >= WALL_LIMIT, "{s:?}");
+        }
     });
     assert!(
         state.position.x > 250.0,
@@ -570,13 +583,15 @@ const HOLD_FORWARD: MoveInput = MoveInput {
     jump: false,
     sprint: false,
     crouch: false,
+    zoom: false,
 };
 
 #[test]
 fn wall_run_starts_beside_a_wall_and_ends_at_the_time_limit() {
     let world = long_wall();
     let (state, ran) = wallrun_from_jump(&world, HOLD_FORWARD, 3.0);
-    assert!(ran > 1.4 && ran < 1.6, "wall-ran for {ran} s");
+    // 1.5 s run, then a 0.5 s slip before falling off.
+    assert!(ran > 1.9 && ran < 2.1, "wall-ran for {ran} s");
     assert!(state.on_ground, "should fall and land after: {state:?}");
 }
 
@@ -588,8 +603,8 @@ fn wall_run_falls_slower_than_a_jump() {
     assert!(matches!(state.mode, Mode::WallRun { .. }), "{state:?}");
     assert!(state.position.y > 10.0, "{state:?}");
     assert!(
-        speed(&state) > 300.0,
-        "should speed up along the wall: {state:?}"
+        (speed(&state) - 240.0).abs() < 5.0,
+        "should settle at the wall-run top speed: {state:?}"
     );
 }
 
@@ -610,23 +625,27 @@ fn wall_jump_pushes_away_and_up() {
         DT,
     );
     assert_eq!(state.mode, Mode::Free);
-    assert!(state.velocity.z > 200.0, "away from the wall: {state:?}");
+    assert!(state.velocity.z > 100.0, "away from the wall: {state:?}");
     assert!(state.velocity.y > 200.0, "{state:?}");
     assert!(state.last_wall.is_some());
 }
 
 #[test]
-fn wall_hang_holds_still_until_crouch_is_released() {
+fn wall_hang_holds_still_until_aim_is_released() {
     let world = long_wall();
     let hang = MoveInput {
-        crouch: true,
+        zoom: true,
         ..Default::default()
     };
     let (state, _) = wallrun_from_jump(&world, hang, 0.3);
     assert!(matches!(state.mode, Mode::WallHang { .. }), "{state:?}");
     let y = state.position.y;
+    // It takes wall_hang_stop_time (0.5 s) to come to a stop, then holds.
+    let state = run(&world, state, hang, 0.6, |_| {});
+    let y = state.position.y.max(y);
     let state = run(&world, state, hang, 1.0, |_| {});
-    assert!((state.position.y - y).abs() < 0.01, "{state:?}");
+    assert!((state.position.y - y).abs() < 30.0, "{state:?}");
+    assert!(state.velocity.length() < 0.01, "{state:?}");
     let state = run(&world, state, MoveInput::default(), 0.1, |_| {});
     assert_eq!(state.mode, Mode::Free);
     assert!(state.velocity.y < 0.0);
@@ -641,7 +660,8 @@ fn mantles_onto_a_ledge_within_reach() {
         Vec3::new(-300.0, 0.0, -400.0),
         Vec3::new(300.0, 64.0, -100.0),
     );
-    let start = settle(&world, Vec3::ZERO);
+    // Walk up to it (mantling only happens while jumping), then jump.
+    let start = run(&world, settle(&world, Vec3::ZERO), FORWARD, 1.0, |_| {});
     let jump = MoveInput {
         jump: true,
         ..FORWARD

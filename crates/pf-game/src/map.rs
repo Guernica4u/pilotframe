@@ -371,15 +371,24 @@ mod tests {
         let (state, _) = run(&world, state, jump(sprint(0.0)), DT);
         let (state, modes) = run(&world, state, sprint(0.0), 0.5);
         assert!(matches!(state.mode, Mode::WallRun { .. }), "{modes:?}");
-        // Jump off: across to the left wall, which catches us again.
-        let (state, _) = run(&world, state, jump(sprint(0.0)), DT);
+        // Jump off while steering at the left wall: the wall jump adds speed in
+        // the input direction, so this carries us across.
+        let left = MoveInput {
+            wish: Vec2::new(-1.0, 0.3),
+            ..sprint(0.0)
+        };
+        let (state, _) = run(&world, state, jump(left), DT);
         assert!(state.velocity.x < 0.0, "{state:?}");
-        // Steer towards it, as a player would.
+        // Steer towards it and double jump halfway, as a player would: a wall
+        // jump alone doesn't carry across 300 units.
         let across = MoveInput {
             wish: Vec2::new(-0.7, 0.7),
             ..sprint(0.0)
         };
-        let (_, modes) = run(&world, state, across, 1.0);
+        let (state, mut modes) = run(&world, state, across, 0.3);
+        let (state, _) = run(&world, state, jump(across), DT);
+        let (_, rest) = run(&world, state, across, 1.0);
+        modes.extend(rest);
         let caught = modes
             .iter()
             .any(|m| matches!(m, Mode::WallRun { normal, .. } if normal.x > 0.9));
@@ -393,7 +402,8 @@ mod tests {
         let start = MovementState::new(Vec3::new(-40.0, 1.0, -700.0));
         let (state, _) = run(&world, start, sprint(0.0), 0.4);
         let (state, _) = run(&world, state, jump(sprint(0.0)), DT);
-        let (state, modes) = run(&world, state, sprint(0.0), 0.6);
+        // An eye-level ledge takes the game's 1 s "level" mantle.
+        let (state, modes) = run(&world, state, sprint(0.0), 1.5);
         assert!(
             modes.iter().any(|m| matches!(m, Mode::Mantle { .. })),
             "{modes:?}"

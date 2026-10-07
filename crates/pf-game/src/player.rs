@@ -40,8 +40,9 @@ impl Plugin for PlayerPlugin {
 const KILL_DEPTH: f32 = 4000.0;
 /// Inches to metres, for the HUD.
 const METRES_PER_UNIT: f32 = 0.0254;
-/// How far the view tilts away from the wall during a wall-run, degrees.
-const WALLRUN_ROLL_DEG: f32 = 12.0;
+/// How far the view tilts away from the wall during a wall-run, degrees
+/// (`wallrun_maxViewTilt`).
+const WALLRUN_ROLL_DEG: f32 = 15.0;
 /// How quickly the eye height (crouching) and tilt catch up, per second. Higher is snappier.
 const CAMERA_EASE: f32 = 12.0;
 /// Landing: the view dips by this many units per 100 units/s of fall speed, at
@@ -179,6 +180,7 @@ fn tick_movement(
         jump: actions.just_pressed(&Action::Jump),
         sprint: actions.pressed(&Action::Sprint) || player.sprint_latched,
         crouch: actions.pressed(&Action::Crouch),
+        zoom: actions.pressed(&Action::Zoom),
     };
 
     // `time` is the fixed clock here, so this is exactly one tick.
@@ -282,8 +284,8 @@ fn spawn_hud(mut commands: Commands) {
     ));
 }
 
-const CONTROLS: &str = "WASD move   mouse look   Space jump (again in the air)   Shift sprint   Ctrl/C crouch, wall-hang   R reset   Esc menu\n\
-                        Controller: sticks   A jump   L3 sprint   B crouch   Back reset\n\
+const CONTROLS: &str = "WASD move   mouse look   Space jump (again in the air)   Shift sprint   Ctrl/C crouch   Right mouse aim (wall-hang)   R reset   Esc menu\n\
+                        Controller: sticks   A jump   L3 sprint   B crouch   LT aim   Back reset\n\
                         Jump alongside a wall to wall-run. Jump at a ledge holding forward to mantle.";
 
 fn update_hud(player: Single<&Player>, mut text: Single<&mut Text, With<Hud>>) {
