@@ -29,8 +29,8 @@ Status: **Milestones 0 and 1 done. Milestone 2 (raw map geometry) next.** Format
 | Public goal | Repo goes public when it **boots to the menu and you can pick a map and walk it with real pilot movement** (incl. wall-running). No enemies needed. |
 | DLC | **Only DLC the owner downloaded themselves** (e.g. an old PC install or the Xbox 360's hard drive). Never from other people. The stores are closed. Setup will pick DLC up if it's present. Base game first. |
 | (old) DLC | Base game only (15 maps + lobby + training). DLC maps aren't on any disc. They were downloads, and the stores are closed, so it's out of scope for now. |
-| Clean-room line | Numeric **settings files may be read as data**. **Game scripts (`.nut`) are off-limits.** The XEX is never touched. |
-| Third-party code | We **may port struct layouts from GPL-3.0 tools** (e.g. bsp_tool) with attribution in the file header and `docs/RESEARCH.md`. AGPL (RSX) is read-only reference. Anything containing leaked/SDK-derived code is never used. |
+| Reference line | (Relaxed 2026-10-06.) **Anything legal may be read as reference**, including the owner's own game scripts. **All shipped code is written by us in Rust.** Leaks, decompiling the executables, and DRM bypass stay banned. |
+| Third-party code | Open-source tools (bsp_tool, RSX, Northstar, R1Delta…) are **reference only**: we learn layouts and behaviour from them and write our own Rust, crediting them in `docs/RESEARCH.md`. Skip any files that come from leaked code. |
 | Measurement footage | No 360 console and no capture card, so we'll use **YouTube footage of the 360 version** that the owner picks, analysed frame by frame. Lower precision (360 ran ~30 fps at sub-720p), so we average over many clips. |
 | Codename | `Pilotframe` (`pf-*`) until a real name is chosen. |
 | Hosting | **Private GitHub repo**. Owner + one friend, each with their own Claude. **Stays private until it boots to a menu and loads a map** (no enemies needed). When it goes public, describe it as an "unofficial reimplementation" (not a "port" or "remake"). |
@@ -44,11 +44,11 @@ Status: **Milestones 0 and 1 done. Milestone 2 (raw map geometry) next.** Format
 
 These go into `CONTRIBUTING.md` and `LEGAL.md` word for word once the repo exists.
 
-1. **Clean rewrite.** We never copy, paste, or line-by-line translate decompiled/disassembled game code. We never open, decrypt, or run `default.xex`. We study **data formats** (by inspecting the user's own files) and **observable behaviour** (by playing and recording the game), then write original code.
-2. **No leaked source.** Leaked Valve/Respawn source code (Source engine leaks, etc.) is off-limits even for reference. If a third-party project contains it or is derived from it, we read that project's *docs*, not its code. R1Delta, for example, contains Source SDK-derived code.
+1. **Our code, in Rust.** Every line of project code is written by us. We never copy, paste, or line-by-line translate code from any source. Anything **legal** may be used as reference: the owner's own game files (data and scripts), open-source projects, public SDKs, docs, wikis, videos. (Relaxed 2026-10-06.)
+2. **Never, even as reference:** leaked source (Valve/Respawn leaks, or files in other projects derived from them), leaked XDK docs, decompiling/disassembling the game executables (`.exe`, `.dll`, `.xex`), and DRM circumvention.
 3. **Bring your own assets.** The repo, releases, CI artifacts, issues, wiki, and any website hold **zero** game-derived bytes: no textures, meshes, audio, maps, screenshots of converted assets in test fixtures, or hex dumps longer than a struct header. Only the player's local setup tool turns their own disc dump into a local cache next to the exe.
 4. **The engine never assumes original assets exist.** Every asset lookup goes through a content layer that can be satisfied by the original-derived cache, a community pack, or built-in placeholders.
-5. **Third-party code** may be used only if its license is GPL-3.0-compatible. **Exception:** we may *read* AGPL code (RSX) for format facts but won't vendor it.
+5. **Dependencies** (crates) must have GPL-3.0-compatible licenses. Other projects' code is read, never vendored.
 6. **Branding:** name, logo and icon are the owners' call (relaxed 2026-10-05). README and title screen carry the "unofficial / not affiliated" notice.
 7. **License:** `GPL-3.0-only`, plus this notice: *"This license covers only the code in this repository. It grants no rights to Electronic Arts' or Respawn Entertainment's code, data, assets, or trademarks."*
 
@@ -295,7 +295,7 @@ Movement code lives in the engine, inside the XEX we won't touch. So we treat th
 | **Original game no longer playable for measurement** (servers, offline modes) | Unknown | Harder to measure | See Q2. Existing YouTube footage as a weaker fallback. |
 | **Scope** (a full AAA multiplayer shooter) | Certain | Burnout | Milestones that are each fun on their own. M3 ("walk around the original maps") is a satisfying stopping point. |
 | **Bevy churn + you're new to Rust** | High | Slow, frustrating upgrades | Pin versions, keep Bevy out of Layer 0 (most code doesn't care about upgrades), clippy + tests in CI. |
-| **AI-generated code drifts toward "remembered" game code** | Low–medium | Clean-room breach | Rule in CONTRIBUTING: prompts reference our docs/formats write-ups only. Never paste decompiled/leaked code into a session. |
+| **AI-generated code drifts toward "remembered" or copied code** | Low–medium | Code isn't ours | Rule in CONTRIBUTING: write fresh Rust from our docs and notes. Never paste leaked or decompiled code into a session. |
 | **Legal: EA takedown** | Low–medium (EA has tolerated BYOA projects but isn't obliged to) | Project hosting lost | Strict BYOA, no game assets anywhere, clean-room code, a clear notice, mirror-ready repo. Branding is easy to swap if ever needed. |
 
 ---

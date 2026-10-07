@@ -54,7 +54,7 @@ Content is identified by leading bytes. The Source-family formats are **byte-swa
 | `BPAN` | 88 | Bluepoint animation data? (biggest category by size) |
 | `ENTI` | 5 | Entity data (12-byte stubs in the lobby) |
 | `MODL`, `SMAP`, `AS01`, `ST12`, `STP1`, `PROJ`, `TOOL` | few | Unknown Bluepoint/engine formats |
-| text | many | KeyValues settings/materials, configs. **Game scripts (`.nut`-like) are also present and are off-limits under the clean-room rule. Tools must not display them.** |
+| text | many | KeyValues settings/materials, configs. Game scripts (`.nut`-like) are also present. Since 2026-10-06 they may be read as reference (never copied into the repo). |
 
 ## Next (Milestone 2)
 

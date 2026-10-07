@@ -4,8 +4,9 @@ Unofficial Rust + Bevy rebuild of Titanfall (2014), using assets from each playe
 
 ## Non-negotiable rules
 
-- **Clean room.** Never use decompiled/disassembled game code, leaked source (Source engine or Respawn leaks), or leaked Xbox SDK (XDK) docs. Never read, decrypt, or run `.xex`/`.lex` files. We study data formats from the owner's own files and write original code.
-- **Game scripts are off-limits.** The packs contain Squirrel game scripts. Don't open, print, or summarise them. Numeric settings files (KeyValues data) may be read as data.
+- **All project code is ours, in Rust.** Never copy, paste, or line-by-line translate code from anywhere (game, open-source tools, mods). Normal crates.io dependencies are fine (license rule below).
+- **Anything legal may be used as reference** (rules relaxed 2026-10-06): open-source projects (bsp_tool, Northstar, R1Delta, public Source SDK 2013, etc.), wikis, docs, videos, and the owner's own game files, including the Squirrel game scripts (read them to learn values and behaviour; never copy them into the repo or ship them). Credit what we learned from in `docs/RESEARCH.md`.
+- **Still banned (not legal or too risky):** leaked source (Valve/Respawn leaks, and any files in other projects that come from them), leaked Xbox SDK (XDK) docs, decompiling or disassembling the game's executables (`.exe`/`.dll`/`.xex`/`.lex`), and any DRM bypass (e.g. the Xbox One disc).
 - **No game data in git.** Nothing from `Resources/` (ISO, extracted packs, inventory JSON) is ever committed, pasted into issues, or used as a test fixture. Docs may describe struct layouts, but no hex dumps longer than a header.
 - **Engine never assumes original assets exist.** Missing assets fall back to placeholders.
 - **Branding (name, logo, icon) is the owners' call.** Don't flag it. The project logo is a deliberate choice. Keep the "unofficial / not affiliated with EA or Respawn" notice in the README and title screen.
