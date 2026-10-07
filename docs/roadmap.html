@@ -172,10 +172,10 @@ footer { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line)
 
 <div class="wrap">
   <header>
-    <div class="eyebrow">Unofficial · private · updated 4 Oct 2026</div>
+    <div class="eyebrow">Unofficial · private · updated 7 Oct 2026</div>
     <h1>Pilotframe Roadmap</h1>
     <p class="lede">A from-scratch Rust and Bevy rebuild of the 2014 mech shooter, using assets from each player's own PC or Xbox 360 discs. Milestones run in order. Two tracks can be worked on at the same time.</p>
-    <p class="note"><strong>When can I boot it?</strong> Goal: boot to the rebuilt menu, pick Colony, and walk it with real pilot movement. Path: M2 → M3 → audio → M4 → M5 → setup screen + menu. Estimate: <strong>roughly 3–6 weeks of sessions after M2 starts (Thu 2026-10-08)</strong>, so around mid-to-late November 2026. A plain, untextured fly-through of Colony should come within the first week.</p>
+    <p class="note"><strong>When can I boot it?</strong> Goal: boot to a menu, pick Colony, and walk it with real pilot movement, wall-running included. <strong>Already working:</strong> menu → map select → walk Colony (or the test map) with collision. <strong>Left before going public:</strong> the parkour (M5), a first-launch setup screen that finds your discs, and the original menu look. New estimate: <strong>about 1–3 weeks of sessions</strong>, so late October to early November 2026, ahead of the old mid-November guess.</p>
   </header>
 
   <section class="progress" aria-label="Overall progress">
@@ -183,40 +183,38 @@ footer { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line)
       <div class="cell done" title="M0 done">M0</div>
       <div class="cell done" title="M1 done">M1</div>
       <div class="cell done" title="M2 done">M2</div>
-      <div class="cell next" title="M3 next">M3</div><div class="cell">M4</div><div class="cell">M5</div><div class="cell">M6</div>
+      <div class="cell next" title="M3 in progress">M3</div><div class="cell done" title="M4 done">M4</div><div class="cell next" title="M5 next">M5</div><div class="cell">M6</div>
       <div class="cell">M7</div><div class="cell">M8</div><div class="cell">M9</div><div class="cell">M10</div>
       <div class="cell">M11</div><div class="cell">M12</div>
     </div>
     <div class="legend">
-      <span><i class="dot done"></i>Done (3)</span>
-      <span><i class="dot next"></i>Next up</span>
+      <span><i class="dot done"></i>Done (4)</span>
+      <span><i class="dot next"></i>In progress / next</span>
       <span><i class="dot"></i>Planned</span>
     </div>
   </section>
 
   <section>
-    <h2>Two tracks, two people</h2>
+    <h2>Where things stand</h2>
     <div class="tracks">
       <div class="track a">
-        <h3>Track A · Game files to maps</h3>
-        <p>Reads the disc and gets the original maps on screen. Needs a Titanfall 360 dump.</p>
+        <h3>Maps (from your discs)</h3>
+        <p>Colony loads straight from your PC discs: geometry, textures, grass/dirt blending, baked lighting, fog and all 16,891 props.</p>
         <ol>
-          <li>M2 raw map geometry</li>
-          <li>M3 textured fly-through</li>
-          <li>Then models and animations for M6–M8</li>
+          <li>Still missing: sky with the cliffs, bump detail and shine, prop lighting, smoke and fire</li>
+          <li>Then every other map, including the 9 DLC maps</li>
         </ol>
       </div>
       <div class="track b">
-        <h3>Track B · Movement sandbox</h3>
-        <p>Builds the pilot controller on a homemade test map. Needs no game files, so it can start today.</p>
+        <h3>The game (menus + movement)</h3>
+        <p>Your friend's movement sandbox is merged into the game app: main menu, map select, options, pause menu, and Colony is walkable with real collision.</p>
         <ol>
-          <li>M4 walk with collision on a greybox map</li>
-          <li>M5 faithful pilot movement</li>
-          <li>Merges with Track A when M3 lands</li>
+          <li>Next: Titanfall parkour, measured from your training video</li>
+          <li>Then the original menu look from your own files</li>
         </ol>
       </div>
     </div>
-    <p class="note">Suggested split: you take Track A, your friend takes Track B. Each track works on its own branch and merges through pull requests.</p>
+    <p class="note">Current focus (your call, 7 Oct): get movement and menus right first in the test map, then go back to Colony's visuals.</p>
   </section>
 
   <section>
@@ -278,14 +276,20 @@ footer { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line)
       <article class="ms next">
         <div class="num">M3</div>
         <div>
-          <div class="ms-head"><h4>Fly through a full textured map</h4><span class="pill next">Next</span><span class="pill a">Track A</span><span class="est">1–2 weeks · up to 2 months</span></div>
-          <p class="goal">Colony looks like Colony: textures, lighting, props and sky. The game loads only from your local converted cache.</p>
+          <div class="ms-head"><h4>Make Colony look like Colony</h4><span class="pill next">In progress</span><span class="pill a">Maps</span></div>
+          <p class="goal">Textures, lighting, props and sky, all loaded from your own discs.</p>
           <ul class="tasks">
-            <li>VTFX textures: untile the Xbox 360 layout, swap DXT byte order</li>
-            <li>Work out the streaming texture sets (<code>main.st1/.st2</code>), still undocumented</li>
-            <li>Materials from text definitions</li>
-            <li>Lightmaps, static props (models), skybox</li>
-            <li><code>pf-setup</code> command-line tool: ISO in, cache out</li>
+            <li class="x">Textures and materials (VTF/VMT): every visible surface textured</li>
+            <li class="x">Grass/dirt blending on the ground (custom shader)</li>
+            <li class="x">Shared materials pulled out of the 35 GB common pack in about 13 s</li>
+            <li class="x">Baked lighting: lightmaps, sun and its shadow mask</li>
+            <li class="x">Map fog; posters no longer flicker in walls</li>
+            <li class="x">Static props: all 16,891 placed, from 703 models</li>
+            <li>Skybox (the cliffs and waterfalls)</li>
+            <li>Bump maps, shine and reflections</li>
+            <li>Proper prop lighting and shadows</li>
+            <li>Smoke, fire and other particles</li>
+            <li>Check brightness against your gameplay video</li>
           </ul>
         </div>
       </article>
@@ -297,13 +301,15 @@ footer { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line)
       <article class="ms">
         <div class="num">M4</div>
         <div>
-          <div class="ms-head"><h4>Walk the map with collision</h4><span class="pill">Planned</span><span class="pill b">Track B</span><span class="est">days · up to 2 weeks</span></div>
+          <div class="ms-head"><h4>Walk the map with collision</h4><span class="pill done">Done</span><span class="pill b">Game</span></div>
           <p class="goal">Run around with gravity, slopes and steps, and never fall through the floor. Keyboard, mouse and controller all work.</p>
           <ul class="tasks">
-            <li>Homemade greybox test map (no game files needed)</li>
-            <li>Capsule character controller on a fixed simulation tick</li>
-            <li>Input actions for keyboard/mouse and controller</li>
-            <li>Collision from real map data once M3 is in</li>
+            <li class="x">Greybox test map (no game files needed), built by your friend</li>
+            <li class="x">Capsule character controller on a fixed 60 Hz tick</li>
+            <li class="x">Input actions for keyboard/mouse and controller</li>
+            <li class="x">Colony's real geometry as collision (187k triangles)</li>
+            <li class="x">Game app: main menu, map select, options (sensitivity, FOV), pause menu</li>
+            <li>Collision for props (crates, fences)</li>
           </ul>
         </div>
       </article>
@@ -311,13 +317,15 @@ footer { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line)
       <article class="ms">
         <div class="num">M5</div>
         <div>
-          <div class="ms-head"><h4>Faithful pilot movement</h4><span class="pill">Planned</span><span class="pill b">Track B</span><span class="est">2–4 weeks · then ongoing tuning</span></div>
-          <p class="goal">Sprint, double jump, wall-run, wall-hang, slide and air control, each matched to measurements from the 360 version.</p>
+          <div class="ms-head"><h4>Faithful pilot movement</h4><span class="pill next">Next</span><span class="pill b">Game</span><span class="est">1–3 weeks · then ongoing tuning</span></div>
+          <p class="goal">Sprint, double jump, wall-run, wall-hang, slide, mantle and air control, each matched to measurements from the PC version.</p>
           <ul class="tasks">
-            <li>Collect 360 gameplay clips from YouTube (you pick, I analyse frame by frame)</li>
-            <li>Read numeric settings files from the disc as data</li>
-            <li>Every value logged with its source and error margin</li>
-            <li>Side-by-side comparison against the clips</li>
+            <li class="x">Reference footage: your full training mission and Colony gameplay, 1080p60</li>
+            <li>Double jump and air control</li>
+            <li>Wall-run (with the original's time limit) and wall-jump</li>
+            <li>Slide and mantle</li>
+            <li>Measure every value frame by frame and log it with its source</li>
+            <li>Side-by-side comparison against your clips</li>
           </ul>
         </div>
       </article>
