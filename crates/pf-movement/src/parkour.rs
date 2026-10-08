@@ -26,6 +26,8 @@ const WALL_STICK: f32 = 20.0;
 /// On a wall, if the view's right vector is less aligned with the wall normal than
 /// this you're facing the wall (forward climbs); otherwise you're running along it.
 const FACING_WALL: f32 = 0.7;
+/// Without a jump, this long in the air before a wall can catch you, seconds.
+const MIN_AIR_TIME: f32 = 0.1;
 /// Slower than this into the wall doesn't count as hitting it, units/s.
 const INTO_WALL: f32 = 1.0;
 /// Same wall: normals at least this aligned (`wallrun_sameWallDot`).
@@ -124,6 +126,12 @@ pub(crate) fn try_start(
     world: &impl CollisionWorld,
 ) {
     if try_mantle(s, input, tuning.mantle_max_view_angle, tuning, body, world) {
+        return;
+    }
+    // Not from just stepping off a kerb beside a wall: you must have jumped, or
+    // been in the air a moment. (Our stopgap: the game's own start check calls
+    // surface tests we haven't read yet.)
+    if s.since_jump > s.air_time + 1e-3 && s.air_time < MIN_AIR_TIME {
         return;
     }
     let face = facing(input.yaw);
