@@ -13,6 +13,7 @@ serde.workspace = true
 
 [dev-dependencies]
 ron.workspace = true
+pf-fmt-bsp = { path = "../pf-fmt-bsp" }
 
 [lints]
 workspace = true

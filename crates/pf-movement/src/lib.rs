@@ -30,6 +30,10 @@ const GROUND_PROBE: f32 = 2.0;
 const MAX_BUMPS: usize = 4;
 /// Moving away from the ground faster than this (units/s) means we've left it.
 const LIFTOFF_SPEED: f32 = 1.0;
+/// A surface this close to level counts as flat (step treads, floors).
+const FLAT_NORMAL_Y: f32 = 0.999;
+/// A flat surface at least this far above the feet is a step to climb, units.
+const STEP_LIP: f32 = 0.5;
 /// An edge contact counts as possible ground only if its normal is at least this
 /// upward. Below that, the edge is beside the capsule rather than under it.
 const EDGE_MIN_NORMAL_Y: f32 = 0.1;
@@ -271,8 +275,10 @@ fn free_move(
 
     pos = body.push_out(world, pos);
     let ground = body.find_ground(world, pos, vel);
-    if let Some(normal) = ground {
-        vel = along_ground(horizontal(vel), normal);
+    if ground.is_some() {
+        // On the ground the stored velocity stays flat (as in Source): following a
+        // slope is done by the move itself, so a step's edge can't launch you.
+        vel = horizontal(vel);
         s.air_jumps = 0;
         s.last_wall = None;
         s.same_wall = false;
@@ -354,8 +360,10 @@ impl Body {
                 normal: ray.normal,
                 height: ray.point.y,
             }),
+            // Only an edge under us (a step's lip): stand on it, but as if flat,
+            // so moving doesn't follow the rounded contact up and off the lip.
             _ if self.is_ground(hit.normal) => Some(Ground {
-                normal: hit.normal,
+                normal: Vec3::Y,
                 height: hit.point.y,
             }),
             _ => None,
@@ -404,7 +412,17 @@ impl Body {
             remaining *= 1.0 - travel / len;
 
             let mut normal = hit.normal;
-            if !self.is_ground(normal) {
+            // The capsule's rounded bottom touching a step's lip gives a tilted,
+            // ramp-like contact. If the real surface there is flat and higher than
+            // our feet, it's a step: treat it as a wall so step-up handles it
+            // (Source's flat-bottomed box never sees this).
+            let step_lip = grounded
+                && self.is_ground(normal)
+                && normal.y < FLAT_NORMAL_Y
+                && self
+                    .ground_under(world, &hit)
+                    .is_some_and(|g| g.normal.y >= FLAT_NORMAL_Y && g.height > pos.y + STEP_LIP);
+            if !self.is_ground(normal) || step_lip {
                 hit_wall = true;
                 if grounded {
                     normal = horizontal(normal).try_normalize().unwrap_or(normal);
