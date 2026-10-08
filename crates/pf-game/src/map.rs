@@ -359,17 +359,23 @@ mod tests {
     }
 
     #[test]
-    fn wall_run_then_wall_jump_across_the_corridor() {
+    fn wall_run_then_wall_jump_off_the_corridor_wall() {
         let world = test_map_collision();
-        // Inside the corridor, beside its right wall, facing down it (-Z).
+        // Inside the corridor, facing down it (-Z), angling into the right wall
+        // as you have to: the game only starts a wall-run when you hit the wall.
+        let angled = MoveInput {
+            wish: Vec2::new(0.3, 1.0).normalize(),
+            ..sprint(0.0)
+        };
         let (state, _) = run(
             &world,
-            MovementState::new(Vec3::new(125.0, 1.0, -1300.0)),
+            MovementState::new(Vec3::new(90.0, 1.0, -1300.0)),
             sprint(0.0),
-            0.8,
+            0.6,
         );
-        let (state, _) = run(&world, state, jump(sprint(0.0)), DT);
-        let (state, modes) = run(&world, state, sprint(0.0), 0.5);
+        let (state, _) = run(&world, state, angled, 0.2);
+        let (state, _) = run(&world, state, jump(angled), DT);
+        let (state, modes) = run(&world, state, sprint(0.0), 0.3);
         assert!(matches!(state.mode, Mode::WallRun { .. }), "{modes:?}");
         // Jump off while steering at the left wall: the wall jump adds speed in
         // the input direction, so this carries us across.
@@ -378,21 +384,9 @@ mod tests {
             ..sprint(0.0)
         };
         let (state, _) = run(&world, state, jump(left), DT);
-        assert!(state.velocity.x < 0.0, "{state:?}");
-        // Steer towards it and double jump halfway, as a player would: a wall
-        // jump alone doesn't carry across 300 units.
-        let across = MoveInput {
-            wish: Vec2::new(-0.7, 0.7),
-            ..sprint(0.0)
-        };
-        let (state, mut modes) = run(&world, state, across, 0.3);
-        let (state, _) = run(&world, state, jump(across), DT);
-        let (_, rest) = run(&world, state, across, 1.0);
-        modes.extend(rest);
-        let caught = modes
-            .iter()
-            .any(|m| matches!(m, Mode::WallRun { normal, .. } if normal.x > 0.9));
-        assert!(caught, "the left wall didn't catch us: {modes:?}");
+        // At least 150 away from the wall (input towards it only adds beyond that).
+        assert!(state.velocity.x < -140.0, "{state:?}");
+        assert!(state.velocity.y > 200.0, "{state:?}");
     }
 
     #[test]

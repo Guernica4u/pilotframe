@@ -2,14 +2,13 @@
 //!
 //! Each mode is a small function that takes this tick's state and returns the next.
 //! `try_start` runs at the end of every airborne free-move tick and decides whether
-//! one of them begins. How each move behaves follows the engine's own settings and
-//! their descriptions, written up in docs/movement/r1-engine-values.md.
+//! one of them begins. How the wall moves work follows the game's own code, written
+//! up in plain words in docs/movement/r1-engine-values.md ("Behaviour"); the mantle
+//! still follows the engine's settings and is due the same treatment.
 
 use glam::Vec3;
 
-use super::{
-    Body, Mode, MoveInput, MovementState, accelerate, friction, horizontal, wish_velocity,
-};
+use super::{Body, Mode, MoveInput, MovementState, accelerate, horizontal, wish_velocity};
 use crate::{CollisionWorld, MovementTuning, SKIN};
 
 /// How far beyond the skin gap a wall-run or wall-hang stays attached. Units.
@@ -24,10 +23,18 @@ const WALL_MAX_NORMAL_Y: f32 = 0.3;
 /// Speed pressing into the wall while running on it, so curved walls stay attached.
 /// Units/s.
 const WALL_STICK: f32 = 20.0;
-/// Steering at least this much away from the wall (dot product) lets go of it.
-const STEER_AWAY: f32 = 0.5;
-/// Forward stick/key must be held at least this much to keep wall-running.
-const HOLD_FORWARD: f32 = 0.3;
+/// On a wall, if the view's right vector is less aligned with the wall normal than
+/// this you're facing the wall (forward climbs); otherwise you're running along it.
+const FACING_WALL: f32 = 0.7;
+/// Slower than this into the wall doesn't count as hitting it, units/s.
+const INTO_WALL: f32 = 1.0;
+/// Same wall: normals at least this aligned (`wallrun_sameWallDot`).
+const SAME_WALL_DOT: f32 = 0.9;
+/// A wall jump while pushing into the wall loses this much of its outward push
+/// per unit of "into the wall" input.
+const JUMP_INTO_WALL: f32 = 0.8;
+/// The wall jump's upward part is applied this many times over, then capped.
+const JUMP_UP_MULTIPLIER: f32 = 1.5;
 /// A mantle needs the input pushing within this angle of straight into the wall
 /// (`automantle_maxangle_push`, 50°), as a cosine.
 const MANTLE_PUSH_COS: f32 = 0.643;
@@ -41,17 +48,76 @@ pub(crate) fn facing(yaw: f32) -> Vec3 {
     Vec3::new(-sin, 0.0, -cos)
 }
 
-/// How much of the upward boost is left after `wallruns` wall-runs without
-/// landing: full at first, fading to nothing between the two thresholds.
-fn strength(wallruns: u8, tuning: &MovementTuning) -> f32 {
-    let span = (tuning.wallrun_strength_loss_end - tuning.wallrun_strength_loss_start).max(1e-3);
-    1.0 - ((f32::from(wallruns) - tuning.wallrun_strength_loss_start) / span).clamp(0.0, 1.0)
+/// The view's forward (with pitch) and right (flat) vectors.
+fn view(input: &MoveInput) -> (Vec3, Vec3) {
+    let (sy, cy) = input.yaw.sin_cos();
+    let (sp, cp) = input.pitch.sin_cos();
+    (Vec3::new(-sy * cp, sp, -cy * cp), Vec3::new(cy, 0.0, -sy))
+}
+
+/// How much upward help is left after `count` wall-runs without landing (0 on a
+/// same-wall run). This is the game's formula as written: full up to the start
+/// count, nothing from the end count, and in between it *rises* from 0 to 1, so
+/// the 4th run gets half and the 3rd full.
+fn strength(count: u8, same_wall: bool, t: &MovementTuning) -> f32 {
+    let (start, end) = (t.wallrun_strength_loss_start, t.wallrun_strength_loss_end);
+    let c = f32::from(count);
+    if same_wall || c >= end {
+        0.0
+    } else if c <= start {
+        1.0
+    } else {
+        (c - start) / (end - start).max(1e-3)
+    }
+}
+
+/// While hanging, speed and gravity fade out over `wall_hang_stop_time`.
+fn hang_factor(hang: Option<f32>, t: &MovementTuning) -> f32 {
+    hang.map_or(1.0, |h| {
+        (1.0 - h / t.wall_hang_stop_time.max(1e-3)).max(0.0)
+    })
+}
+
+/// Gravity on the wall: ramps from (almost) nothing to full over the ramp time,
+/// less so for tired or same-wall runs.
+fn gravity_scale(s: &MovementState, run_time: f32, hang: Option<f32>, t: &MovementTuning) -> f32 {
+    let ramp = t.wallrun_gravity_ramp_time;
+    let base = if run_time >= ramp || ramp <= 0.0 {
+        1.0
+    } else {
+        1.0 - (1.0 - run_time / ramp) * strength(s.wallruns, s.same_wall, t)
+    };
+    base * hang_factor(hang, t)
+}
+
+/// The wished movement on a wall: the controls are rebuilt in the wall's plane, so
+/// looking up runs up the wall, strafing moves up the wall (never down), and
+/// holding forward adds some automatic "up".
+fn wall_wish(input: &MoveInput, normal: Vec3, t: &MovementTuning) -> (Vec3, Vec3) {
+    let (look, right) = view(input);
+    let (fwd, side) = if right.dot(normal).abs() < FACING_WALL {
+        let fwd = normal.cross(right).normalize_or_zero();
+        (fwd, fwd.cross(normal))
+    } else {
+        let side = look.cross(normal).normalize_or_zero();
+        (normal.cross(side), side)
+    };
+    let forward_in = input.wish.y;
+    let along = normal.cross(Vec3::Y).normalize_or_zero();
+    let mut side_in = input.wish.x + forward_in.max(0.0) * fwd.dot(along) * t.wallrun_upward_push;
+    // Strafing may only take you up the wall.
+    if (side.y < -0.01 && side_in > 0.0) || (side.y > 0.01 && side_in < 0.0) {
+        side_in = 0.0;
+    }
+    let wish = fwd * forward_in + side * side_in;
+    (wish - normal * wish.dot(normal), look)
 }
 
 /// In the air after a free move: start a mantle, wall-hang or wall-run if the
 /// situation calls for one. Checked in that order.
 pub(crate) fn try_start(
     s: &mut MovementState,
+    approach: Vec3,
     input: &MoveInput,
     tuning: &MovementTuning,
     body: &Body,
@@ -61,29 +127,11 @@ pub(crate) fn try_start(
         return;
     }
     let face = facing(input.yaw);
-
-    if input.zoom
-        && let Some((normal, dist)) = nearest_wall(s.position, s.velocity, face, body, world)
-    {
-        s.position -= normal * (dist - SKIN).max(0.0);
-        s.mode = Mode::WallHang { normal, time: 0.0 };
-        s.air_jumps = 0;
-        return;
-    }
-
-    let flat = horizontal(s.velocity);
-    if flat.length() < tuning.wallrun_min_speed {
-        return;
-    }
     let Some((normal, dist)) = nearest_wall(s.position, s.velocity, face, body, world) else {
         return;
     };
-    if s.last_wall.is_some_and(|last| last.dot(normal) > 0.9) {
-        return;
-    }
-    // Running straight into a wall isn't a wall-run: there has to be speed along it.
-    let along = flat - normal * flat.dot(normal);
-    if along.length() < tuning.wallrun_min_speed {
+    // You have to hit the wall moving into it (any angle will do).
+    if approach.dot(normal) > -INTO_WALL {
         return;
     }
     // Only walls you can't see over.
@@ -98,145 +146,178 @@ pub(crate) fn try_start(
     {
         return;
     }
+    // The same wall again: only lower down than where you left it.
+    let same_wall = match s.last_wall {
+        Some((last, left_at)) if last.dot(normal) > SAME_WALL_DOT => {
+            if s.position.y >= left_at.y {
+                return;
+            }
+            true
+        }
+        _ => false,
+    };
     s.position -= normal * (dist - SKIN).max(0.0);
-    s.mode = Mode::WallRun { normal, time: 0.0 };
-    let boost = tuning.wallrun_up_boost * strength(s.wallruns, tuning);
-    s.velocity = along + Vec3::Y * s.velocity.y.max(boost);
-    s.air_jumps = 0;
+    s.velocity -= normal * s.velocity.dot(normal).min(0.0);
+    s.same_wall = same_wall;
     s.wallruns = s.wallruns.saturating_add(1);
+    s.air_jumps = 0;
+    // The upward boost adds to your vertical speed, capped at the boost.
+    let boost = strength(s.wallruns, same_wall, tuning) * tuning.wallrun_up_boost;
+    if s.velocity.y < boost {
+        s.velocity.y = (s.velocity.y + boost).min(boost);
+    }
+    s.mode = if input.zoom {
+        Mode::WallHang { normal, time: 0.0 }
+    } else {
+        Mode::WallRun { normal, time: 0.0 }
+    };
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn wall_run(
-    mut s: MovementState,
+    s: MovementState,
     normal: Vec3,
     time: f32,
     input: &MoveInput,
     tuning: &MovementTuning,
+    body: &Body,
+    world: &impl CollisionWorld,
+    dt: f32,
+) -> MovementState {
+    on_wall(s, normal, time, None, input, tuning, body, world, dt)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn wall_hang(
+    s: MovementState,
+    normal: Vec3,
+    time: f32,
+    input: &MoveInput,
+    tuning: &MovementTuning,
+    body: &Body,
+    world: &impl CollisionWorld,
+    dt: f32,
+) -> MovementState {
+    on_wall(s, normal, time, Some(time), input, tuning, body, world, dt)
+}
+
+/// One tick on a wall, running (`hang` = None) or hanging (`hang` = seconds hung).
+#[allow(clippy::too_many_arguments)]
+fn on_wall(
+    mut s: MovementState,
+    normal: Vec3,
+    time: f32,
+    hang: Option<f32>,
+    input: &MoveInput,
+    t: &MovementTuning,
     body: &Body,
     world: &impl CollisionWorld,
     dt: f32,
 ) -> MovementState {
     // Follow the wall as it curves; drop off where it ends.
     let Some(normal) = wall_at(s.position, normal, body, world) else {
-        return detach(s, normal, tuning);
+        return detach(s, normal, t);
     };
     if input.jump {
-        return wall_jump(s, normal, input, tuning, body, world, dt);
-    }
-    if input.zoom {
-        s.mode = Mode::WallHang { normal, time: 0.0 };
-        return s;
+        return wall_jump(s, normal, hang.is_some(), input, t, body, world, dt);
     }
     // Running along a wall into a ledge, or turning onto the top of the wall.
     if try_mantle(
         &mut s,
         input,
-        tuning.mantle_max_view_angle_wallrun,
-        tuning,
+        t.mantle_max_view_angle_wallrun,
+        t,
         body,
         world,
     ) {
         return s;
     }
-    let slipping = time > tuning.wallrun_time_limit;
-    let wish = wish_velocity(input, tuning, false);
-    let steering_away = wish.normalize_or_zero().dot(normal) > STEER_AWAY;
-    // The training mission: "HOLD forward to run along the wall".
-    let holding_forward = input.wish.y > HOLD_FORWARD;
-    if input.crouch
-        || time > tuning.wallrun_time_limit + tuning.wallrun_slip_time
-        || (!slipping && (steering_away || !holding_forward))
-    {
-        return detach(s, normal, tuning);
-    }
-
-    let flat = horizontal(s.velocity);
-    let mut along = flat - normal * flat.dot(normal);
-    let mut vy = s.velocity.y;
-    if slipping {
-        // The moment the time runs out: a kick down and half the speed gone.
-        if time - dt <= tuning.wallrun_time_limit {
-            vy -= tuning.wallrun_slip_speed;
-            along *= 1.0 - tuning.wallrun_slip_slowdown;
+    match hang {
+        // Aim down sights to hang; let go to run again.
+        None if input.zoom => {
+            s.mode = Mode::WallHang { normal, time: 0.0 };
+            return s;
         }
-    } else {
-        // Along the wall: friction, then accelerate towards your input's direction
-        // along the wall, up to the wall-run top speed.
-        along = friction(along, tuning.wallrun_friction, 0.0, dt);
-        let on_wall = wish - normal * wish.dot(normal);
-        if let Some(dir) = on_wall.try_normalize() {
-            let step = tuning.wallrun_accelerate * tuning.wallrun_max_speed * dt;
-            along = accelerate(along, dir * tuning.wallrun_max_speed, step);
+        Some(_) if !input.zoom => {
+            s.mode = Mode::WallRun {
+                normal,
+                time: t.wallrun_gravity_ramp_time,
+            };
+            return s;
         }
-        // Pushing forward gives some upward push that fights gravity.
-        vy += tuning.wallrun_accelerate_vertical * tuning.wallrun_upward_push * dt;
+        _ => {}
     }
-    // Gravity starts at nothing and ramps up to full; tired runs ramp faster.
-    let ramp = tuning.wallrun_gravity_ramp_time * strength(s.wallruns.saturating_sub(1), tuning);
-    let gravity_scale = if slipping || ramp <= 1e-3 {
-        1.0
-    } else {
-        (time / ramp).min(1.0)
+    let (limit, slip_time, slip_speed) = match hang {
+        None => (
+            t.wallrun_time_limit,
+            t.wallrun_slip_time,
+            t.wallrun_slip_speed,
+        ),
+        Some(_) => (
+            t.wall_hang_time_limit,
+            t.wall_hang_slip_time,
+            t.wallrun_slip_speed,
+        ),
     };
-    vy -= tuning.gravity * gravity_scale * dt;
-    vy = vy.clamp(
-        -tuning.wallrun_max_speed_vertical,
-        tuning.wallrun_max_speed_vertical,
-    );
+    if input.crouch || time >= limit {
+        return detach(s, normal, t);
+    }
 
-    let vel = along + Vec3::Y * vy - normal * WALL_STICK;
-    let moved = body.slide(world, s.position, vel, dt, false);
+    let factor = hang_factor(hang, t);
+    let slip_start = limit - slip_time;
+    let slipping = time > slip_start;
+    let mut v = s.velocity;
+    // The slip: a kick down, and (running) half the horizontal speed gone.
+    if slipping && time - dt <= slip_start {
+        v.y -= slip_speed;
+        if hang.is_none() {
+            let keep = 1.0 - t.wallrun_slip_slowdown;
+            v.x *= keep;
+            v.z *= keep;
+        }
+    }
+
+    // Friction on the whole velocity; while slipping, falling isn't slowed.
+    let speed = v.length();
+    if speed > 1e-4 {
+        let old_vy = v.y;
+        let new = ((speed - t.wallrun_friction * speed * dt) * factor).max(0.0);
+        v *= new / speed;
+        if slipping && old_vy < 0.0 {
+            v.y = old_vy;
+        }
+    }
+
+    let (wish, look) = wall_wish(input, normal, t);
+    if wish.y.abs() > 1e-4 {
+        let target = wish.y.abs().min(1.0) * t.wallrun_max_speed_vertical * factor;
+        v = accelerate(
+            v,
+            Vec3::Y * wish.y.signum() * target,
+            t.wallrun_accelerate_vertical * dt,
+        );
+    }
+    let flat = horizontal(wish);
+    if let Some(dir) = flat.try_normalize() {
+        let top = if dir.dot(look) > 0.0 {
+            t.wallrun_max_speed
+        } else {
+            t.wallrun_max_speed_backward
+        };
+        let target = flat.length().min(1.0) * top * factor;
+        v = accelerate(v, dir * target, t.wallrun_accelerate * dt);
+    }
+    let run_time = if hang.is_some() { f32::INFINITY } else { time };
+    v.y -= t.gravity * gravity_scale(&s, run_time, hang, t) * dt;
+
+    let moved = body.slide(world, s.position, v - normal * WALL_STICK, dt, false);
     s.position = body.push_out(world, moved.pos);
     // Keep only the motion along the wall; the stick-in speed is re-added each tick.
-    let flat = horizontal(moved.vel);
-    s.velocity = flat - normal * flat.dot(normal) + Vec3::Y * moved.vel.y;
-    s.mode = Mode::WallRun { normal, time };
-    land_if_grounded(s, body, world)
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn wall_hang(
-    mut s: MovementState,
-    normal: Vec3,
-    time: f32,
-    input: &MoveInput,
-    tuning: &MovementTuning,
-    body: &Body,
-    world: &impl CollisionWorld,
-    dt: f32,
-) -> MovementState {
-    let Some(normal) = wall_at(s.position, normal, body, world) else {
-        return detach(s, normal, tuning);
+    s.velocity = moved.vel - normal * moved.vel.dot(normal);
+    s.mode = match hang {
+        None => Mode::WallRun { normal, time },
+        Some(_) => Mode::WallHang { normal, time },
     };
-    if input.jump {
-        return wall_jump(s, normal, input, tuning, body, world, dt);
-    }
-    if !input.zoom || time > tuning.wall_hang_time_limit + tuning.wall_hang_slip_time {
-        return detach(s, normal, tuning);
-    }
-    if time > tuning.wall_hang_time_limit {
-        // Slipping off: a kick down, then gravity.
-        if time - dt <= tuning.wall_hang_time_limit {
-            s.velocity = Vec3::NEG_Y * tuning.wallrun_slip_speed;
-        }
-        s.velocity.y -= tuning.gravity * dt;
-    } else {
-        // Come to a stop over `wall_hang_stop_time`, evenly.
-        let left = (tuning.wall_hang_stop_time - (time - dt)).max(dt);
-        s.velocity *= (1.0 - dt / left).max(0.0);
-    }
-    let moved = body.slide(
-        world,
-        s.position,
-        s.velocity - normal * WALL_STICK,
-        dt,
-        false,
-    );
-    s.position = body.push_out(world, moved.pos);
-    let flat = horizontal(moved.vel);
-    s.velocity = flat - normal * flat.dot(normal) + Vec3::Y * moved.vel.y;
-    s.mode = Mode::WallHang { normal, time };
     land_if_grounded(s, body, world)
 }
 
@@ -266,6 +347,7 @@ pub(crate) fn mantle(
         s.velocity = horizontal(to - from).normalize_or_zero() * tuning.walk_speed * 0.5;
         s.air_jumps = 0;
         s.last_wall = None;
+        s.same_wall = false;
         s.wallruns = 0;
     } else {
         s.mode = Mode::Mantle {
@@ -311,39 +393,57 @@ fn try_mantle(
     true
 }
 
-/// Jump off the wall: keep the speed along it, and add speed up, away from the
-/// wall and towards your input.
+/// Jump off the wall. Adds to your velocity (so speed along the wall is kept): a
+/// push towards your input, at least `wall_jump_outward_speed` away from the wall
+/// (less when pushing into it), and an upward kick capped at `wall_jump_up_speed`.
+#[allow(clippy::too_many_arguments)]
 fn wall_jump(
     mut s: MovementState,
     normal: Vec3,
+    hanging: bool,
     input: &MoveInput,
-    tuning: &MovementTuning,
+    t: &MovementTuning,
     body: &Body,
     world: &impl CollisionWorld,
     dt: f32,
 ) -> MovementState {
-    let flat = horizontal(s.velocity);
-    let along = flat - normal * flat.dot(normal);
-    let input_dir = wish_velocity(input, tuning, false).normalize_or_zero();
-    let up = tuning.wall_jump_up_speed * strength(s.wallruns.saturating_sub(1), tuning);
-    s.velocity = along
-        + normal * tuning.wall_jump_outward_speed
-        + input_dir * tuning.wall_jump_input_speed
-        + Vec3::Y * up;
+    let mut dir = wish_velocity(input, t, false).normalize_or_zero() * input.wish.length().min(1.0);
+    if hanging && dir.length() < 1.0 {
+        // From a hang, top the direction up with where you're looking.
+        dir += view(input).0 * (1.0 - dir.length());
+    }
+    let mut push = dir * t.wall_jump_input_speed;
+    let into = dir.dot(normal);
+    let outward = if into < 0.0 {
+        t.wall_jump_outward_speed * (1.0 + JUMP_INTO_WALL * into)
+    } else {
+        t.wall_jump_outward_speed
+    };
+    let away = push.dot(normal);
+    if away < outward {
+        push += normal * (outward - away);
+    }
+    s.velocity += push;
+    s.same_wall = false;
+    let up = strength(s.wallruns, false, t) * t.wall_jump_up_speed;
+    if s.velocity.y < up {
+        s.velocity.y = (s.velocity.y + JUMP_UP_MULTIPLIER * up).min(up);
+    }
     s.mode = Mode::Free;
-    s.last_wall = Some(normal);
+    s.last_wall = Some((normal, s.position));
     s.on_ground = false;
+    s.since_jump = 0.0;
     let moved = body.slide(world, s.position, s.velocity, dt, false);
     s.position = body.push_out(world, moved.pos);
     s.velocity = moved.vel;
     s
 }
 
-/// Let go of the wall and fall.
-fn detach(mut s: MovementState, normal: Vec3, tuning: &MovementTuning) -> MovementState {
+/// Let go of the wall and fall, pushed a little away from it.
+fn detach(mut s: MovementState, normal: Vec3, t: &MovementTuning) -> MovementState {
     s.mode = Mode::Free;
-    s.last_wall = Some(normal);
-    s.velocity += normal * tuning.wallrun_fall_away_speed;
+    s.last_wall = Some((normal, s.position));
+    s.velocity += normal * t.wallrun_fall_away_speed;
     s
 }
 
@@ -358,6 +458,7 @@ fn land_if_grounded(
         s.velocity.y = 0.0;
         s.air_jumps = 0;
         s.last_wall = None;
+        s.same_wall = false;
         s.wallruns = 0;
     }
     s

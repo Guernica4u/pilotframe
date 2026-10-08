@@ -15,14 +15,17 @@ fn tuning() -> MovementTuning {
             capsule_radius: 16.0, capsule_height: 72.0, eye_height: 64.0,
             crouch_height: 48.0, crouch_eye_height: 40.0,
             walk_speed: 200.0, sprint_speed: 300.0, crouch_speed: 90.0,
-            acceleration: 2500.0, friction: 4.0, stop_speed: 100.0,
-            air_speed: 60.0, air_acceleration: 500.0,
+            acceleration: 2500.0, deceleration: 1500.0,
+            air_speed: 60.0, air_acceleration: 500.0, air_extra_acceleration: 0.2,
+            jump_turn_time_min: 0.2, jump_turn_time_max: 0.5, jump_turn_strength: 0.7,
+            jump_turn_max: 0.7,
             gravity: 800.0, jump_height: 50.0, double_jump_height: 40.0, jump_grace_time: 0.2,
             wallrun_time_limit: 1.5, wallrun_slip_time: 0.5, wallrun_slip_speed: 70.0,
             wallrun_slip_slowdown: 0.5, wallrun_up_boost: 250.0, wallrun_gravity_ramp_time: 0.7,
-            wallrun_max_speed: 240.0, wallrun_accelerate: 7.0, wallrun_friction: 4.0,
+            wallrun_max_speed: 240.0, wallrun_max_speed_backward: 50.0,
+            wallrun_accelerate: 7.0, wallrun_friction: 4.0,
             wallrun_max_speed_vertical: 300.0, wallrun_accelerate_vertical: 450.0,
-            wallrun_upward_push: 0.65, wallrun_min_speed: 100.0, wallrun_fall_away_speed: 100.0,
+            wallrun_upward_push: 0.65, wallrun_fall_away_speed: 100.0,
             wallrun_strength_loss_start: 3.0, wallrun_strength_loss_end: 5.0,
             wall_jump_up_speed: 250.0, wall_jump_outward_speed: 150.0, wall_jump_input_speed: 100.0,
             wall_hang_time_limit: 3.0, wall_hang_stop_time: 0.5, wall_hang_slip_time: 1.0,
@@ -74,6 +77,8 @@ const FORWARD: MoveInput = MoveInput {
     sprint: false,
     crouch: false,
     zoom: false,
+    pitch: 0.0,
+    key_pressed: false,
 };
 
 /// Run `seconds` of the same input, calling `each` after every tick.
@@ -547,17 +552,25 @@ fn long_wall() -> StaticWorld {
     world
 }
 
-/// Sprint along the wall (towards -X, yaw 90° left), jump, then run `input`.
+/// Sprint along the wall (towards -X, yaw 90° left) angled slightly into it, jump,
+/// then run `input`. Returns the end state and how long was spent wall-running.
 fn wallrun_from_jump(world: &StaticWorld, input: MoveInput, seconds: f32) -> (MovementState, f32) {
     let yaw = std::f32::consts::FRAC_PI_2;
+    // Facing -X, "right" points at the wall (-Z): a little right input angles in.
     let sprint = MoveInput {
-        wish: Vec2::new(0.0, 1.0),
+        wish: Vec2::new(0.3, 1.0).normalize(),
         yaw,
         sprint: true,
         ..Default::default()
     };
-    let start = settle(world, Vec3::new(0.0, 0.0, -40.0 + RADIUS + 1.0));
-    let mut state = run(world, start, sprint, 1.0, |_| {});
+    // Run up parallel, then angle in for the last stretch and jump.
+    let start = settle(world, Vec3::new(0.0, 0.0, -40.0 + RADIUS + 30.0));
+    let parallel = MoveInput {
+        wish: Vec2::Y,
+        ..sprint
+    };
+    let state = run(world, start, parallel, 0.8, |_| {});
+    let mut state = run(world, state, sprint, 0.2, |_| {});
     state = step(
         &state,
         &MoveInput {
@@ -584,71 +597,111 @@ const HOLD_FORWARD: MoveInput = MoveInput {
     sprint: false,
     crouch: false,
     zoom: false,
+    pitch: 0.0,
+    key_pressed: false,
 };
 
 #[test]
-fn wall_run_starts_beside_a_wall_and_ends_at_the_time_limit() {
+fn wall_run_starts_when_jumping_at_an_angle_and_ends_by_the_time_limit() {
     let world = long_wall();
     let (state, ran) = wallrun_from_jump(&world, HOLD_FORWARD, 3.0);
-    // 1.5 s run, then a 0.5 s slip before falling off.
-    assert!(ran > 1.9 && ran < 2.1, "wall-ran for {ran} s");
-    assert!(state.on_ground, "should fall and land after: {state:?}");
+    assert!(ran > 0.2 && ran <= 1.5 + DT, "wall-ran for {ran} s");
+    assert!(state.on_ground, "should come down after: {state:?}");
 }
 
 #[test]
-fn wall_run_falls_slower_than_a_jump() {
+fn jumping_parallel_to_a_wall_does_not_wall_run() {
     let world = long_wall();
-    // A plain jump lands after about 0.7 s; a wall-run is still up after 1 s.
-    let (state, _) = wallrun_from_jump(&world, HOLD_FORWARD, 1.0);
-    assert!(matches!(state.mode, Mode::WallRun { .. }), "{state:?}");
-    assert!(state.position.y > 10.0, "{state:?}");
+    let yaw = std::f32::consts::FRAC_PI_2;
+    let sprint = MoveInput {
+        wish: Vec2::Y,
+        yaw,
+        sprint: true,
+        ..Default::default()
+    };
+    let start = settle(&world, Vec3::new(0.0, 0.0, -40.0 + RADIUS + 1.0));
+    let state = run(&world, start, sprint, 1.0, |_| {});
+    let state = step(
+        &state,
+        &MoveInput {
+            jump: true,
+            ..sprint
+        },
+        &tuning(),
+        &world,
+        DT,
+    );
+    run(&world, state, sprint, 1.0, |s| {
+        assert!(!matches!(s.mode, Mode::WallRun { .. }), "{s:?}");
+    });
+}
+
+#[test]
+fn looking_up_runs_higher_than_looking_down() {
+    let world = long_wall();
+    let up = MoveInput {
+        pitch: 0.7,
+        ..HOLD_FORWARD
+    };
+    let down = MoveInput {
+        pitch: -0.7,
+        ..HOLD_FORWARD
+    };
+    let (high, _) = wallrun_from_jump(&world, up, 0.5);
+    let (low, _) = wallrun_from_jump(&world, down, 0.5);
+    assert!(matches!(high.mode, Mode::WallRun { .. }), "{high:?}");
     assert!(
-        (speed(&state) - 240.0).abs() < 5.0,
-        "should settle at the wall-run top speed: {state:?}"
+        high.position.y > low.position.y + 10.0,
+        "{high:?} vs {low:?}"
+    );
+}
+
+#[test]
+fn wall_running_bleeds_speed() {
+    // The game's wall friction slows a run down; there's no speed gain on walls.
+    let world = long_wall();
+    let (early, _) = wallrun_from_jump(&world, HOLD_FORWARD, 0.05);
+    let (later, _) = wallrun_from_jump(&world, HOLD_FORWARD, 0.4);
+    assert!(matches!(later.mode, Mode::WallRun { .. }), "{later:?}");
+    assert!(
+        speed(&later) < speed(&early) - 50.0,
+        "{early:?} vs {later:?}"
     );
 }
 
 #[test]
 fn wall_jump_pushes_away_and_up() {
     let world = long_wall();
-    let (state, _) = wallrun_from_jump(&world, HOLD_FORWARD, 0.4);
+    let (state, _) = wallrun_from_jump(&world, HOLD_FORWARD, 0.2);
     assert!(matches!(state.mode, Mode::WallRun { .. }), "{state:?}");
-    let state = step(
-        &state,
-        &MoveInput {
-            jump: true,
-            yaw: std::f32::consts::FRAC_PI_2,
-            ..HOLD_FORWARD
-        },
-        &tuning(),
-        &world,
-        DT,
-    );
+    let jump = MoveInput {
+        jump: true,
+        yaw: std::f32::consts::FRAC_PI_2,
+        ..HOLD_FORWARD
+    };
+    let state = step(&state, &jump, &tuning(), &world, DT);
     assert_eq!(state.mode, Mode::Free);
-    assert!(state.velocity.z > 100.0, "away from the wall: {state:?}");
+    assert!(state.velocity.z >= 140.0, "away from the wall: {state:?}");
     assert!(state.velocity.y > 200.0, "{state:?}");
     assert!(state.last_wall.is_some());
 }
 
 #[test]
-fn wall_hang_holds_still_until_aim_is_released() {
+fn wall_hang_comes_to_a_stop_until_aim_is_released() {
     let world = long_wall();
     let hang = MoveInput {
         zoom: true,
         ..Default::default()
     };
-    let (state, _) = wallrun_from_jump(&world, hang, 0.3);
-    assert!(matches!(state.mode, Mode::WallHang { .. }), "{state:?}");
-    let y = state.position.y;
-    // It takes wall_hang_stop_time (0.5 s) to come to a stop, then holds.
+    let (state, _) = wallrun_from_jump(&world, HOLD_FORWARD, 0.15);
     let state = run(&world, state, hang, 0.6, |_| {});
-    let y = state.position.y.max(y);
+    assert!(matches!(state.mode, Mode::WallHang { .. }), "{state:?}");
+    assert!(state.velocity.length() < 1.0, "{state:?}");
+    let y = state.position.y;
     let state = run(&world, state, hang, 1.0, |_| {});
-    assert!((state.position.y - y).abs() < 30.0, "{state:?}");
-    assert!(state.velocity.length() < 0.01, "{state:?}");
-    let state = run(&world, state, MoveInput::default(), 0.1, |_| {});
-    assert_eq!(state.mode, Mode::Free);
-    assert!(state.velocity.y < 0.0);
+    assert!((state.position.y - y).abs() < 1.0, "{state:?}");
+    let state = run(&world, state, HOLD_FORWARD, DT, |_| {});
+    assert!(matches!(state.mode, Mode::WallRun { .. }), "{state:?}");
 }
 
 #[test]
@@ -692,15 +745,6 @@ fn cannot_mantle_a_wall_that_is_too_tall() {
         assert!(!matches!(s.mode, Mode::Mantle { .. }), "{s:?}");
     });
     assert!(state.position.y < 1.0);
-}
-
-#[test]
-fn letting_go_of_forward_ends_a_wall_run() {
-    let world = long_wall();
-    let (state, _) = wallrun_from_jump(&world, HOLD_FORWARD, 0.4);
-    assert!(matches!(state.mode, Mode::WallRun { .. }), "{state:?}");
-    let state = run(&world, state, MoveInput::default(), DT, |_| {});
-    assert_eq!(state.mode, Mode::Free);
 }
 
 #[test]
@@ -774,4 +818,35 @@ fn ducking_mid_air_raises_the_feet() {
     );
     // 72 - 48 = 24 units higher, less one tick of falling.
     assert!(ducked.position.y > y + 20.0, "{ducked:?}");
+}
+
+#[test]
+fn pressing_a_key_just_after_a_jump_turns_the_jump() {
+    let world = floor();
+    let t = tuning();
+    let start = run(&world, settle(&world, Vec3::ZERO), FORWARD, 1.0, |_| {});
+    let jumped = step(
+        &start,
+        &MoveInput {
+            jump: true,
+            ..FORWARD
+        },
+        &t,
+        &world,
+        DT,
+    );
+    let left = MoveInput {
+        wish: Vec2::new(-1.0, 0.0),
+        key_pressed: true,
+        ..Default::default()
+    };
+    // Early: a strong turn towards -X, keeping the speed.
+    let turned = step(&jumped, &left, &t, &world, DT);
+    let (before, after) = (speed(&jumped), speed(&turned));
+    assert!((before - after).abs() < 5.0, "{before} vs {after}");
+    assert!(turned.velocity.x < -50.0, "{turned:?}");
+    // Late (after 0.5 s): no turn beyond normal air control.
+    let late = run(&world, jumped, FORWARD, 0.55, |_| {});
+    let late_turn = step(&late, &left, &t, &world, DT);
+    assert!(late_turn.velocity.x > -10.0, "{late_turn:?}");
 }

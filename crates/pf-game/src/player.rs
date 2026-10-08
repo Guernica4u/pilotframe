@@ -72,6 +72,8 @@ pub struct Player {
     view: view::ViewEffects,
     /// Yaw at the last frame, to measure how fast we're turning.
     last_yaw: f32,
+    /// Movement keys (W, A, S, D as bits) held at the last tick, to spot new presses.
+    keys: u8,
 }
 
 fn spawn_player(
@@ -95,6 +97,7 @@ fn spawn_player(
             roll: 0.0,
             view: default(),
             last_yaw: spawn.yaw,
+            keys: 0,
         },
         // leafwing adds the matching `ActionState<Action>` for us.
         input::default_bindings(),
@@ -162,6 +165,7 @@ fn tick_movement(
     tunings: Res<Assets<TuningAsset>>,
     map: Res<MapCollision>,
     spawn: Res<SpawnPoint>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     player: Single<(&mut Player, &ActionState<Action>)>,
 ) {
     // `let ... else` returns early if movement.ron hasn't finished loading.
@@ -186,7 +190,21 @@ fn tick_movement(
         sprint: actions.pressed(&Action::Sprint) || player.sprint_latched,
         crouch: actions.pressed(&Action::Crouch),
         zoom: actions.pressed(&Action::Zoom),
+        pitch: player.pitch,
+        key_pressed: false,
     };
+    // A newly pressed movement key (keyboard only) can turn a fresh jump.
+    let keys = [KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD]
+        .iter()
+        .enumerate()
+        .fold(0u8, |bits, (i, k)| {
+            bits | (u8::from(keyboard.pressed(*k)) << i)
+        });
+    let input = MoveInput {
+        key_pressed: keys & !player.keys != 0,
+        ..input
+    };
+    player.keys = keys;
 
     // `time` is the fixed clock here, so this is exactly one tick.
     let next = step(&player.state, &input, tuning, &map.0, time.delta_secs());

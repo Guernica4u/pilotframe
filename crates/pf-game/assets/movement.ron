@@ -20,13 +20,17 @@
     walk_speed: 180.6,         // [set] speed
     sprint_speed: 269.85,      // [set] sprintspeed
     crouch_speed: 89.25,       // [set] crouch speed
-    acceleration: 2500.0,      // [engine] acceleration (deceleration -1: friction stops you)
-    friction: 4.0,             // [engine] sv_friction
-    stop_speed: 100.0,         // [engine] sv_stopspeed
+    acceleration: 2500.0,      // [engine] stand acceleration
+    deceleration: 1500.0,      // [engine] stand deceleration is unset (-1): the game uses 0.6 × acceleration
 
     // Air
     air_speed: 60.0,           // [engine] airSpeed
     air_acceleration: 500.0,   // [engine] airAcceleration
+    air_extra_acceleration: 0.2, // [engine] player_extraairaccelleration
+    jump_turn_time_min: 0.2,   // [engine] jump_keyboardgraceperiodmin
+    jump_turn_time_max: 0.5,   // [engine] jump_keyboardgraceperiodmax
+    jump_turn_strength: 0.7,   // [engine] jump_keyboardgrace_strength
+    jump_turn_max: 0.7,        // [engine] jump_keyboardgrace_max
     gravity: 750.0,            // [engine] sv_gravity
     jump_height: 80.0,         // [set] jumpheight
     double_jump_height: 60.0,  // [guess] not a stored setting
@@ -40,12 +44,12 @@
     wallrun_up_boost: 250.0,   // [engine] wallrun_upWallBoost
     wallrun_gravity_ramp_time: 0.7, // [engine] wallrun_gravityRampUpTime
     wallrun_max_speed: 240.0,  // [engine] wallrun_maxSpeedHorizontal
+    wallrun_max_speed_backward: 50.0, // [engine] wallrun_maxSpeedHorizontalBackward
     wallrun_accelerate: 7.0,   // [engine] wallrun_accelerateHorizontal
     wallrun_friction: 4.0,     // [engine] wallrun_friction
     wallrun_max_speed_vertical: 300.0, // [engine] wallrun_maxSpeedVertical
     wallrun_accelerate_vertical: 450.0, // [engine] wallrun_accelerateVertical
     wallrun_upward_push: 0.65, // [engine] wallrun_upwardAutoPush
-    wallrun_min_speed: 100.0,  // [guess]
     wallrun_fall_away_speed: 100.0, // [engine] wallrun_fallAwaySpeed
     wallrun_strength_loss_start: 3.0, // [engine] wallrun_strengthLossStart
     wallrun_strength_loss_end: 5.0,   // [engine] wallrun_strengthLossEnd
