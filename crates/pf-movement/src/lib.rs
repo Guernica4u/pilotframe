@@ -28,7 +28,7 @@ const SKIN: f32 = 0.1;
 const GROUND_PROBE: f32 = 2.0;
 /// Most surfaces one sweep can slide off before giving up for this tick.
 const MAX_BUMPS: usize = 4;
-/// Moving away from the ground faster than this (units/s) means we've left it.
+/// Rising faster than this (units/s) means we have left the ground.
 const LIFTOFF_SPEED: f32 = 1.0;
 /// A surface this close to level counts as flat (step treads, floors).
 const FLAT_NORMAL_Y: f32 = 0.999;
@@ -62,6 +62,8 @@ pub struct MovementState {
     pub jump_grace: f32,
     /// Seconds since the last jump (for the keyboard jump turn).
     pub since_jump: f32,
+    /// Seconds since last on the ground.
+    pub air_time: f32,
 }
 
 /// What the pilot is doing beyond plain walking, falling and jumping.
@@ -98,6 +100,7 @@ impl MovementState {
             wallruns: 0,
             jump_grace: 0.0,
             since_jump: 10.0,
+            air_time: 0.0,
         }
     }
 }
@@ -218,6 +221,7 @@ fn free_move(
         s.since_jump = 0.0;
     }
 
+    let was_grounded = ground.is_some();
     if let Some(normal) = ground {
         // Keep what you're pushing for, bleed off the rest, then accelerate.
         let flat = decelerate(horizontal(vel), wish, tuning.deceleration * dt);
@@ -274,7 +278,9 @@ fn free_move(
     }
 
     pos = body.push_out(world, pos);
-    let ground = body.find_ground(world, pos, vel);
+    // A ground move that followed a slope up isn't a take-off: only a jump is.
+    let walked = if was_grounded { horizontal(vel) } else { vel };
+    let ground = body.find_ground(world, pos, walked);
     if ground.is_some() {
         // On the ground the stored velocity stays flat (as in Source): following a
         // slope is done by the move itself, so a step's edge can't launch you.
@@ -296,6 +302,7 @@ fn free_move(
     s.position = pos;
     s.velocity = vel;
     s.on_ground = ground.is_some();
+    s.air_time = if s.on_ground { 0.0 } else { s.air_time + dt };
     if !s.on_ground && !jumped {
         parkour::try_start(&mut s, approach, input, tuning, body, world);
     }
@@ -342,7 +349,9 @@ impl Body {
     fn find_ground(&self, world: &impl CollisionWorld, pos: Vec3, vel: Vec3) -> Option<Vec3> {
         let hit = world.cast_capsule(&self.capsule, pos, Vec3::NEG_Y * GROUND_PROBE)?;
         let ground = self.ground_under(world, &hit)?;
-        (vel.dot(ground.normal) <= LIFTOFF_SPEED).then_some(ground.normal)
+        // Only rising counts as leaving the ground (as in Source): walking downhill
+        // with flat velocity isn't taking off.
+        (vel.y <= LIFTOFF_SPEED).then_some(ground.normal)
     }
 
     /// The walkable surface the capsule touched, if it touched one.

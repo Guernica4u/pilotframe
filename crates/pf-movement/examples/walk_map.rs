@@ -43,10 +43,35 @@ fn main() {
     };
     let mut s = MovementState::new(start + Vec3::Y * 2.0);
     let dt = 1.0 / 60.0;
+    let quiet = std::env::var("QUIET").is_ok();
+    // Once walking at full speed: count airborne ticks and sudden slowdowns.
+    let (mut landed, mut air, mut stops, mut full) = (false, 0, 0, false);
     for tick in 0..(seconds / dt) as usize {
         let before = s.position;
+        let prev_speed = Vec2::new(s.velocity.x, s.velocity.z).length();
         s = step(&s, &input, &tuning, &world, dt);
-        if tick % 2 == 0 && tick < 80 {
+        let speed = Vec2::new(s.velocity.x, s.velocity.z).length();
+        landed |= s.on_ground;
+        full |= speed > tuning.walk_speed - 1.0;
+        if landed && full && !s.on_ground && s.mode == pf_movement::Mode::Free {
+            air += 1;
+            if quiet && std::env::var("AIR").is_ok() {
+                println!(
+                    "  air at ({:.0}, {:.0}, {:.1}) vy {:.1}",
+                    s.position.x, -s.position.z, s.position.y, s.velocity.y
+                );
+            }
+        }
+        if full && prev_speed - speed > 40.0 {
+            stops += 1;
+            if quiet {
+                println!(
+                    "  slowdown {prev_speed:.0} -> {speed:.0} at ({:.0}, {:.0}, {:.0}) {:?}",
+                    s.position.x, -s.position.z, s.position.y, s.mode
+                );
+            }
+        }
+        if !quiet && tick % 6 == 0 {
             let speed = Vec2::new(s.velocity.x, s.velocity.z).length();
             println!(
                 "t {:4.2} source pos ({:7.1}, {:7.1}, {:6.1}) speed {speed:5.0} vy {:6.1} ground {} moved {:5.2} {:?}",
@@ -61,4 +86,8 @@ fn main() {
             );
         }
     }
+    println!(
+        "end ({:.0}, {:.0}, {:.0}): {air} airborne ticks while walking, {stops} sudden slowdowns",
+        s.position.x, -s.position.z, s.position.y
+    );
 }
