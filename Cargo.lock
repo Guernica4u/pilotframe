@@ -4534,6 +4534,7 @@ version = "0.0.1"
 dependencies = [
  "glam 0.32.1",
  "parry3d",
+ "pf-fmt-bsp",
  "ron",
  "serde",
 ]
