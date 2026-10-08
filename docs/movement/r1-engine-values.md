@@ -25,6 +25,29 @@ The DLL isn't packed or encrypted; nothing was circumvented.
 
 Pilot `.set` files override some of these (speeds, jump height 80, step height 18, hull; see `values.md`).
 
+## Multiplayer server values (override the defaults below)
+
+The defaults in the tables below are the **client.dll** defaults. In multiplayer the server sends its own values to every player, and these replace the defaults. They come from Respawn's `cfg/server/listenserver.cfg` (the `if_mp` column), which R1Delta ships with a note that the values were captured from the real servers' `NET_SetConVar` messages. On 2026-10-08 they were confirmed by reading the running game (R1Delta, local, read-only):
+
+| Name | MP value | Client default | Campaign (`if_sp`) |
+|---|---|---|---|
+| `wallrun_maxSpeedHorizontal` | **450** | 240 | 280 |
+| `wallrun_accelerateHorizontal` | **1500** u/s² | 7 | 1500 |
+| `wallrun_jumpUpSpeed` | **320** | 250 | 160 |
+| `wallrun_jumpOutwardSpeed` | **250** | 150 | 200 |
+| `wallrun_fallAwaySpeed` | **70** | 100 | 70 |
+| `wallrun_strengthLossStart` / `End` | **1000 / 1000** (upward help never fades) | 3 / 5 | 3 / 5 |
+| `wallrun_gravityRampUpTime` | 0.7 | 0.7 | 2.5 |
+| `wallrun_maxSpeedVertical` / `accelerateVertical` | 300 / 450 | 300 / 450 | 120 / 100 |
+| `automantle_maxangle_view` | **50** | 65 | 50 |
+| `superjump_min_height` = `max_height` | **80** (double jump) | | 0 / 114 |
+| `superjump_horzspeed` | 240 | | 60 |
+| `superjump_limit` | 1 | | 3 |
+
+The player's own limits, read live from the player object: **wall-run 2.0 s**, **wall-hang 9.0 s** (the wiki's 1.75 s / 11 s are wrong).
+
+**Measured wall-run (live recording, 10 runs):** on contact only the into-the-wall part of the velocity is removed, so hitting a wall head-on stops you nearly dead, in the real game too. Speed along the wall then rises with rate ≈ 4/s towards ≈ 370 u/s (1500 / 4 = 375, where the push balances friction): 303 → 337 → 353 → 363 u/s at 0.1 / 0.3 / 0.5 / 1.0 s. Vertical speed rises by ~150–200 u/s on contact, then sinks to about −55 u/s by 1 s.
+
 ## Wall-run (`wallrun_*` console variables)
 
 | Setting | Default | Meaning |
@@ -55,7 +78,7 @@ Pilot `.set` files override some of these (speeds, jump height 80, step height 1
 | `wallrun_repelTimeMin/Max` | 0.2 / 0.4 | After a wall jump, pushed away from that wall for this long |
 | `wallrun_hangStopTime` | 0.5 | "Length of time to come to a stop when **zooming**": wall-hang is triggered by aiming down sights |
 | `wallrun_hangsliptime` / `hangslipvel` | 1.0 / 70 | Slip time and impulse at the end of a wall-hang |
-| `wallrun_timeLimit` / `wallrun_hangTimeLimit` | player settings; no default found in the table. The Titanfall wiki gives 1.75 s / 11 s (3.5 / 22 with the Enhanced Parkour Kit, whose `.set` mod adds to both) |
+| `wallrun_timeLimit` / `wallrun_hangTimeLimit` | player settings: **2.0 s / 9.0 s** read live (the wiki's 1.75 s / 11 s are wrong; the Enhanced Parkour Kit mod adds to both) |
 
 ## Auto-mantle (`automantle_*`)
 
@@ -119,7 +142,7 @@ Plain-language notes on what the game's movement code does. Our Rust is written 
 - Wish = forward' × forward input + right' × side input, flattened onto the wall plane.
 - **Friction** on the whole 3D velocity: speed × (1 − `wallrun_friction` (4) × dt), times the hang factor. While slipping, downward speed isn't reduced.
 - **Vertical**: if the wish has a vertical part, accelerate towards min(|wish_v|, 1) × `wallrun_maxSpeedVertical` (300) in that direction at `wallrun_accelerateVertical` (450 u/s²).
-- **Horizontal**: accelerate towards min(|wish_h|, 1) × (`wallrun_maxSpeedHorizontal` 240 if forward, `wallrun_maxSpeedHorizontalBackward` 50 if backward), at `wallrun_accelerateHorizontal` (7 u/s²).
+- **Horizontal**: accelerate towards min(|wish_h|, 1) × (`wallrun_maxSpeedHorizontal` 240 if forward, `wallrun_maxSpeedHorizontalBackward` 50 if backward), at `wallrun_accelerateHorizontal` (MP 1500 u/s²; client default 7). Both are scaled by a move-speed factor S = (scale − 1) × `wallrun_moveSpeedScaleScale` (0.57) + 1, which is 1 unless a script changes the player's speed.
 - **Gravity scale**: before `wallrun_gravityRampUpTime` (0.7 s) it is 1 − (1 − t/0.7) × L, where L is 0 on a same-wall run, else 1 for runs ≤ `strengthLossStart` (3), 0 for ≥ `strengthLossEnd` (5), and (count − 3)/(5 − 3) in between (as written; it jumps at 3). Times the hang factor.
 - **Start test**: velocity must point into the wall (`wallrun_minAngle_air` 180 = any angle); the wall must be there at two heights (`wallrun_onlyHighWalls`). Same wall (normals within `wallrun_sameWallDot` 0.9) is allowed, but not higher than where you left it within `wallrun_sameWallDist` (100).
 - **Begin**: wall-run count += 1, then the upward boost B = L × `wallrun_upWallBoost` (250, 0 on a same-wall run). If vertical speed < B: vertical = min(vertical + B, B).

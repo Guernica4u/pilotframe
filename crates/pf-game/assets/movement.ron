@@ -3,6 +3,9 @@
 // [set]    = the pilot settings files on the PC discs (scripts/players/mp/pilot_*.set).
 // [engine] = the game's own engine defaults, read from the owner's client.dll
 //            (docs/movement/r1-engine-values.md has each one's name and description).
+// [mp]     = multiplayer server values: Respawn's listenserver.cfg (if_mp column)
+//            as shipped with R1Delta, confirmed live in the running game.
+// [live]   = read from the running game's player object (local, read-only).
 // [wiki]   = the Titanfall fandom wiki (community source, medium confidence).
 // [guess]  = placeholder, still to be measured.
 //
@@ -33,38 +36,38 @@
     jump_turn_max: 0.7,        // [engine] jump_keyboardgrace_max
     gravity: 750.0,            // [engine] sv_gravity
     jump_height: 80.0,         // [set] jumpheight
-    double_jump_height: 60.0,  // [guess] not a stored setting
+    double_jump_height: 80.0,  // [mp] superjump_min_height = superjump_max_height
     jump_grace_time: 0.2,      // [engine] jump_graceperiod
 
     // Wall-run
-    wallrun_time_limit: 1.75,  // [wiki] (3.5 with the Enhanced Parkour Kit)
+    wallrun_time_limit: 2.0,   // [live] player wall-run time limit (the wiki's 1.75 is wrong)
     wallrun_slip_time: 0.7,    // [engine] wallrun_sliptime
     wallrun_slip_speed: 70.0,  // [engine] wallrun_slipvel
     wallrun_slip_slowdown: 0.5, // [engine] wallrun_slipslowdown
     wallrun_up_boost: 250.0,   // [engine] wallrun_upWallBoost
     wallrun_gravity_ramp_time: 0.7, // [engine] wallrun_gravityRampUpTime
-    wallrun_max_speed: 240.0,  // [engine] wallrun_maxSpeedHorizontal
+    wallrun_max_speed: 450.0,  // [mp] (client default 240, campaign 280) wallrun_maxSpeedHorizontal
     wallrun_max_speed_backward: 50.0, // [engine] wallrun_maxSpeedHorizontalBackward
-    wallrun_accelerate: 7.0,   // [engine] wallrun_accelerateHorizontal
+    wallrun_accelerate: 1500.0, // [mp] (client default 7) wallrun_accelerateHorizontal
     wallrun_friction: 4.0,     // [engine] wallrun_friction
     wallrun_max_speed_vertical: 300.0, // [engine] wallrun_maxSpeedVertical
     wallrun_accelerate_vertical: 450.0, // [engine] wallrun_accelerateVertical
     wallrun_upward_push: 0.65, // [engine] wallrun_upwardAutoPush
-    wallrun_fall_away_speed: 100.0, // [engine] wallrun_fallAwaySpeed
-    wallrun_strength_loss_start: 3.0, // [engine] wallrun_strengthLossStart
-    wallrun_strength_loss_end: 5.0,   // [engine] wallrun_strengthLossEnd
-    wall_jump_up_speed: 250.0,      // [engine] wallrun_jumpUpSpeed
-    wall_jump_outward_speed: 150.0, // [engine] wallrun_jumpOutwardSpeed
+    wallrun_fall_away_speed: 70.0, // [mp] wallrun_fallAwaySpeed
+    wallrun_strength_loss_start: 1000.0, // [mp] (campaign 3): in MP the upward help never fades wallrun_strengthLossStart
+    wallrun_strength_loss_end: 1000.0,   // [mp] (campaign 5) wallrun_strengthLossEnd
+    wall_jump_up_speed: 320.0,      // [mp] (campaign 160) wallrun_jumpUpSpeed
+    wall_jump_outward_speed: 250.0, // [mp] (campaign 200) wallrun_jumpOutwardSpeed
     wall_jump_input_speed: 100.0,   // [engine] wallrun_jumpInputDirSpeed
 
     // Wall-hang (aim down sights on a wall)
-    wall_hang_time_limit: 11.0, // [wiki] (22 with the Enhanced Parkour Kit)
+    wall_hang_time_limit: 9.0,  // [live] player wall-hang time limit (the wiki's 11 is wrong)
     wall_hang_stop_time: 0.5,   // [engine] wallrun_hangStopTime
     wall_hang_slip_time: 1.0,   // [engine] wallrun_hangsliptime
 
     // Mantle
     mantle_height: 80.0,        // [engine] automantle_height
-    mantle_max_view_angle: 65.0, // [engine] automantle_maxangle_view
+    mantle_max_view_angle: 50.0, // [mp] automantle_maxangle_view
     mantle_max_view_angle_wallrun: 45.0, // [engine] automantle_wallrun_maxangle_view
     mantle_eye_below: -10.0,    // [engine] automantle_height_below
     mantle_eye_level: 10.0,     // [engine] automantle_height_level
