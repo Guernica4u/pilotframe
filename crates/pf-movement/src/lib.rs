@@ -47,13 +47,17 @@ pub struct MovementState {
     pub mode: Mode,
     /// Mid-air jumps used. Refilled by landing or touching a wall.
     pub air_jumps: u8,
-    /// Normal of the wall we last came off. That wall can't be wall-run again until
-    /// we land or touch a different one, so you can't climb a wall by re-grabbing it.
-    pub last_wall: Option<Vec3>,
+    /// The wall we last ran on: its normal and where we left it. Re-grabbing it is
+    /// only allowed lower down, and gives no boost.
+    pub last_wall: Option<(Vec3, Vec3)>,
+    /// This wall-run is on the same wall as the last: no boost, full gravity.
+    pub same_wall: bool,
     /// Wall-runs since last on the ground; later ones get less upward boost.
     pub wallruns: u8,
     /// Seconds left in which a ground jump still works after walking off a ledge.
     pub jump_grace: f32,
+    /// Seconds since the last jump (for the keyboard jump turn).
+    pub since_jump: f32,
 }
 
 /// What the pilot is doing beyond plain walking, falling and jumping.
@@ -86,8 +90,10 @@ impl MovementState {
             mode: Mode::Free,
             air_jumps: 0,
             last_wall: None,
+            same_wall: false,
             wallruns: 0,
             jump_grace: 0.0,
+            since_jump: 10.0,
         }
     }
 }
@@ -100,6 +106,10 @@ pub struct MoveInput {
     pub wish: Vec2,
     /// Facing around the up axis, radians.
     pub yaw: f32,
+    /// Looking up (positive) or down, radians. Steers wall-runs up and down.
+    pub pitch: f32,
+    /// A movement key was newly pressed this tick (keyboard only; drives the jump turn).
+    pub key_pressed: bool,
     /// The jump button went down since the last tick.
     pub jump: bool,
     /// Sprint is held. Only counts while moving forwards.
@@ -174,9 +184,9 @@ fn duck(s: &mut MovementState, want: bool, tuning: &MovementTuning, world: &impl
 /// Walking, jumping and falling, plus the checks that start wall-runs, wall-hangs
 /// and mantles.
 ///
-/// Ground and air control follow the Source engine's model, which Titanfall's is
-/// built on (see docs/movement/r1-engine-values.md): friction first, then
-/// accelerate towards the wished-for velocity without ever pushing past it.
+/// Ground and air control follow the game's own code (docs/movement/
+/// r1-engine-values.md, "Behaviour"): a linear slowdown of whatever you aren't
+/// pushing for, then accelerate towards the wished-for velocity.
 fn free_move(
     mut s: MovementState,
     input: &MoveInput,
@@ -192,6 +202,8 @@ fn free_move(
     // Ground is re-checked every tick rather than trusted from the last one.
     let mut ground = body.find_ground(world, pos, vel);
     let mut jumped = false;
+    // Velocity before this tick's collisions clip it: what a wall was hit with.
+    let mut approach = vel;
     // Just walked off a ledge: a jump still counts as a ground jump for a moment.
     let can_ground_jump = ground.is_some() || (s.jump_grace > 0.0 && vel.y <= 0.0);
     if can_ground_jump && input.jump {
@@ -199,10 +211,12 @@ fn free_move(
         ground = None;
         jumped = true;
         s.jump_grace = 0.0;
+        s.since_jump = 0.0;
     }
 
     if let Some(normal) = ground {
-        let flat = friction(horizontal(vel), tuning.friction, tuning.stop_speed, dt);
+        // Keep what you're pushing for, bleed off the rest, then accelerate.
+        let flat = decelerate(horizontal(vel), wish, tuning.deceleration * dt);
         let flat = accelerate(flat, wish, tuning.acceleration * dt);
         let intended = along_ground(flat, normal);
 
@@ -228,15 +242,28 @@ fn free_move(
         if input.jump && !jumped && s.air_jumps < 1 {
             vel.y = tuning.launch_speed(tuning.double_jump_height);
             s.air_jumps += 1;
+            s.since_jump = 0.0;
         }
         // Air control: steer, but only add speed up to `air_speed` in the wished
-        // direction. Momentum above that is kept, never added to.
-        let air_wish = wish.clamp_length_max(tuning.air_speed);
-        let flat = accelerate(horizontal(vel), air_wish, tuning.air_acceleration * dt);
+        // direction. Momentum above that is kept, never added to; a tiny extra
+        // push still applies.
+        let mut flat = horizontal(vel);
+        if let Some(dir) = wish.try_normalize() {
+            let air_wish = dir * (input.wish.length().min(1.0) * tuning.air_speed);
+            if flat.dot(dir) < air_wish.length() {
+                flat = accelerate(flat, air_wish, tuning.air_acceleration * dt);
+            } else {
+                flat += dir * tuning.air_extra_acceleration * dt;
+            }
+            if input.key_pressed {
+                flat = jump_turn(flat, dir, s.since_jump, tuning);
+            }
+        }
         vel = Vec3::new(flat.x, vel.y, flat.z);
         // Half the gravity before the move and half after puts every tick exactly on
         // the true parabola, so jump height doesn't depend on the tick rate.
         vel.y -= tuning.gravity * dt * 0.5;
+        approach = vel;
         let air = body.slide(world, pos, vel, dt, false);
         (pos, vel) = (air.pos, air.vel);
         vel.y -= tuning.gravity * dt * 0.5;
@@ -248,6 +275,7 @@ fn free_move(
         vel = along_ground(horizontal(vel), normal);
         s.air_jumps = 0;
         s.last_wall = None;
+        s.same_wall = false;
         s.wallruns = 0;
         s.jump_grace = tuning.jump_grace_time;
     } else {
@@ -256,11 +284,14 @@ fn free_move(
             s.jump_grace = 0.0;
         }
     }
+    if !jumped {
+        s.since_jump += dt;
+    }
     s.position = pos;
     s.velocity = vel;
     s.on_ground = ground.is_some();
     if !s.on_ground && !jumped {
-        parkour::try_start(&mut s, input, tuning, body, world);
+        parkour::try_start(&mut s, approach, input, tuning, body, world);
     }
     s
 }
@@ -449,21 +480,49 @@ fn wish_velocity(input: &MoveInput, tuning: &MovementTuning, crouched: bool) -> 
     (right * wish.x + forward * wish.y) * speed
 }
 
-/// Source-style friction on a flat velocity: lose `friction` × max(speed,
-/// `stop_speed`) per second, so fast movement fades smoothly and slow movement
-/// stops crisply.
-fn friction(flat: Vec3, friction: f32, stop_speed: f32, dt: f32) -> Vec3 {
-    let speed = flat.length();
-    if speed < 1e-3 {
-        return Vec3::ZERO;
+/// Ground slowdown: the part of the velocity along the wished direction, up to the
+/// wished speed, is kept; the rest (drift, excess speed, everything when there's no
+/// input) shrinks by `step`.
+fn decelerate(flat: Vec3, wish: Vec3, step: f32) -> Vec3 {
+    let speed_sq = flat.length_squared();
+    let keep = match wish.try_normalize() {
+        Some(dir) if flat.dot(dir) > 0.0 && speed_sq > 1e-6 => {
+            let along = flat.dot(dir);
+            dir * along * (along * wish.length() / speed_sq).min(1.0)
+        }
+        _ => Vec3::ZERO,
+    };
+    let rest = flat - keep;
+    let len = rest.length();
+    if len < 1e-6 {
+        return keep;
     }
-    let drop = speed.max(stop_speed) * friction * dt;
-    flat * ((speed - drop).max(0.0) / speed)
+    keep + rest * ((len - step).max(0.0) / len)
 }
 
-/// Source-style acceleration: push towards `wish`'s direction by at most
-/// `max_step`, and only until the speed in that direction reaches `wish`'s length.
-/// Speed you already have in other directions is left alone.
+/// Keyboard jump turn: just after a jump, a newly pressed key turns the horizontal
+/// velocity towards `dir` while keeping its speed.
+fn jump_turn(flat: Vec3, dir: Vec3, since_jump: f32, tuning: &MovementTuning) -> Vec3 {
+    let (min, max) = (tuning.jump_turn_time_min, tuning.jump_turn_time_max);
+    let speed = flat.length();
+    if since_jump >= max || speed < 1e-3 {
+        return flat;
+    }
+    let fade = ((since_jump - max) / (min - max).min(-1e-3)).clamp(0.0, 1.0);
+    let current = flat / speed;
+    let turned = current + (dir - current) * fade * tuning.jump_turn_strength;
+    let Some(turned) = turned.try_normalize() else {
+        return flat;
+    };
+    let change =
+        (turned * speed - flat).clamp_length_max(tuning.jump_turn_max * tuning.sprint_speed);
+    flat + change
+}
+
+/// Push towards `wish`'s direction by at most `max_step` (acceleration × dt: the
+/// game's accelerations are in units/s², not Source's speed-scaled factor), and
+/// only until the speed in that direction reaches `wish`'s length. Speed you
+/// already have in other directions is left alone.
 fn accelerate(current: Vec3, wish: Vec3, max_step: f32) -> Vec3 {
     let wish_speed = wish.length();
     if wish_speed < 1e-3 {
@@ -568,14 +627,21 @@ mod tests {
     }
 
     #[test]
-    fn friction_fades_then_stops() {
+    fn decelerate_keeps_what_you_push_for_and_bleeds_the_rest() {
+        let step = 1500.0 / 60.0;
+        // Pushing the way you move, below the wished speed: nothing lost.
+        let v = decelerate(Vec3::new(100.0, 0.0, 0.0), Vec3::new(200.0, 0.0, 0.0), step);
+        assert!((v.x - 100.0).abs() < 1e-3, "{v}");
+        // Over the wished speed: only the excess shrinks.
+        let v = decelerate(Vec3::new(300.0, 0.0, 0.0), Vec3::new(200.0, 0.0, 0.0), step);
+        assert!((v.x - (300.0 - step)).abs() < 1e-3, "{v}");
+        // No input: a straight-line stop at 1500 u/s², about 0.18 s from sprint.
         let mut v = Vec3::new(270.0, 0.0, 0.0);
-        let mut t = 0.0;
+        let mut ticks = 0;
         while v.x > 0.0 {
-            v = friction(v, 4.0, 100.0, 1.0 / 60.0);
-            t += 1.0 / 60.0;
+            v = decelerate(v, Vec3::ZERO, step);
+            ticks += 1;
         }
-        // About a quarter second down to 100, a quarter more to stop.
-        assert!(t > 0.4 && t < 0.6, "{t}");
+        assert_eq!(ticks, 11);
     }
 }

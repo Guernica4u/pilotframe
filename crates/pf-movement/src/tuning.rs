@@ -31,16 +31,25 @@ pub struct MovementTuning {
     pub crouch_speed: f32,
     /// How fast ground speed builds towards the wished-for speed, units/s².
     pub acceleration: f32,
-    /// Ground friction: each second you lose `friction` × max(speed, stop_speed).
-    pub friction: f32,
-    /// Below this speed friction stops you at a constant rate instead of a fading one.
-    pub stop_speed: f32,
+    /// How fast ground speed you aren't pushing for (sideways drift, anything over
+    /// the wished speed, everything when you let go) bleeds off, units/s².
+    pub deceleration: f32,
 
     /// Air control only steers up to this speed in any one direction, units/s.
     /// Above it you keep your momentum but can't add to it (Source-style).
     pub air_speed: f32,
     /// Steering acceleration in the air, units/s².
     pub air_acceleration: f32,
+    /// Tiny extra push in the air when already at `air_speed` that way, units/s².
+    pub air_extra_acceleration: f32,
+    /// Keyboard jump grace: pressing a movement key within `jump_turn_time_max`
+    /// of a jump turns your velocity towards it (keeping the speed), at
+    /// `jump_turn_strength` until `jump_turn_time_min`, fading to 0 at the max.
+    /// The change is capped at `jump_turn_max` × sprint speed.
+    pub jump_turn_time_min: f32,
+    pub jump_turn_time_max: f32,
+    pub jump_turn_strength: f32,
+    pub jump_turn_max: f32,
 
     /// Downward acceleration, units/s².
     pub gravity: f32,
@@ -63,21 +72,19 @@ pub struct MovementTuning {
     pub wallrun_up_boost: f32,
     /// Gravity starts at zero on a wall and ramps to full over this, seconds.
     pub wallrun_gravity_ramp_time: f32,
-    /// Top speed along the wall, units/s.
+    /// Wished speed along the wall pushing forward / backward, units/s.
     pub wallrun_max_speed: f32,
-    /// Acceleration along the wall (Source-style factor: units/s² per unit/s).
+    pub wallrun_max_speed_backward: f32,
+    /// Acceleration along the wall, units/s².
     pub wallrun_accelerate: f32,
-    /// Friction along the wall (same meaning as `friction`).
+    /// Speed lost per second on the wall, as a fraction of speed (all directions).
     pub wallrun_friction: f32,
-    /// Fastest you move up or down the wall, units/s.
+    /// Wished speed up or down the wall at full input, units/s.
     pub wallrun_max_speed_vertical: f32,
-    /// Upward acceleration from pushing forward along the wall, before
-    /// `wallrun_upward_push` scales it, units/s².
+    /// Acceleration up or down the wall, units/s².
     pub wallrun_accelerate_vertical: f32,
-    /// How much of `wallrun_accelerate_vertical` holding forward gives, 0..1.
+    /// How much "up the wall" input holding forward along the wall adds, 0..1.
     pub wallrun_upward_push: f32,
-    /// Slower than this along the wall and you can't start a wall-run, units/s.
-    pub wallrun_min_speed: f32,
     /// Speed away from the wall when you let go or fall off, units/s.
     pub wallrun_fall_away_speed: f32,
     /// Wall-runs (without landing) before the upward boost starts fading, and the

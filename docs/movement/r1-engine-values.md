@@ -95,3 +95,35 @@ Our reading (not stated by the game): a punch is an angular kick on that spring,
 
 - Double jump height (not a stored setting; probably computed in code).
 - The exact order of friction and acceleration inside a tick, and how `acceleration` is applied (we use the Source order: friction, then accelerate up to the wished speed).
+
+## Behaviour (from reading `client.dll`, 2026-10-07)
+
+Plain-language notes on what the game's movement code does. Our Rust is written from these notes, not from the disassembly. Addresses are in the owner's `client.dll` (R1Delta build) for re-checking.
+
+### Ground (`0x180339e49` slowdown, `0x180340b80` walk, `0x1801654e0`/`0x1801655b0` accel/decel getters)
+
+- **Acceleration** comes from the stance settings: `sprintAcceleration` if set and you're faster than `speed`, else `lowAcceleration` if set and slower than `lowSpeed`, else `acceleration` (2500). Scaled by a per-player multiplier (normally 1) and a footstep factor (`footstepAccelReduce`, 1).
+- **Deceleration**: `sprintDeceleration`/`deceleration` if set, else **0.6 × acceleration** (1500 for pilots). It's linear, not Source friction.
+- Each tick: the part of your velocity along the wished direction, up to the wished speed, is kept; everything else (sideways drift, excess speed) is slowed by `deceleration × dt`. Then `Accelerate` adds up to `acceleration × dt` towards the wished direction, never past the wished speed.
+- **`Accelerate` is not Source's**: the step is `accel × dt × surface friction`. It is *not* multiplied by the wished speed, so accelerations are in units/s².
+
+### Air (`0x18033f250` air move, `0x18033f020` air accelerate)
+
+- Wished speed = min(input length, 1) × `airSpeed` (60) × speed scale; acceleration = `airAcceleration` (500), using the same units/s² `Accelerate`. When already at or above the wished speed in that direction, a tiny extra push of `player_extraairaccelleration` × dt (0.2) is added instead.
+- **Keyboard jump grace**: on the tick a movement key is newly pressed, within `jump_keyboardgraceperiodmax` (0.5 s) of the last jump, the horizontal velocity is turned towards the held keys' direction while keeping its speed. Strength is `jump_keyboardgrace_strength` (0.7) up to `jump_keyboardgraceperiodmin` (0.2 s), fading to 0 at 0.5 s. The change is capped at `jump_keyboardgrace_max` (0.7) × sprint speed.
+
+### Wall-run (`0x18034129f` input and physics, `0x180165c01` start test, `0x18016c2b0` begin, `0x18016b990` wall jump, `0x18016b3b0` slip/fall, `0x180160d10` gravity scale)
+
+- **Controls are rebuilt on the wall** (n = wall normal). If the view's right vector points mostly along the wall (|right·n| < 0.7, i.e. facing the wall or away): forward' = normalize(n × right), right' = forward' × n, so forward climbs and strafe slides along. Otherwise (running along the wall): right' = normalize(forward × n), forward' = n × right'. Forward' follows your pitch, so **looking up runs up the wall**.
+- **Auto push**: side input += max(forward input, 0) × (forward' · t) × `wallrun_upwardAutoPush` (0.65), with t = n × up. Strafing can only go up the wall: side input moving down the wall is zeroed.
+- Wish = forward' × forward input + right' × side input, flattened onto the wall plane.
+- **Friction** on the whole 3D velocity: speed × (1 − `wallrun_friction` (4) × dt), times the hang factor. While slipping, downward speed isn't reduced.
+- **Vertical**: if the wish has a vertical part, accelerate towards min(|wish_v|, 1) × `wallrun_maxSpeedVertical` (300) in that direction at `wallrun_accelerateVertical` (450 u/s²).
+- **Horizontal**: accelerate towards min(|wish_h|, 1) × (`wallrun_maxSpeedHorizontal` 240 if forward, `wallrun_maxSpeedHorizontalBackward` 50 if backward), at `wallrun_accelerateHorizontal` (7 u/s²).
+- **Gravity scale**: before `wallrun_gravityRampUpTime` (0.7 s) it is 1 − (1 − t/0.7) × L, where L is 0 on a same-wall run, else 1 for runs ≤ `strengthLossStart` (3), 0 for ≥ `strengthLossEnd` (5), and (count − 3)/(5 − 3) in between (as written; it jumps at 3). Times the hang factor.
+- **Start test**: velocity must point into the wall (`wallrun_minAngle_air` 180 = any angle); the wall must be there at two heights (`wallrun_onlyHighWalls`). Same wall (normals within `wallrun_sameWallDot` 0.9) is allowed, but not higher than where you left it within `wallrun_sameWallDist` (100).
+- **Begin**: wall-run count += 1, then the upward boost B = L × `wallrun_upWallBoost` (250, 0 on a same-wall run). If vertical speed < B: vertical = min(vertical + B, B).
+- **Slip**: starts at `timeLimit − wallrun_sliptime` (0.7 s): vertical −= `wallrun_slipvel` (70), horizontal × (1 − `wallrun_slipslowdown` 0.5). Hang: at `hangTimeLimit − wallrun_hangsliptime` (1.0), vertical −= `wallrun_hangslipvel` (70).
+- **Fall off**: velocity += n × `wallrun_fallAwaySpeed` (100); the wall is marked as "same wall" for the next grab.
+- **Wall jump**: d = input direction (when hanging, topped up to length 1 with the view direction). Velocity += d × `wallrun_jumpInputDirSpeed` (100); then the outward part is raised to at least O = `wallrun_jumpOutwardSpeed` (150) × (1 + 0.8 × (d·n) if d·n < 0). Up: U = L × `wallrun_jumpUpSpeed` (250); if vertical < U: vertical = min(vertical + 1.5 × U, U).
+- **Hang** (aim down sights on the wall): speed and gravity scale by 1 − hang time / `wallrun_hangStopTime` (0.5), reaching 0.
