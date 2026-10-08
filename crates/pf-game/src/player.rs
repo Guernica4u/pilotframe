@@ -48,10 +48,12 @@ const WALLRUN_ROLL_DEG: f32 = 15.0;
 const WALLRUN_TILT_SPEED: f32 = 6.0;
 /// How quickly the eye height catches up when crouching, per second.
 const CROUCH_EASE: f32 = 12.0;
-/// Landing kicks the view from nothing at this fall height to full at the next
-/// (pilot `viewkickFallDistMin` / `viewkickFallDistMax`), units.
-const LAND_KICK_FALL_MIN: f32 = 10.0;
-const LAND_KICK_FALL_MAX: f32 = 70.0;
+/// The landing kick, from the pilot settings: full strength for a fall from
+/// `viewkickFallDistMin` (10 ft), growing to `viewkickFallDistMaxScale` (12) times
+/// that from `viewkickFallDistMax` (70 ft); weaker below the minimum. Feet.
+const LAND_KICK_FALL_MIN_FT: f32 = 10.0;
+const LAND_KICK_FALL_MAX_FT: f32 = 70.0;
+const LAND_KICK_MAX_SCALE: f32 = 12.0;
 /// Most roll when turning while sprinting, degrees (pilot `sprinttiltMaxRoll`).
 const SPRINT_TILT_MAX_ROLL: f32 = 2.0;
 
@@ -234,38 +236,59 @@ impl Player {
     pub fn movement(&self) -> &MovementState {
         &self.state
     }
+
+    /// How far the gun is kicked relative to the view (radians: pitch up, yaw
+    /// left, roll left).
+    pub fn weapon_kick(&self) -> Vec3 {
+        self.view.weapon_offsets()
+    }
 }
 
 /// View punches for what just happened this tick.
 fn kick_view(player: &mut Player, next: &MovementState, gravity: f32) {
     let before = player.state;
     let right = Quat::from_rotation_y(player.yaw) * Vec3::X;
-    // Which side a wall is on: -1 on the right, 1 on the left.
-    let side = |normal: Vec3| normal.dot(right).signum();
+    // How much a wall is to one side: -1 straight to the right, 1 to the left.
+    let side = |normal: Vec3| normal.dot(right);
     let view = &mut player.view;
     if let Mode::WallRun { normal, .. } = next.mode
         && !matches!(before.mode, Mode::WallRun { .. })
     {
-        view.punch(&view::WALLRUN, side(normal), 1.0);
+        // The game scales the wall-run kick by how side-on the wall is, and
+        // leaves the gun's roll out of it.
+        view.punch(&view::WALLRUN, side(normal), 1.0, false);
     }
     if let Mode::WallHang { normal, .. } = next.mode
         && !matches!(before.mode, Mode::WallHang { .. })
     {
-        view.punch(&view::WALLHANG, side(normal), 1.0);
+        view.punch(&view::WALLHANG, side(normal).signum(), 1.0, true);
     }
     if next.air_jumps > before.air_jumps {
-        view.punch(&view::DOUBLE_JUMP, 1.0, 1.0);
+        view.punch(&view::DOUBLE_JUMP, 1.0, 1.0, true);
     } else if before.on_ground && !next.on_ground && next.velocity.y > 1.0 {
-        view.punch(&view::JUMP, 1.0, 1.0);
+        view.punch(&view::JUMP, 1.0, 1.0, true);
     }
     if next.on_ground && !before.on_ground && before.velocity.y < 0.0 {
-        // How far we'd have fallen to land this fast: v² = 2gh.
-        let fall = before.velocity.y * before.velocity.y / (2.0 * gravity.max(1.0));
-        let scale = ((fall - LAND_KICK_FALL_MIN) / (LAND_KICK_FALL_MAX - LAND_KICK_FALL_MIN))
-            .clamp(0.0, 1.0);
-        if scale > 0.0 {
-            view.punch(&view::LAND, 1.0, scale);
-        }
+        view.punch(
+            &view::LAND,
+            1.0,
+            land_kick_scale(-before.velocity.y, gravity),
+            true,
+        );
+    }
+}
+
+/// How hard a landing at `speed` (units/s, downwards) kicks the view: the game
+/// turns the pilot's fall distances (feet) into landing speeds with v² = 2gh.
+fn land_kick_scale(speed: f32, gravity: f32) -> f32 {
+    let at = |feet: f32| (2.0 * gravity * 12.0 * feet).sqrt();
+    let (min, max) = (at(LAND_KICK_FALL_MIN_FT), at(LAND_KICK_FALL_MAX_FT));
+    if speed < min {
+        speed / min
+    } else if speed <= max {
+        1.0 + (speed - min) / (max - min) * (LAND_KICK_MAX_SCALE - 1.0)
+    } else {
+        LAND_KICK_MAX_SCALE
     }
 }
 

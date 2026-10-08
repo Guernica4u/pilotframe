@@ -401,12 +401,17 @@ pub fn animate(
     time: Res<Time>,
     settings: Res<Settings>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut viewmodel: Single<&mut Viewmodel>,
+    viewmodel: Single<(&mut Viewmodel, &mut Transform)>,
     player: Single<(&Player, &ActionState<Action>, &mut Projection), Without<Viewmodel>>,
 ) {
     let dt = time.delta_secs();
-    let vm = viewmodel.as_mut();
+    let (mut vm, mut transform) = viewmodel.into_inner();
+    let vm = vm.as_mut();
     let (player, actions, mut projection) = player.into_inner();
+    // The gun's own punch: turning its camera the other way moves the gun on
+    // screen by the punch.
+    let kick = player.weapon_kick();
+    transform.rotation = Quat::from_euler(EulerRot::YXZ, kick.y, kick.x, kick.z).inverse();
     let state = player.movement();
     vm.clock += dt;
     vm.since_shot += dt;

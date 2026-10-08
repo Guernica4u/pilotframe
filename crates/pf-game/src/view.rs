@@ -2,9 +2,11 @@
 //! a wall-run or hang) and the sprint turn tilt.
 //!
 //! Values are the engine's own defaults read from the owner's `client.dll`, listed
-//! in docs/movement/r1-engine-values.md ("View"). How a punch turns into motion
-//! (an angular kick on a damped spring) is our reading of the settings' names and
-//! descriptions.
+//! in docs/movement/r1-engine-values.md ("View"), and the way a punch moves is the
+//! game's (read from its code, and checked against a recording of the real game):
+//! a punch adds 20 × its angles to an angular speed, and a spring stepped at a
+//! fixed 60 Hz pulls the view back. The gun gets the same punch at 0.2 × on a
+//! spring of its own.
 
 use bevy::prelude::*;
 
@@ -12,6 +14,14 @@ use bevy::prelude::*;
 /// and `viewpunch_base_springDamping`, the same for every axis).
 const SPRING_CONSTANT: f32 = 65.0;
 const SPRING_DAMPING: f32 = 9.0;
+/// A punch of 1° adds this much angular speed, degrees/s.
+const PUNCH_TO_SPEED: f32 = 20.0;
+/// The spring's fixed time step, seconds.
+const SPRING_STEP: f32 = 0.0166;
+/// Below this (squared angle and squared speed) the spring stops.
+const SPRING_REST: f32 = 0.001;
+/// The gun's share of each punch (`viewpunch_jump_scaleWeapon`).
+const WEAPON_SCALE: f32 = 0.2;
 
 /// Sprint tilt (`sprinttilt_*`): turning this many degrees per second or more
 /// gives the full tilt; the tilt fraction changes at most `MAX_VEL` per second,
@@ -20,7 +30,7 @@ const SPRINT_TILT_TURN_RANGE: f32 = 120.0;
 const SPRINT_TILT_ACCEL: f32 = 35.0;
 const SPRINT_TILT_MAX_VEL: f32 = 2.0;
 
-/// A punch: pitch, yaw, roll in degrees, each `base + random × (-1..1)`. Source
+/// A punch: pitch, yaw, roll in degrees, each `base + random × (-0.5..0.5)`. Source
 /// convention: positive pitch kicks the view down, positive roll tilts right.
 pub struct Punch {
     pub base: Vec3,
@@ -53,40 +63,77 @@ pub const LAND: Punch = Punch {
     random: Vec3::new(0.5, 0.0, 1.0),
 };
 
-/// The current punch offset and its spring, plus the sprint tilt.
+/// A punch angle and its angular speed: pitch, yaw, roll in degrees (Source
+/// convention).
 #[derive(Default)]
-pub struct ViewEffects {
-    /// Pitch, yaw, roll offsets in degrees (Source convention) and their speeds.
+struct Spring {
     angle: Vec3,
     speed: Vec3,
+}
+
+impl Spring {
+    /// One fixed step, as the game does it: move, clamp, damp, pull back.
+    fn step(&mut self) {
+        if self.angle.length_squared() <= SPRING_REST && self.speed.length_squared() <= SPRING_REST
+        {
+            *self = Self::default();
+            return;
+        }
+        self.angle += self.speed * SPRING_STEP;
+        self.angle = self.angle.clamp(
+            Vec3::new(-89.0, -179.0, -89.0),
+            Vec3::new(89.0, 179.0, 89.0),
+        );
+        self.speed *= (-SPRING_DAMPING * SPRING_STEP).exp();
+        self.speed -= self.angle * SPRING_CONSTANT * SPRING_STEP;
+    }
+
+    /// In radians, converted from Source's convention to ours: (pitch up, yaw left,
+    /// roll left), plus `extra_roll` degrees.
+    fn offsets(&self, extra_roll: f32) -> Vec3 {
+        Vec3::new(-self.angle.x, self.angle.y, -(self.angle.z + extra_roll)) * std::f32::consts::PI
+            / 180.0
+    }
+}
+
+/// The view and gun punch springs, plus the sprint tilt.
+#[derive(Default)]
+pub struct ViewEffects {
+    view: Spring,
+    weapon: Spring,
+    /// Time not yet stepped by the springs, seconds.
+    pending: f32,
     sprint_tilt: f32,
     sprint_tilt_speed: f32,
     rng: u32,
 }
 
 impl ViewEffects {
-    /// Kick the view. `side` flips yaw and roll (e.g. which side the wall is on);
-    /// `scale` scales the whole punch.
-    pub fn punch(&mut self, punch: &Punch, side: f32, scale: f32) {
+    /// Kick the view and the gun. `side` scales the base yaw and roll (e.g. how
+    /// much the wall is to one side, -1..1); `scale` scales the whole punch.
+    /// `weapon_roll` false leaves the gun's roll alone (the wall-run punch does).
+    pub fn punch(&mut self, punch: &Punch, side: f32, scale: f32, weapon_roll: bool) {
         let r = Vec3::new(self.random(), self.random(), self.random());
-        let mut kick = (punch.base + punch.random * r) * scale;
-        kick.y *= side;
-        kick.z *= side;
-        // An angular kick: the spring's natural speed turns the punch angle into a
-        // starting speed, so the peak is roughly half the punch once damping acts.
-        self.speed += kick * SPRING_CONSTANT.sqrt();
+        let base = punch.base * Vec3::new(1.0, side, side);
+        let kick = (base + punch.random * r) * scale;
+        self.view.speed += kick * PUNCH_TO_SPEED;
+        let mut gun = kick * WEAPON_SCALE;
+        if !weapon_roll {
+            gun.z = 0.0;
+        }
+        self.weapon.speed += gun * PUNCH_TO_SPEED;
     }
 
     /// Advance the springs by `dt` seconds. `turn_rate` is degrees/s of yaw (left
     /// positive); `sprinting` enables the turn tilt.
     pub fn update(&mut self, dt: f32, turn_rate: f32, sprinting: bool) {
-        // Small fixed sub-steps keep the stiff spring stable at low frame rates.
-        let steps = (dt / (1.0 / 240.0)).ceil().max(1.0);
-        let h = dt / steps;
-        for _ in 0..steps as usize {
-            let accel = -SPRING_CONSTANT * self.angle - SPRING_DAMPING * self.speed;
-            self.speed += accel * h;
-            self.angle += self.speed * h;
+        // The game steps its springs at a fixed rate; so do we, whatever the
+        // frame rate.
+        self.pending = (self.pending + dt).min(0.25);
+        while self.pending >= SPRING_STEP {
+            self.pending -= SPRING_STEP;
+            self.view.step();
+            self.weapon.step();
         }
 
         let target = if sprinting {
@@ -103,19 +150,22 @@ impl ViewEffects {
         self.sprint_tilt = (self.sprint_tilt + self.sprint_tilt_speed * dt).clamp(-1.0, 1.0);
     }
 
-    /// Offsets to add to the camera, in radians: (pitch up, yaw left, roll left),
-    /// i.e. converted from Source's convention to ours. `sprint_max_roll` is the
-    /// pilot's `sprinttiltMaxRoll` in degrees.
+    /// Offsets to add to the camera, in radians: (pitch up, yaw left, roll left).
+    /// `sprint_max_roll` is the pilot's `sprinttiltMaxRoll` in degrees.
     pub fn offsets(&self, sprint_max_roll: f32) -> Vec3 {
-        let roll = self.angle.z + self.sprint_tilt * sprint_max_roll;
-        Vec3::new(-self.angle.x, self.angle.y, -roll) * std::f32::consts::PI / 180.0
+        self.view.offsets(self.sprint_tilt * sprint_max_roll)
     }
 
-    /// -1..1, from a small fixed-seed generator (the effect doesn't need to be
+    /// How far the gun is kicked relative to the view, in radians, as `offsets`.
+    pub fn weapon_offsets(&self) -> Vec3 {
+        self.weapon.offsets(0.0)
+    }
+
+    /// -0.5..0.5, from a small fixed-seed generator (the effect doesn't need to be
     /// unpredictable, just varied).
     fn random(&mut self) -> f32 {
         self.rng = self.rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-        (self.rng >> 8) as f32 / (1u32 << 23) as f32 - 1.0
+        (self.rng >> 8) as f32 / (1u32 << 24) as f32 - 0.5
     }
 }
 
@@ -135,15 +185,25 @@ mod tests {
     }
 
     #[test]
-    fn a_punch_kicks_then_settles() {
+    fn a_jump_punch_matches_the_real_game() {
+        // Recorded in the real game: a jump kicks the view ~2.5-5° down, peaking
+        // ~0.13 s in, back near zero by ~0.4 s.
         let mut v = ViewEffects::default();
-        v.punch(&LAND, 1.0, 1.0);
-        let mut peak = 0.0f32;
-        for _ in 0..120 {
-            v.update(1.0 / 60.0, 0.0, false);
-            peak = peak.max(v.angle.x.abs());
+        v.punch(&JUMP, 1.0, 1.0, true);
+        let (mut peak, mut peak_t) = (0.0f32, 0.0);
+        for i in 0..240 {
+            v.update(1.0 / 120.0, 0.0, false);
+            if v.view.angle.x > peak {
+                (peak, peak_t) = (v.view.angle.x, i as f32 / 120.0);
+            }
         }
-        assert!(peak > 0.3 && peak < 3.0, "peak {peak}");
-        assert!(v.angle.length() < 0.05, "should settle: {:?}", v.angle);
+        assert!(peak > 2.0 && peak < 5.5, "peak {peak}");
+        assert!((0.08..0.2).contains(&peak_t), "peak at {peak_t}");
+        assert!(
+            v.view.angle.length() < 0.05,
+            "should settle: {:?}",
+            v.view.angle
+        );
+        assert!(v.weapon.angle.length() < 0.05);
     }
 }

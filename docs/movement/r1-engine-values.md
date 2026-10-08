@@ -112,7 +112,17 @@ Defaults are loaded in the instruction just before each setting's name where it'
 | `sprinttilt_accel` / `maxvel` / `turnrange` | 35 / 2 / 120 | Sprint turn tilt: fraction acceleration, max speed, turn rate (deg/s) for full tilt |
 | pilot `fov` | 70 | Source convention: horizontal degrees on a 4:3 screen (≈55° vertical) |
 
-Our reading (not stated by the game): a punch is an angular kick on that spring, with its starting speed = punch × √65. Landing scales the land punch from 0 at a 10-unit fall to full at 70 (pilot `viewkickFallDistMin/Max`); what `viewkickFallDistMaxScale` (12) multiplies is still unknown.
+**How a punch moves** (read from the game's code, 2026-10-08, and checked against a recording of the real game; these values were confirmed live):
+- Each axis gets base + random × r, with r uniform in −0.5..0.5 (a named random stream per event, e.g. `viewpunchJumpX`).
+- The punch is added to the view's **angular speed**, at 20 (deg/s) per degree.
+- The spring steps at a fixed **0.0166 s**: angle += speed × h, clamped to ±89 pitch/roll and ±179 yaw. Then speed ×= exp(−damping × h), then speed −= angle × spring constant × h. Both reset to 0 once angle² and speed² are ≤ 0.001.
+- Player fields: view punch angle at 0x26D0, speed at 0x26DC.
+- The gun has its own punch (0x26E8 / 0x26F4) on the same spring, kicked by punch × `viewpunch_jump_scaleWeapon` (0.2). The wall-run punch leaves the gun's roll out.
+- **Wall-run:** base yaw and roll are multiplied by (view right · wall normal), so a wall straight to the side gets the full roll.
+- **Landing:** scaled by fall speed v, with the pilot's `viewkickFallDistMin` (10 ft), `Max` (70 ft) and `MaxScale` (12) turned into speeds with v = √(2 × `sv_gravity` × 12 × feet), i.e. 424 and 1122 u/s. Below 424 the scale is v / 424; from 424 to 1122 it rises from 1 to 12; above that it stays 12. It's × 0.2 in water.
+- **Measured:** a jump kicks the view about 2.5–5° down, peaking about 0.13 s in and settling by about 0.45 s.
+
+**Gun bob and sway** values are in each weapon's script (`bob_*`, `sway_*`). Their loader (`0x18047ddd0`) stores them at weapon data + 0x680 (bob cycle time at +0x8C, min speed +0x90, max speed +0x94, vertical +0x98, horizontal +0x9C, pitch/yaw/roll +0xA0..A8, gain +0xAC; the zoomed copies at +0x22C...). The code that uses them hasn't been found yet, so the gun has no bob or sway.
 
 ## Still unknown
 
