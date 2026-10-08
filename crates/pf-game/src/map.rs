@@ -369,7 +369,7 @@ mod tests {
         };
         let (state, _) = run(
             &world,
-            MovementState::new(Vec3::new(90.0, 1.0, -1300.0)),
+            MovementState::new(Vec3::new(115.0, 1.0, -1300.0)),
             sprint(0.0),
             0.6,
         );
