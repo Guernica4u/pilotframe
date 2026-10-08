@@ -7,6 +7,8 @@
 //!   pf-pc vpk-extract <file_dir.vpk> <filter> <out_dir>
 //!   pf-pc <disc1.iso> materials-for <map.bsp> <map_materials_dir> <out_dir>
 //!   pf-pc <disc1.iso> common-extract <filter> <out_dir>
+//!
+//! `PF_READ_SCRIPTS=1` also extracts game scripts, for reading locally.
 //!   pf-pc <disc1.iso> model-materials <out_dir> <model.mdl>...
 //!
 //! Discs 2 and 3 are found next to disc 1 by replacing "Disc 1" in the name.
@@ -28,6 +30,15 @@ const PARTS: [(usize, &str); 3] = [
     (2, "TITANFAL.ZIP"),
 ];
 const BLOCKED_EXT: [&str; 7] = [".exe", ".dll", ".nut", ".gnut", ".xex", ".lex", ".sys"];
+
+/// Whether a file must not be extracted. Game scripts may be read locally as
+/// reference (never committed or shipped), so `PF_READ_SCRIPTS=1` lets `.nut`
+/// and `.gnut` through; executables never.
+fn blocked(path: &str) -> bool {
+    let script = [".nut", ".gnut"].iter().any(|x| path.ends_with(x));
+    BLOCKED_EXT.iter().any(|x| path.ends_with(x))
+        && !(script && std::env::var_os("PF_READ_SCRIPTS").is_some())
+}
 
 fn main() {
     if let Err(e) = run() {
@@ -97,7 +108,7 @@ fn run() -> io::Result<()> {
                 if e.is_dir() || !lower.contains(&filter) {
                     continue;
                 }
-                if BLOCKED_EXT.iter().any(|x| lower.ends_with(x)) {
+                if blocked(&lower) {
                     println!("skip (blocked type) {}", e.name);
                     continue;
                 }
@@ -199,7 +210,7 @@ fn extract_vpk(dir_path: &Path, filter: &str, out_dir: &Path) -> io::Result<()> 
 
     let (mut count, mut bytes) = (0usize, 0u64);
     for f in dir.files.iter().filter(|f| f.path.contains(filter)) {
-        if BLOCKED_EXT.iter().any(|x| f.path.ends_with(x)) {
+        if blocked(&f.path) {
             continue;
         }
         let mut data = dir_data[f.preload.0..f.preload.0 + f.preload.1].to_vec();

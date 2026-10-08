@@ -10,6 +10,7 @@
 //! *States* (here [`Screen`]) switch whole groups of systems on and off.
 
 mod dev;
+mod hud;
 mod input;
 mod level;
 mod map;
@@ -57,6 +58,7 @@ fn main() {
             level::LevelPlugin,
             player::PlayerPlugin,
             viewmodel::ViewmodelPlugin,
+            hud::HudPlugin,
             menu::MenuPlugin,
             dev::DevPlugin,
         ))

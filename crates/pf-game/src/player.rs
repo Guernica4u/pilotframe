@@ -30,7 +30,8 @@ impl Plugin for PlayerPlugin {
                 Update,
                 (
                     aim.run_if(playing),
-                    (place_camera, update_hud, apply_settings).run_if(in_state(Screen::InGame)),
+                    (place_camera, update_hud, toggle_debug_text, apply_settings)
+                        .run_if(in_state(Screen::InGame)),
                 )
                     .chain(),
             );
@@ -364,6 +365,7 @@ fn spawn_hud(mut commands: Commands) {
     commands.spawn((
         LevelEntity,
         Hud,
+        Visibility::Hidden,
         Text::new(""),
         TextFont {
             font_size: FontSize::Px(16.0),
@@ -380,7 +382,20 @@ fn spawn_hud(mut commands: Commands) {
 
 const CONTROLS: &str = "WASD move   mouse look   Space jump (again in the air)   Shift sprint   Ctrl/C crouch   Right mouse aim (wall-hang)   Left mouse fire   R reload   Backspace reset   Esc menu\n\
                         Controller: sticks   A jump   L3 sprint   B crouch   LT aim   RT fire   X reload   Back reset\n\
-                        Jump alongside a wall to wall-run. Jump at a ledge holding forward to mantle.";
+                        Jump alongside a wall to wall-run. Jump at a ledge holding forward to mantle.   F3 hides this.";
+
+/// F3 shows or hides the debug text (speed, movement mode, controls).
+fn toggle_debug_text(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut text: Single<&mut Visibility, With<Hud>>,
+) {
+    if keyboard.just_pressed(KeyCode::F3) {
+        **text = match **text {
+            Visibility::Hidden => Visibility::Inherited,
+            _ => Visibility::Hidden,
+        };
+    }
+}
 
 fn update_hud(
     player: Single<&Player>,

@@ -56,8 +56,12 @@ impl Plugin for ViewmodelPlugin {
 /// The weapon's numbers from its settings file.
 struct WeaponData {
     viewmodel: String,
+    /// Localisation token for the HUD name, e.g. `#WPN_RSPN101_SHORT`.
+    short_name: String,
     fire_rate: f32,
     clip: u32,
+    /// Spare rounds you spawn with (`ammo_default_total`).
+    ammo_total: u32,
     reload_time: f32,
     reload_empty_time: f32,
     deploy_time: f32,
@@ -79,8 +83,10 @@ impl WeaponData {
         };
         Some(Self {
             viewmodel: kv.get("viewmodel")?.replace('\\', "/").to_ascii_lowercase(),
+            short_name: kv.get("shortprintname").cloned().unwrap_or_default(),
             fire_rate: num("fire_rate", 10.0),
             clip: num("ammo_clip_size", 30.0) as u32,
+            ammo_total: num("ammo_default_total", 0.0) as u32,
             reload_time: num("reload_time", 2.0),
             reload_empty_time: num("reloadempty_time", 2.5),
             deploy_time: num("deploy_time", 1.0),
@@ -147,13 +153,46 @@ pub struct Viewmodel {
     since_shot: f32,
     cooldown: f32,
     ammo: u32,
+    /// Spare rounds, which reloads draw from.
+    reserve: u32,
     action: Option<GunAction>,
 }
 
+/// What the HUD shows about the gun.
 impl Viewmodel {
-    /// Rounds left in the magazine, for the HUD.
+    /// Rounds left in the magazine.
     pub fn ammo(&self) -> u32 {
         self.ammo
+    }
+
+    /// The magazine's size.
+    pub fn clip_size(&self) -> u32 {
+        self.data.clip
+    }
+
+    /// Spare rounds.
+    pub fn reserve(&self) -> u32 {
+        self.reserve
+    }
+
+    /// The weapon's short name, as a localisation token (`#WPN_..._SHORT`).
+    pub fn short_name(&self) -> &str {
+        &self.data.short_name
+    }
+
+    /// How far into aiming down sights, 0..1.
+    pub fn ads(&self) -> f32 {
+        self.ads
+    }
+
+    /// How far lowered for sprinting, 0..1.
+    pub fn sprint(&self) -> f32 {
+        self.sprint
+    }
+
+    /// Reloading right now.
+    pub fn reloading(&self) -> bool {
+        self.action.as_ref().is_some_and(|a| a.reload)
     }
 }
 
@@ -360,6 +399,7 @@ pub fn spawn(
         if arms.is_some() { " + arms" } else { "" }
     );
     let ammo = data.clip;
+    let reserve = data.ammo_total;
     commands.entity(view_camera).insert(Viewmodel {
         mdl,
         weapon,
@@ -376,6 +416,7 @@ pub fn spawn(
         since_shot: 10.0,
         cooldown: 0.0,
         ammo,
+        reserve,
         action,
     });
 }
@@ -423,7 +464,9 @@ pub fn animate(
         let length = vm.anims[a.anim].duration() / a.rate.max(1e-3);
         if a.time >= length {
             if a.reload {
-                vm.ammo = vm.data.clip;
+                let take = (vm.data.clip - vm.ammo).min(vm.reserve);
+                vm.ammo += take;
+                vm.reserve -= take;
             }
             vm.action = None;
         }
@@ -431,7 +474,7 @@ pub fn animate(
     let speed = Vec2::new(state.velocity.x, state.velocity.z).length();
     let sprinting = state.on_ground && speed > SPRINT_SPEED;
     let wants_reload = actions.just_pressed(&Action::Reload) && vm.ammo < vm.data.clip;
-    if vm.action.is_none() && (wants_reload || vm.ammo == 0) {
+    if vm.action.is_none() && vm.reserve > 0 && (wants_reload || vm.ammo == 0) {
         let (anim, length) = if vm.ammo == 0 {
             (vm.ids.reload_empty, vm.data.reload_empty_time)
         } else {

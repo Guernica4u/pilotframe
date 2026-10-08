@@ -15,6 +15,7 @@ ron.workspace = true
 pf-world = { path = "../pf-world" }
 pf-fmt-mdl = { path = "../pf-fmt-mdl" }
 pf-fmt-vtf = { path = "../pf-fmt-vtf" }
+pf-fmt-ui = { path = "../pf-fmt-ui" }
 serde.workspace = true
 
 [lints]

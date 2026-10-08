@@ -4478,6 +4478,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-fmt-ui"
+version = "0.0.1"
+
+[[package]]
 name = "pf-fmt-vpk"
 version = "0.0.1"
 dependencies = [
@@ -4495,6 +4499,7 @@ dependencies = [
  "bevy",
  "leafwing-input-manager",
  "pf-fmt-mdl",
+ "pf-fmt-ui",
  "pf-fmt-vtf",
  "pf-movement",
  "pf-world",

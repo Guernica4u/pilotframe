@@ -191,7 +191,7 @@ pub fn extract_matching(zip: &SplitZip, filter: &str, out: &Path) -> io::Result<
         .iter()
         .map(|f| f.path.clone())
         .filter(|p| p.contains(filter))
-        .filter(|p| !crate::BLOCKED_EXT.iter().any(|x| p.ends_with(x)))
+        .filter(|p| !crate::blocked(p))
         .collect();
     pick(zip, &dir_data, &by_path, &paths, out)?;
     Ok(())
