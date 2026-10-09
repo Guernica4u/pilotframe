@@ -111,6 +111,7 @@ Defaults are loaded in the instruction just before each setting's name where it'
 | `viewpunch_zipline_*` | base 10, 0, 0; random 3, 10, 10 | Zipline (not used yet) |
 | `sprinttilt_accel` / `maxvel` / `turnrange` | 35 / 2 / 120 | Sprint turn tilt: fraction acceleration, max speed, turn rate (deg/s) for full tilt |
 | pilot `fov` | 70 | Source convention: horizontal degrees on a 4:3 screen (≈55° vertical) |
+| `cl_fovScale` | 1.0 | The Options-menu FOV slider (`advancedvideosettings.menu`): 1.0 to 1.3 in steps of 0.05. The game clamps it to 1.0..1.3 (`0x180035720`, which returns 1.0 in some modes) and multiplies the pilot's `fov` by it, rounding to whole degrees. So the real slider gives 70, 74, 77, 81, 84, 88, 91. Pilotframe keeps a degrees setting (70 to 90) for now. |
 
 **How a punch moves** (read from the game's code, 2026-10-08, and checked against a recording of the real game; these values were confirmed live):
 - Each axis gets base + random × r, with r uniform in −0.5..0.5 (a named random stream per event, e.g. `viewpunchJumpX`).

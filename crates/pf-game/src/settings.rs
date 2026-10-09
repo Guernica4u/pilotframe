@@ -20,6 +20,8 @@ pub struct Settings {
     pub mouse_sensitivity: f32,
     /// Field of view in degrees, the way Titanfall counts it: horizontal, on a
     /// 4:3 screen (its PC slider runs 70 to 90; the pilot default is 70).
+    /// `fov_degrees` is accepted too: the movement sandbox saves it under that name.
+    #[serde(alias = "fov_degrees")]
     pub fov: f32,
 }
 
@@ -66,5 +68,16 @@ pub fn step_setting(value: f32, dir: i32, (min, max, step): (f32, f32, f32)) -> 
         max
     } else {
         (next / step).round() * step
+    }
+}
+
+#[cfg(test)]
+mod fov_name_tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_sandbox_name_for_fov() {
+        let s: Settings = ron::from_str("(mouse_sensitivity: 1.0, fov_degrees: 90.0)").unwrap();
+        assert_eq!(s.fov, 90.0);
     }
 }
