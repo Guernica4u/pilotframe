@@ -66,11 +66,15 @@ Each weapon's `CrosshairData` lists elements. The R-201 has a `spread` element w
 - Defaults when a weapon doesn't set them: offset 0, start angle 0, **step 90°, so 4 arms**.
 - Other keys: `offset_x/y`, `size_fov`, `fade_*`, `draw_while_*`, `stationary`, `default_color` / `fixed_color`.
 
-**Not done yet:**
-- How the spread (an angle) becomes the arms' push in pixels. Needs the drawing code; comes with weapon spread.
-- Fade timing. We fade at 8 per second; this is our guess.
-- The hit indicator (`hit_indicator`, 64 × 64).
-- Colour by target (enemy and friendly colours).
+**Per-frame drawing** (`0x180402750`; arm setup at `0x1804022b0`):
+- Arm k's angle is `spread_initial_angle` + k × step. Its push direction is (cos, −sin) of that angle, and its image is turned by `rotation` + k × step.
+- Each frame, every arm is placed at the crosshair centre + push × its direction. The push is the scaled `spread_initial_offset` plus the spread in pixels.
+- **Spread in pixels** (`0x18007c090`) = tan(spread / 2) / tan(fov / 2) × (screen size) × 0.5. That's the true projection of the spread cone. Whether "screen size" is the width or the height isn't settled yet (it's the second value from the screen-size call, likely the height).
+- R-201 standing hip spread is 5.5°. In the owner's R1Delta screenshot (2000 × 1125) each arm's centre sits about 40 px from the screen centre. That matches the height version at FOV 90; the owner's FOV setting needs confirming.
+- Alpha is the element colour's alpha × fade. The sprint fade (when `fade_while_sprinting` is set) and the reload fade are values kept by the HUD; their rates aren't read yet.
+
+**Still to read:** the hit indicator (`hit_indicator`, 64 × 64) and the target colours (enemy and friendly).
+- The fade rates. Our current 8 per second is a stand-in, to be replaced by the game's.
 
 ## Still to match
 
