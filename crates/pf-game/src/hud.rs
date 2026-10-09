@@ -342,7 +342,8 @@ fn spawn(
                     ..default()
                 },
                 ImageNode::new(image.clone()),
-                UiTransform::from_rotation(Rot2::degrees(angle)),
+                // The game's UI angles turn the other way round from Bevy's.
+                UiTransform::from_rotation(Rot2::degrees(-angle)),
                 ZIndex(300 + layer as i32),
                 Crosshair { alpha: 1.0, arm },
                 ChildOf(hud),

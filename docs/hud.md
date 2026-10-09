@@ -105,7 +105,12 @@ A setting looked up by name at run time (pointer at `0x1817eb1d8`) switches this
 - Crouch is 0 or 1 here; the game passes a duck fraction.
 - The tick is our 60 Hz.
 
-**Check:** R1Delta screenshot at FOV ≈ 90, standing, R-201 → arm centres ≈ 40 px from centre at 1125 px tall. Pilotframe at FOV 90 → ≈ 24 px at 720 tall (= 25.6 scaled).
+**The arm texture** (`standard_plus`, 128 × 128 DXT5) is one 4-pixel-wide line running from the tile's centre to a quarter of the tile out. So an arm's inner end sits exactly at the push. The game's UI angles turn the opposite way to Bevy's, so we negate them.
+
+**Check against R1Delta** (2000 × 1125, FOV ≈ 90, standing, R-201):
+- TF1: arms run from 28 to 53 px from the centre, 25 long, 3 thick.
+- Formula: push = tan(2.75°) / tan(45°) × 562.5 = 27 px; arm = 44 × 1125/480 / 4 = 26 px long. That matches.
+- Pilotframe at FOV 70 (720 tall): push 24.7 px, which is where the arms are.
 
 ## Still to match
 
