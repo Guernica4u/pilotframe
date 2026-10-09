@@ -35,6 +35,9 @@ const LAYER: usize = 1;
 /// Pilot `viewmodelfov` (Source convention, like `fov`).
 const VIEWMODEL_FOV: f32 = 54.0;
 const WEAPON_SCRIPT: &str = "scripts/weapons/mp_weapon_rspn101.txt";
+/// The attachment the R-201 comes with: the game's first preset pilot loadout
+/// (`_loadouts.nut`, `pilot_preset_loadout_1`) gives it the HCOG.
+const DEFAULT_ATTACHMENT: &str = "hcog";
 /// Militia pilot arms (pilot `armsmodel_militia`).
 const ARMS: &str = "models/weapons/arms/pov_mcor_pilot_male_br.mdl";
 /// Blend time in and out of reload and draw animations, seconds.
@@ -67,6 +70,11 @@ struct WeaponData {
     /// Spare rounds you spawn with (`ammo_default_total`).
     ammo_total: u32,
     spread: SpreadData,
+    /// Body group name → sub-model (`bodygroupN_name` / `bodygroupN_set`).
+    bodygroups: Vec<(String, usize)>,
+    /// Which alternate idle/attack/aim animations to use (`anim_alt_idleAttack`;
+    /// 0 = the plain ones).
+    anim_alt: u32,
     reload_time: f32,
     reload_empty_time: f32,
     deploy_time: f32,
@@ -78,14 +86,40 @@ struct WeaponData {
 }
 
 impl WeaponData {
-    fn load(dir: &Path) -> Option<Self> {
+    /// The weapon's settings with `attachment`'s mod applied over them, the way
+    /// the game applies a mod (its values replace the base ones).
+    fn load(dir: &Path, attachment: &str) -> Option<Self> {
         let text = std::fs::read_to_string(dir.join(WEAPON_SCRIPT)).ok()?;
-        let kv = pf_fmt_vtf::vmt::Vmt::parse(&text).params;
+        let root = pf_fmt_ui::kv::parse(&text).nodes.into_iter().next()?;
+        let mut kv: std::collections::HashMap<String, String> = root
+            .children()
+            .iter()
+            .filter_map(|n| match &n.value {
+                pf_fmt_ui::kv::Value::Text(t) => Some((n.key.to_ascii_lowercase(), t.clone())),
+                pf_fmt_ui::kv::Value::Block(_) => None,
+            })
+            .collect();
+        if let Some(m) = root.get("Mods").and_then(|m| m.get(attachment)) {
+            for n in m.children() {
+                if let pf_fmt_ui::kv::Value::Text(t) = &n.value {
+                    kv.insert(n.key.to_ascii_lowercase(), t.clone());
+                }
+            }
+        }
         let num = |k: &str, default: f32| {
             kv.get(k)
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(default)
         };
+        let bodygroups = (1..32)
+            .filter_map(|i| {
+                let name = kv.get(&format!("bodygroup{i}_name"))?;
+                Some((
+                    name.clone(),
+                    num(&format!("bodygroup{i}_set"), 0.0) as usize,
+                ))
+            })
+            .collect();
         Some(Self {
             viewmodel: kv.get("viewmodel")?.replace('\\', "/").to_ascii_lowercase(),
             short_name: kv.get("shortprintname").cloned().unwrap_or_default(),
@@ -93,6 +127,8 @@ impl WeaponData {
             clip: num("ammo_clip_size", 30.0) as u32,
             ammo_total: num("ammo_default_total", 0.0) as u32,
             spread: SpreadData::from_script(|k| kv.get(k).and_then(|v| v.trim().parse().ok())),
+            bodygroups,
+            anim_alt: num("anim_alt_idleAttack", 0.0) as u32,
             reload_time: num("reload_time", 2.0),
             reload_empty_time: num("reloadempty_time", 2.5),
             deploy_time: num("deploy_time", 1.0),
@@ -220,11 +256,21 @@ fn to_view(p: Vec3) -> Vec3 {
     Vec3::new(-p.x, p.y, -p.z)
 }
 
-fn read_model(dir: &Path, rel: &str) -> Option<(Vec<u8>, pf_fmt_mdl::Model)> {
+fn read_model(
+    dir: &Path,
+    rel: &str,
+    bodygroups: &[(String, usize)],
+) -> Option<(Vec<u8>, pf_fmt_mdl::Model)> {
     let path = dir.join(rel);
     let read = |ext: &str| std::fs::read(path.with_extension(ext)).ok();
     let mdl = read("mdl")?;
-    let model = pf_fmt_mdl::load(&mdl, &read("vvd")?, &read("dx11.vtx")?).ok()?;
+    let body = |name: &str| {
+        bodygroups
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map_or(0, |&(_, set)| set)
+    };
+    let model = pf_fmt_mdl::load_with_body(&mdl, &read("vvd")?, &read("dx11.vtx")?, body).ok()?;
     Some((mdl, model))
 }
 
@@ -253,21 +299,29 @@ fn build_rig(
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals.clone())
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, m.uvs.clone())
         .with_inserted_indices(Indices::U32(m.indices.clone()));
-        let texture = m
+        let loaded = m
             .materials
             .iter()
-            .find_map(|name| pf_world::load_material(material_dirs, name))
-            .and_then(|l| l.texture)
-            .map(|i| images.add(i));
+            .find_map(|name| pf_world::load_material(material_dirs, name));
+        // Attachments like the HCOG's reticle are unlit, see-through or glowing,
+        // and tinted by the material's `$color2`.
+        let (additive, unlit, tint, blend) = loaded
+            .as_ref()
+            .map_or((false, false, None, AlphaMode::Opaque), |l| {
+                (l.additive, l.unlit, l.tint, l.alpha)
+            });
+        let texture = loaded.and_then(|l| l.texture).map(|i| images.add(i));
         let material = materials.add(StandardMaterial {
-            base_color: if texture.is_some() {
-                Color::WHITE
-            } else {
-                Color::srgb(0.4, 0.4, 0.42)
+            base_color: match (tint, texture.is_some()) {
+                (Some([r, g, b]), _) => Color::linear_rgb(r, g, b),
+                (None, true) => Color::WHITE,
+                (None, false) => Color::srgb(0.4, 0.4, 0.42),
             },
             base_color_texture: texture,
             perceptual_roughness: 0.6,
             cull_mode: None,
+            unlit,
+            alpha_mode: if additive { AlphaMode::Add } else { blend },
             ..default()
         });
         let handle = meshes.add(mesh);
@@ -300,14 +354,14 @@ pub fn spawn(
     images: &mut Assets<Image>,
 ) {
     let dir = common_dir();
-    let Some(data) = WeaponData::load(&dir) else {
+    let Some(data) = WeaponData::load(&dir, DEFAULT_ATTACHMENT) else {
         info!(
             "no viewmodel: {WEAPON_SCRIPT} not found under {}",
             dir.display()
         );
         return;
     };
-    let Some((mdl, model)) = read_model(&dir, &data.viewmodel) else {
+    let Some((mdl, model)) = read_model(&dir, &data.viewmodel, &data.bodygroups) else {
         info!("no viewmodel: {} not found", data.viewmodel);
         return;
     };
@@ -355,7 +409,7 @@ pub fn spawn(
     ) else {
         return;
     };
-    let arms = read_model(&dir, ARMS).and_then(|(arms_mdl, arms_model)| {
+    let arms = read_model(&dir, ARMS, &[]).and_then(|(arms_mdl, arms_model)| {
         let rig = build_rig(
             commands,
             view_camera,
@@ -376,11 +430,19 @@ pub fn spawn(
 
     let anims = anim::animations(&mdl).unwrap_or_default();
     let id = |name: &str| anims.iter().position(|a| a.name == name);
+    // The attachment's alternate set (`..._alt1` etc.), where the model has it.
+    let alt = |name: &str| {
+        let alt = format!("{name}_alt{}", data.anim_alt);
+        (data.anim_alt > 0)
+            .then(|| id(&alt))
+            .flatten()
+            .or_else(|| id(name))
+    };
     let ids = AnimIds {
-        idle: id("idle_anim"),
-        idle_ads: id("idle_ads_anim"),
-        attack: id("attack_anim"),
-        attack_ads: id("attack_ads_anim"),
+        idle: alt("idle_anim"),
+        idle_ads: alt("idle_ads_anim"),
+        attack: alt("attack_anim"),
+        attack_ads: alt("attack_ads_anim"),
         sprint: id("@sprint_seq"),
         reload: id("@reload_seq"),
         reload_empty: id("@reload_empty_seq"),
@@ -388,7 +450,7 @@ pub fn spawn(
     };
     // The aim-out animation ends at the hip pose, aim-in at the aim pose.
     let end_pose = |name: &str| {
-        id(name)
+        alt(name)
             .and_then(|i| anim::sample(&mdl, &weapon.bones, &anims[i], 1e6).ok())
             .unwrap_or_else(|| anim::rest_pose(&weapon.bones))
     };

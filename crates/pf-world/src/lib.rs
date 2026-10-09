@@ -316,6 +316,12 @@ pub struct LoadedMaterial {
     pub alpha: AlphaMode,
     /// `$decal`: drawn on top of another surface, so it needs a depth offset.
     pub decal: bool,
+    /// `$additive`: adds light instead of covering what's behind.
+    pub additive: bool,
+    /// An `Unlit*` shader: not affected by lighting.
+    pub unlit: bool,
+    /// `$color2` (the tint the game multiplies the texture by), if given.
+    pub tint: Option<[f32; 3]>,
 }
 
 /// Read `<name>.vmt` and its textures. Any failure just means "no texture";
@@ -342,6 +348,16 @@ pub fn load_material(dirs: &[PathBuf], name: &str) -> Option<LoadedMaterial> {
         texture2: load("$basetexture2"),
         alpha,
         decal: flag("$decal"),
+        additive: flag("$additive"),
+        unlit: vmt.shader.to_ascii_lowercase().starts_with("unlit"),
+        tint: vmt.params.get("$color2").and_then(|v| {
+            let n: Vec<f32> = v
+                .trim_matches(|c| c == '[' || c == ']' || c == '"' || c == ' ')
+                .split_whitespace()
+                .filter_map(|x| x.parse().ok())
+                .collect();
+            (n.len() == 3).then(|| [n[0], n[1], n[2]])
+        }),
     })
 }
 
