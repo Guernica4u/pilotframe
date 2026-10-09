@@ -11,6 +11,7 @@
 
 mod dev;
 mod hud;
+mod hudwarp;
 mod input;
 mod level;
 mod map;

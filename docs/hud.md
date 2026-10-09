@@ -112,9 +112,31 @@ A setting looked up by name at run time (pointer at `0x1817eb1d8`) switches this
 - Formula: push = tan(2.75°) / tan(45°) × 562.5 = 27 px; arm = 44 × 1125/480 / 4 = 26 px long. That matches.
 - Pilotframe at FOV 70 (720 tall): push 24.7 px, which is where the arms are.
 
+## Hudwarp (the helmet screen's curve)
+
+Ported from `vguimatsurface.dll` (December 2014 build); `pf-game/src/hudwarp.rs` follows it.
+
+**Settings** (`hudwarp_*` defaults; the scripts pass their own through `WarpGlobalSettings`):
+- Arc: `xWarp` 45, `yWarp` 30, both clamped to 1..89°.
+- Final scale: `xScale` 1.2 (the pilot HUD passes 1.3), `yScale` 1.1.
+- `viewDist` 1.0.
+- `chopsize` 60 px.
+- `MainHud_TurnOn` animates the scales up from 0 when the HUD switches on (not ported yet).
+
+**Setup** (`0x180015a30`) stores the chop size and 1/chop, the screen size, tan(xWarp) and tan(yWarp), the arcs in radians with their scales, and `viewDist`.
+
+**Drawing:** each shape is scaled by 1/chop and split at whole-number lines until every piece fits in one 60 px cell (`0x180011420`). Then every corner is moved by `0x18000bac0`. That function uses π/2, 0.5, and a 4-wide sine:
+- ax = xWarp·(1 − 2x/W), ay = yWarp·(1 − 2y/H)
+- depth = (cos ax · cos ay + d) / (d + 1)
+- x′ = W/2 · (1 − xScale · sin ax · cos ay / (depth · tan xWarp))
+- y′ = H/2 · (1 − yScale · sin ay / (depth · tan yWarp))
+
+**Ours:** the HUD is drawn flat into two images, one for normal textures and one for `$additive` ones. They're shown on a grid mesh in the same 60 px cells, with every corner moved by that formula. The additive image adds light; the normal one blends as premultiplied alpha.
+
+**Where the screen sits:** `Create_PilotHud` puts it 208 units in front of the camera, 426 units wide. Matching the R1Delta screenshot needs it seen at FOV 70 (the pilot's base `fov`): it then covers about 1.1× the screen width. That's measured, not yet found in code.
+
 ## Still to match
 
-- **Hudwarp.** The screen's curve.
-- **Additive blending.** `standard_plus`, `hud_bar_small` and `weaponinfo_clip` are `$additive`; we alpha-blend them.
+- **Additive blending of the crosshair.** `standard_plus` is `$additive`, but the crosshair isn't on the helmet screen yet, so it's still alpha-blended.
 - **`shadowglow` on fonts.**
 - **The rest of the screen:** minimap, Titan meter, offhand ability icons, objectives, scores, damage indicators.

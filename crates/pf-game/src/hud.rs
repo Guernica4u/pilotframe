@@ -4,9 +4,10 @@
 //! textures under `materials/vgui/HUD`, the weapon's name from the English
 //! localisation, and the weapon's crosshair settings.
 //!
-//! Not yet like the game (docs/hud.md): the helmet screen's curve ("hudwarp"),
-//! additive blending of some textures, the font glow, and the crosshair opening
-//! up with spread. Without the game files there is simply no HUD.
+//! The helmet screen is drawn flat into images and shown curved, the way the
+//! game warps it (`hudwarp`); textures the game marks `$additive` add light.
+//! Not yet like the game (docs/hud.md): the font glow, and most of the screen's
+//! elements. Without the game files there is simply no HUD.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -16,11 +17,9 @@ use bevy::window::PrimaryWindow;
 use pf_fmt_ui::{kv, layout, vfont};
 
 use crate::Screen;
+use crate::hudwarp::{self, PIXELS_PER_UNIT, SCREEN};
 use crate::level::LevelEntity;
 use crate::viewmodel::Viewmodel;
-
-/// The helmet screen's size in its own units (`vgui_screens.txt`).
-const SCREEN: (f32, f32) = (852.0, 480.0);
 /// Screen HUD elements (the crosshair) are sized for a screen this tall.
 const CROSSHAIR_SPACE_TALL: f32 = 480.0;
 /// The parts of the helmet screen we draw so far: the weapon panel.
@@ -77,10 +76,6 @@ struct Crosshair {
     /// Which arm: its push direction is `arm × CROSSHAIR_ARM_STEP_DEG`.
     arm: usize,
 }
-
-/// The font size an element's text was laid out at, in helmet-screen units.
-#[derive(Component)]
-struct FontUnits(f32);
 
 fn common_dir() -> PathBuf {
     PathBuf::from("Resources/pc_extracted/common")
@@ -184,17 +179,32 @@ fn color(v: Option<&str>) -> Color {
     Color::srgba(at(0), at(1), at(2), at(3))
 }
 
-fn hud_image(dir: &Path, images: &mut Assets<Image>, name: &str) -> Option<Handle<Image>> {
+/// A HUD texture, and whether its material is `$additive`.
+fn hud_image(dir: &Path, images: &mut Assets<Image>, name: &str) -> Option<(Handle<Image>, bool)> {
     let material = format!("vgui/{}", name.replace('\\', "/").to_ascii_lowercase());
-    pf_world::load_material(&[dir.join("materials")], &material)?
-        .texture
-        .map(|i| images.add(i))
+    let loaded = pf_world::load_material(&[dir.join("materials")], &material)?;
+    let additive = loaded.additive;
+    loaded.texture.map(|i| (images.add(i), additive))
+}
+
+/// A node at `rect` (helmet-screen units) in the flat HUD image.
+fn hud_node(rect: &layout::Rect) -> Node {
+    Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(rect.x * PIXELS_PER_UNIT),
+        top: Val::Px(rect.y * PIXELS_PER_UNIT),
+        width: Val::Px(rect.w * PIXELS_PER_UNIT),
+        height: Val::Px(rect.h * PIXELS_PER_UNIT),
+        ..default()
+    }
 }
 
 fn spawn(
     mut commands: Commands,
     mut fonts: ResMut<Assets<Font>>,
     mut images: ResMut<Assets<Image>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     weapon: Option<Single<&Viewmodel>>,
 ) {
     let dir = common_dir();
@@ -217,6 +227,14 @@ fn spawn(
         Some(tall * 1.2)
     });
 
+    let layers = hudwarp::spawn(
+        &mut commands,
+        &mut images,
+        &mut meshes,
+        &mut materials,
+        &hudwarp::PILOT,
+    );
+    // The window's own HUD (not on the helmet screen): the crosshair.
     let hud = commands
         .spawn((
             LevelEntity,
@@ -229,6 +247,13 @@ fn spawn(
             Pickable::IGNORE,
         ))
         .id();
+    let layer = |additive: bool| {
+        if additive {
+            layers.additive
+        } else {
+            layers.normal
+        }
+    };
 
     for name in ELEMENTS {
         let (Some(node), Some(rect)) = (root.get(name), rects.get(&name.to_ascii_lowercase()))
@@ -239,24 +264,17 @@ fn spawn(
             .text("zpos")
             .and_then(|z| z.trim().parse::<i32>().ok())
             .unwrap_or(0);
-        let base = (
-            HudBox(*rect),
-            Node {
-                position_type: PositionType::Absolute,
-                ..default()
-            },
-            ZIndex(z),
-            ChildOf(hud),
-        );
+        let base = (HudBox(*rect), hud_node(rect), ZIndex(z));
         match node.text("ControlName").unwrap_or_default() {
             "ImagePanel" => {
-                if let Some(image) = node
+                if let Some((image, additive)) = node
                     .text("image")
                     .and_then(|i| hud_image(&dir, &mut images, i))
                 {
                     commands.spawn((
                         base,
                         ImageNode::new(image).with_color(color(node.text("drawColor"))),
+                        ChildOf(layer(additive)),
                     ));
                 }
             }
@@ -275,6 +293,7 @@ fn spawn(
                 let tall = font.map_or(12.0, |f| f.tall);
                 let mut text = commands.spawn((
                     base,
+                    ChildOf(layers.normal),
                     Text::new(if live == Live::WeaponName {
                         weapon_name.clone()
                     } else {
@@ -282,12 +301,12 @@ fn spawn(
                     }),
                     TextColor(color(node.text("fgcolor_override"))),
                     TextLayout::justify(if east { Justify::Right } else { Justify::Left }),
-                    FontUnits(tall),
                     live,
                 ));
                 if let Some(f) = font {
                     text.insert(TextFont {
                         font: FontSource::Handle(f.handle.clone()),
+                        font_size: FontSize::Px(tall * PIXELS_PER_UNIT),
                         ..default()
                     });
                 }
@@ -299,29 +318,23 @@ fn spawn(
                 let fg = node
                     .text("fg_image")
                     .and_then(|i| hud_image(&dir, &mut images, i));
-                let bar = commands.spawn(base).id();
-                if let Some(bg) = bg {
+                // Background and fill may blend differently, so each goes on
+                // its own layer; the fill's width follows the clip.
+                if let Some((bg, additive)) = bg {
                     commands.spawn((
-                        Node {
-                            position_type: PositionType::Absolute,
-                            width: Val::Percent(100.0),
-                            height: Val::Percent(100.0),
-                            ..default()
-                        },
+                        base,
                         ImageNode::new(bg).with_color(color(node.text("bgcolor_override"))),
-                        ChildOf(bar),
+                        ChildOf(layer(additive)),
                     ));
                 }
-                if let Some(fg) = fg {
+                if let Some((fg, additive)) = fg {
                     commands.spawn((
-                        Node {
-                            position_type: PositionType::Absolute,
-                            height: Val::Percent(100.0),
-                            ..default()
-                        },
+                        HudBox(*rect),
+                        hud_node(rect),
+                        ZIndex(z + 1),
                         ImageNode::new(fg).with_color(color(node.text("fgcolor_override"))),
                         Live::AmmoBarFill,
-                        ChildOf(bar),
+                        ChildOf(layer(additive)),
                     ));
                 }
             }
@@ -331,7 +344,8 @@ fn spawn(
 
     // The crosshair: shadow arms under the line arms.
     for (layer, name) in ["standard_plus_shadow", "standard_plus"].iter().enumerate() {
-        let Some(image) = hud_image(&dir, &mut images, &format!("hud/crosshairs/{name}")) else {
+        let Some((image, _)) = hud_image(&dir, &mut images, &format!("hud/crosshairs/{name}"))
+        else {
             continue;
         };
         for arm in 0..CROSSHAIR_ARMS {
@@ -358,7 +372,7 @@ fn update(
     time: Res<Time>,
     weapon: Option<Single<&Viewmodel>>,
     mut texts: Query<(&Live, &mut Text)>,
-    mut bars: Query<(&Live, &mut Node), Without<Text>>,
+    mut bars: Query<(&Live, &HudBox, &mut Node), Without<Text>>,
     mut crosshairs: Query<(&mut Crosshair, &mut ImageNode)>,
 ) {
     let Some(w) = weapon else {
@@ -376,10 +390,10 @@ fn update(
             _ => {}
         }
     }
-    for (live, mut node) in &mut bars {
+    for (live, HudBox(r), mut node) in &mut bars {
         if *live == Live::AmmoBarFill {
             let fraction = w.ammo() as f32 / w.clip_size().max(1) as f32;
-            node.width = Val::Percent(fraction * 100.0);
+            node.width = Val::Px(r.w * fraction * PIXELS_PER_UNIT);
         }
     }
     // Gone while sprinting or reloading; fades out as aiming gets halfway in.
@@ -396,35 +410,17 @@ fn update(
     }
 }
 
-/// Scale the helmet screen to the window (centred, keeping its shape) and place
-/// every element. The crosshair's arms sit around the middle, each pushed out by
-/// the weapon's spread as the game projects it: tan(spread / 2) / tan(fov / 2) ×
-/// half the screen height, with the fov in the game's (4:3 horizontal) terms.
-#[allow(clippy::type_complexity)]
+/// Place the crosshair's arms around the middle of the window, each pushed out
+/// by the weapon's spread as the game projects it: tan(spread / 2) /
+/// tan(fov / 2) × half the screen height, with the fov in the game's (4:3
+/// horizontal) terms.
 fn place(
     window: Single<&Window, With<PrimaryWindow>>,
     weapon: Option<Single<&Viewmodel>>,
     camera: Option<Single<&Projection, With<crate::player::Player>>>,
-    mut boxes: Query<(
-        &HudBox,
-        &mut Node,
-        Option<&FontUnits>,
-        Option<&mut TextFont>,
-    )>,
-    mut crosshairs: Query<(&Crosshair, &mut Node), Without<HudBox>>,
+    mut crosshairs: Query<(&Crosshair, &mut Node)>,
 ) {
     let (ww, wh) = (window.width(), window.height());
-    let scale = (ww / SCREEN.0).min(wh / SCREEN.1);
-    let (ox, oy) = ((ww - SCREEN.0 * scale) / 2.0, (wh - SCREEN.1 * scale) / 2.0);
-    for (HudBox(r), mut node, units, font) in &mut boxes {
-        node.left = Val::Px(ox + r.x * scale);
-        node.top = Val::Px(oy + r.y * scale);
-        node.width = Val::Px(r.w * scale);
-        node.height = Val::Px(r.h * scale);
-        if let (Some(FontUnits(tall)), Some(mut font)) = (units, font) {
-            font.font_size = FontSize::Px(tall * scale);
-        }
-    }
     let size = CROSSHAIR_SIZE * wh / CROSSHAIR_SPACE_TALL;
     let spread = weapon.map_or(0.0, |w| w.spread());
     // Our camera's fov is vertical; the game's is horizontal on a 4:3 screen.
