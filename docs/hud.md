@@ -76,6 +76,37 @@ Each weapon's `CrosshairData` lists elements. The R-201 has a `spread` element w
 **Still to read:** the hit indicator (`hit_indicator`, 64 × 64) and the target colours (enemy and friendly).
 - The fade rates. Our current 8 per second is a stand-in, to be replaced by the game's.
 
+## Weapon spread
+
+Ported from `client.dll`; `pf-game/src/spread.rs` follows it.
+
+**Spread now = base + kick.** The getter (`0x180487ed0`, weapon vtable slot 0x958) returns:
+- base (weapon +0x252C), plus
+- lerp(hip kick +0x2530, ADS kick +0x2534, by zoom fraction).
+
+A setting looked up by name at run time (pointer at `0x1817eb1d8`) switches this to max(base, kick) instead. Its name and value aren't read yet. **We use base + kick (unconfirmed)**, until it can be read from the live game.
+
+**Base, each player tick** (`0x180490e30`, slot 0x960; called from the player's think with speed, run speed, sprinting, crouch, zoom and on ground):
+- Sprinting: `spread_stand_hip_sprint`.
+- In the air: lerp(`air_hip`, `air_ads`, zoom).
+- On the ground or a wall: first stand = lerp(`stand_hip`, `stand_hip_run`, clamp(speed / run speed)). Then a blend over crouch c and zoom a: (1−a)(1−c)·stand + a(1−c)·`stand_ads` + (1−a)c·`crouch_hip` + ac·`crouch_ads`.
+- The base moves towards that target by at most `spread_lerp_speed` (default **1.25**) per tick.
+- "Run speed" is the pilot's stand-block setting at +0x44, read here as `speed` (180.6). That's inferred from its position, not confirmed.
+
+**Kick on each shot** (`0x18048f400`):
+- The hip kick is added only while less than halfway aimed in; the ADS kick always.
+- Kick sizes: `spread_kick_on_fire_[stand|crouch|air]_[hip|ads]`, capped at `spread_max_kick_*`. The stance uses the ground entity only, so wall-running counts as air.
+
+**Decay** (weapon think `0x18049bff0`): `spread_decay_delay` after the last shot, both kicks shrink by `spread_decay_rate` × frame time, down to 0.
+
+**Unset values** (`0x1802e5750`): a value below 0 means "unset" and falls back to `spread_stand_hip`; sprint falls back to run first. Table defaults: `stand_hip` 5, the others −1, `lerp_speed` 1.25, `npc` 3.
+
+**Ours, not yet the game's:**
+- Crouch is 0 or 1 here; the game passes a duck fraction.
+- The tick is our 60 Hz.
+
+**Check:** R1Delta screenshot at FOV ≈ 90, standing, R-201 → arm centres ≈ 40 px from centre at 1125 px tall. Pilotframe at FOV 90 → ≈ 24 px at 720 tall (= 25.6 scaled).
+
 ## Still to match
 
 - **Hudwarp.** The screen's curve.

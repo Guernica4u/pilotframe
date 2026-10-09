@@ -26,6 +26,8 @@ use crate::Screen;
 use crate::input::Action;
 use crate::player::Player;
 use crate::settings::Settings;
+use crate::spread::{Spread, SpreadData, SpreadInput};
+use crate::tuning::{Tuning, TuningAsset};
 use crate::view;
 
 /// The viewmodel lives on its own render layer, seen only by its own camera.
@@ -39,6 +41,8 @@ const ARMS: &str = "models/weapons/arms/pov_mcor_pilot_male_br.mdl";
 const ACTION_FADE: f32 = 0.1;
 /// Faster than this on the ground counts as sprinting for the gun (walk is 180.6).
 const SPRINT_SPEED: f32 = 190.0;
+/// The player tick the game runs weapon spread on, seconds.
+const SPREAD_TICK: f32 = 1.0 / 60.0;
 
 pub struct ViewmodelPlugin;
 
@@ -62,6 +66,7 @@ struct WeaponData {
     clip: u32,
     /// Spare rounds you spawn with (`ammo_default_total`).
     ammo_total: u32,
+    spread: SpreadData,
     reload_time: f32,
     reload_empty_time: f32,
     deploy_time: f32,
@@ -87,6 +92,7 @@ impl WeaponData {
             fire_rate: num("fire_rate", 10.0),
             clip: num("ammo_clip_size", 30.0) as u32,
             ammo_total: num("ammo_default_total", 0.0) as u32,
+            spread: SpreadData::from_script(|k| kv.get(k).and_then(|v| v.trim().parse().ok())),
             reload_time: num("reload_time", 2.0),
             reload_empty_time: num("reloadempty_time", 2.5),
             deploy_time: num("deploy_time", 1.0),
@@ -155,6 +161,9 @@ pub struct Viewmodel {
     ammo: u32,
     /// Spare rounds, which reloads draw from.
     reserve: u32,
+    spread: Spread,
+    /// Time not yet run through the spread's fixed ticks, seconds.
+    spread_pending: f32,
     action: Option<GunAction>,
 }
 
@@ -188,6 +197,11 @@ impl Viewmodel {
     /// How far lowered for sprinting, 0..1.
     pub fn sprint(&self) -> f32 {
         self.sprint
+    }
+
+    /// The weapon's spread right now, degrees (what the crosshair shows).
+    pub fn spread(&self) -> f32 {
+        self.spread.degrees(self.ads)
     }
 
     /// Reloading right now.
@@ -417,6 +431,8 @@ pub fn spawn(
         cooldown: 0.0,
         ammo,
         reserve,
+        spread: Spread::default(),
+        spread_pending: 0.0,
         action,
     });
 }
@@ -441,6 +457,8 @@ fn blend(a: &Pose, b: &Pose, t: f32) -> Pose {
 pub fn animate(
     time: Res<Time>,
     settings: Res<Settings>,
+    tuning: Res<Tuning>,
+    tunings: Res<Assets<TuningAsset>>,
     mut meshes: ResMut<Assets<Mesh>>,
     viewmodel: Single<(&mut Viewmodel, &mut Transform)>,
     player: Single<(&Player, &ActionState<Action>, &mut Projection), Without<Viewmodel>>,
@@ -490,6 +508,20 @@ pub fn animate(
         }
     }
     let busy = vm.action.is_some();
+    // What the weapon's spread hears about the player each tick, as in the game.
+    let wall = matches!(
+        state.mode,
+        pf_movement::Mode::WallRun { .. } | pf_movement::Mode::WallHang { .. }
+    );
+    let spread_input = SpreadInput {
+        speed,
+        run_speed: tunings.get(&tuning.0).map_or(180.6, |t| t.0.walk_speed),
+        sprinting,
+        crouch: if state.crouched { 1.0 } else { 0.0 },
+        ads: vm.ads,
+        grounded: state.on_ground || wall,
+        on_ground: state.on_ground,
+    };
     // Full auto: a shot every 1 / fire_rate seconds while the trigger is held.
     if actions.pressed(&Action::Fire)
         && !busy
@@ -500,6 +532,13 @@ pub fn animate(
         vm.ammo -= 1;
         vm.cooldown = 1.0 / vm.data.fire_rate.max(0.1);
         vm.since_shot = 0.0;
+        vm.spread.fire(&vm.data.spread, &spread_input, vm.clock);
+    }
+    vm.spread_pending = (vm.spread_pending + dt).min(0.25);
+    while vm.spread_pending >= SPREAD_TICK {
+        vm.spread_pending -= SPREAD_TICK;
+        vm.spread.tick(&vm.data.spread, &spread_input);
+        vm.spread.decay(&vm.data.spread, vm.clock, SPREAD_TICK);
     }
 
     // Aim and sprint weights.

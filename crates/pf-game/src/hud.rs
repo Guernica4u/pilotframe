@@ -74,6 +74,8 @@ enum Live {
 #[derive(Component)]
 struct Crosshair {
     alpha: f32,
+    /// Which arm: its push direction is `arm × CROSSHAIR_ARM_STEP_DEG`.
+    arm: usize,
 }
 
 /// The font size an element's text was laid out at, in helmet-screen units.
@@ -342,7 +344,7 @@ fn spawn(
                 ImageNode::new(image.clone()),
                 UiTransform::from_rotation(Rot2::degrees(angle)),
                 ZIndex(300 + layer as i32),
-                Crosshair { alpha: 1.0 },
+                Crosshair { alpha: 1.0, arm },
                 ChildOf(hud),
             ));
         }
@@ -394,17 +396,21 @@ fn update(
 }
 
 /// Scale the helmet screen to the window (centred, keeping its shape) and place
-/// every element; the crosshair sits in the middle, sized by window height.
+/// every element. The crosshair's arms sit around the middle, each pushed out by
+/// the weapon's spread as the game projects it: tan(spread / 2) / tan(fov / 2) ×
+/// half the screen height, with the fov in the game's (4:3 horizontal) terms.
 #[allow(clippy::type_complexity)]
 fn place(
     window: Single<&Window, With<PrimaryWindow>>,
+    weapon: Option<Single<&Viewmodel>>,
+    camera: Option<Single<&Projection, With<crate::player::Player>>>,
     mut boxes: Query<(
         &HudBox,
         &mut Node,
         Option<&FontUnits>,
         Option<&mut TextFont>,
     )>,
-    mut crosshairs: Query<&mut Node, (With<Crosshair>, Without<HudBox>)>,
+    mut crosshairs: Query<(&Crosshair, &mut Node), Without<HudBox>>,
 ) {
     let (ww, wh) = (window.width(), window.height());
     let scale = (ww / SCREEN.0).min(wh / SCREEN.1);
@@ -419,9 +425,18 @@ fn place(
         }
     }
     let size = CROSSHAIR_SIZE * wh / CROSSHAIR_SPACE_TALL;
-    for mut node in &mut crosshairs {
-        node.left = Val::Px((ww - size) / 2.0);
-        node.top = Val::Px((wh - size) / 2.0);
+    let spread = weapon.map_or(0.0, |w| w.spread());
+    // Our camera's fov is vertical; the game's is horizontal on a 4:3 screen.
+    let tan_half_fov = match camera.as_deref() {
+        Some(Projection::Perspective(p)) => (p.fov * 0.5).tan() / 0.75,
+        _ => 1.0,
+    };
+    let push = (spread.to_radians() * 0.5).tan() / tan_half_fov * wh * 0.5;
+    for (c, mut node) in &mut crosshairs {
+        let angle = (c.arm as f32 * CROSSHAIR_ARM_STEP_DEG).to_radians();
+        let (x, y) = (angle.cos() * push, -angle.sin() * push);
+        node.left = Val::Px((ww - size) / 2.0 + x);
+        node.top = Val::Px((wh - size) / 2.0 + y);
         node.width = Val::Px(size);
         node.height = Val::Px(size);
     }

@@ -17,6 +17,7 @@ mod map;
 mod menu;
 mod player;
 mod settings;
+mod spread;
 mod tuning;
 mod view;
 mod viewmodel;
