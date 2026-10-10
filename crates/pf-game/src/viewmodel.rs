@@ -14,6 +14,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::loadout::{DEFAULT_PRESET, Loadout, WeaponScript};
+
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::math::Affine3A;
@@ -34,10 +36,6 @@ use crate::view;
 const LAYER: usize = 1;
 /// Pilot `viewmodelfov` (Source convention, like `fov`).
 const VIEWMODEL_FOV: f32 = 54.0;
-const WEAPON_SCRIPT: &str = "scripts/weapons/mp_weapon_rspn101.txt";
-/// The attachment the R-201 comes with: the game's first preset pilot loadout
-/// (`_loadouts.nut`, `pilot_preset_loadout_1`) gives it the HCOG.
-const DEFAULT_ATTACHMENT: &str = "hcog";
 /// Militia pilot arms (pilot `armsmodel_militia`).
 const ARMS: &str = "models/weapons/arms/pov_mcor_pilot_male_br.mdl";
 /// Blend time in and out of reload and draw animations, seconds.
@@ -87,26 +85,16 @@ struct WeaponData {
 }
 
 impl WeaponData {
-    /// The weapon's settings with `attachment`'s mod applied over them, the way
-    /// the game applies a mod (its values replace the base ones).
-    fn load(dir: &Path, attachment: &str) -> Option<Self> {
-        let text = std::fs::read_to_string(dir.join(WEAPON_SCRIPT)).ok()?;
-        let root = pf_fmt_ui::kv::parse(&text).nodes.into_iter().next()?;
-        let mut kv: std::collections::HashMap<String, String> = root
-            .children()
+    /// The loadout's primary weapon's settings, with its attachment and the
+    /// passives applied as mods ([`crate::loadout`]).
+    fn load(dir: &Path, loadout: &Loadout) -> Option<Self> {
+        let mut mods: Vec<&str> = loadout
+            .primary_attachment
             .iter()
-            .filter_map(|n| match &n.value {
-                pf_fmt_ui::kv::Value::Text(t) => Some((n.key.to_ascii_lowercase(), t.clone())),
-                pf_fmt_ui::kv::Value::Block(_) => None,
-            })
+            .map(String::as_str)
             .collect();
-        if let Some(m) = root.get("Mods").and_then(|m| m.get(attachment)) {
-            for n in m.children() {
-                if let pf_fmt_ui::kv::Value::Text(t) = &n.value {
-                    kv.insert(n.key.to_ascii_lowercase(), t.clone());
-                }
-            }
-        }
+        mods.extend(loadout.passives.iter().map(String::as_str));
+        let kv = WeaponScript::load(dir, &loadout.primary, &mods)?.values;
         let num = |k: &str, default: f32| {
             kv.get(k)
                 .and_then(|v| v.trim().parse().ok())
@@ -351,9 +339,10 @@ pub fn spawn(
     images: &mut Assets<Image>,
 ) {
     let dir = crate::data::common_dir();
-    let Some(data) = WeaponData::load(&dir, DEFAULT_ATTACHMENT) else {
+    let loadout = Loadout::preset(&dir, DEFAULT_PRESET).unwrap_or_default();
+    let Some(data) = WeaponData::load(&dir, &loadout) else {
         info!(
-            "no viewmodel: {WEAPON_SCRIPT} not found under {}",
+            "no viewmodel: the loadout's primary weapon script isn't under {}",
             dir.display()
         );
         return;

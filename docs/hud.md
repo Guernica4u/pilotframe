@@ -46,6 +46,29 @@ How TF1 builds the pilot HUD, read from the owner's game files (the `englishclie
 | `weaponAmmoBar` | bar | clip fraction: `hud_bar_small` tinted 128 grey over black at alpha 123 |
 | `weaponMagLabel` + `weaponAmmoMag` | text + icon | spare magazines, white at alpha 140, formatted by the localisation's `HudAutoText_ActiveWeaponMagazineCount` ("x%s1"). The weapon's `ammo_default_total` includes the loaded magazine: an R1Delta screenshot shows 24 in the clip and "x9" for the R-201's 240 (final patch). |
 
+## Offhand slots and the d-pad (`InitOffhandWeaponHud`, `MainHud_UpdateWeapons`)
+
+What the HUD script shows for the default loadout (see [weapons.md](weapons.md), "Loadout"):
+
+| Slot | Weapon | Elements | Shows |
+|---|---|---|---|
+| Offhand 0 (`OFFHAND_RIGHT`, right of centre) | ordnance: frag grenade | `Offhand0BG/Icon/Hint/Count` | `hud_icon` (`HUD/dpad_grenade_icon`), key of `+offhand1` (F), count "x 3" |
+| Offhand 1 (`OFFHAND_LEFT`, left of centre) | special: cloak | `Offhand1BG/Icon/Hint/Bar` | `hud_icon` (`HUD/dpad_cloak`), key of `+offhand2` (Q), ready bar |
+| D-pad left | anti-Titan weapon: Archer | `dpadLeftIcon/IconHint` | `hud_icon` (`HUD/dpad_archer`), key of `weaponSelectOrdnance` (3); its title and description are drawn at alpha 0 |
+
+- **Count or bar** (`GetOffhandProgressSource`): `offhand` and `offhand_hybrid` weapons show a bar only if they have a `charge_time`; any other fire mode (the cloak is `offhand_instant`) always shows a bar.
+- **Count format:** `HudAutoText_PilotOffhandWeaponAmmo0` is "x %s1", `...Ammo1` is "%s1". The frag's 2 grenades plus `pas_ordnance_pack` make 3, as in the R1Delta screenshot.
+- **Key hints:** labels like `%offhand1%` show the key bound to `+offhand1` (else `offhand1`). Defaults come from `cfg/config_default_pc.cfg`: F `+offhand1`, Q `+offhand2`, 3 `weaponSelectOrdnance`, V `+ability 1` (Titan call-in, shown by the hex).
+- **Not yet:** the box drawn around the key name. It's code (`EnableKeyBindingIcons`), not a texture, so it needs reading from the DLLs. We show the bare key name.
+- **Label alignment:** a VGUI label places its text by `textAlignment` (default `west`): `west`/`east`/`center` are vertically centred; `north*` top, `south*` bottom.
+
+**Open: the safe area.** Offhand icons are pinned to `SafeAreaCenter` (730 × 420 in the file). `MainHud_InitAspectRatio` resizes it to 90% of the screen width and 95% of the height when the safe-area setting is off (`level.safeAreaScale != 1`). Against the R1Delta screenshot, with our 70° panel view:
+- the file's 730 puts the icons about 13 px (at 1280 wide) too close to the centre;
+- 766.8 puts them about 18 px too far out, and too low;
+- the screenshot fits about 745, at the file's height.
+
+So either the setting's value on PC or the panel's view angle (measured, see "Hudwarp") is off. We keep the file's size until `SafeareaSettingIsEnabled` is read from code.
+
 ## Fonts (`.vfont`)
 
 A TrueType/OpenType file followed by a trailer and the tag `VFONT1`. The byte before the tag, n, is the trailer's length, counting that byte. The rest of the trailer is the salt. To decode:
@@ -140,4 +163,4 @@ Ported from `vguimatsurface.dll` (December 2014 build); `pf-game/src/hudwarp.rs`
 
 - **Additive blending of the crosshair.** `standard_plus` is `$additive`, but the crosshair isn't on the helmet screen yet, so it's still alpha-blended.
 - **`shadowglow` on fonts.**
-- **The rest of the screen:** minimap, Titan meter, offhand ability icons, objectives, scores, damage indicators.
+- **The rest of the screen:** minimap, Titan meter (the hex and its timer), objectives, scores, damage indicators.

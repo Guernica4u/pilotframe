@@ -15,6 +15,7 @@ mod hud;
 mod hudwarp;
 mod input;
 mod level;
+mod loadout;
 mod map;
 mod menu;
 mod player;

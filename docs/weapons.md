@@ -2,9 +2,20 @@
 
 What the game does with a weapon, read from the owner's game files and `client.dll`. Spread and the crosshair are in [hud.md](hud.md).
 
+## Loadout
+
+- **Preset.** A new pilot gets `pilot_preset_loadout_1` from `scripts/vscripts/_loadouts.nut`:
+  - primary `mp_weapon_rspn101` (R-201) with attachment `hcog`;
+  - secondary (anti-Titan) `mp_weapon_rocket_launcher` (Archer);
+  - sidearm `mp_weapon_semipistol` (Hammond P2011);
+  - special `mp_ability_cloak`, ordnance `mp_weapon_frag_grenade`;
+  - passives `pas_ordnance_pack` and `pas_longer_bubble`.
+- **Passives as mods.** `_passives.nut` calls `GiveExtraWeaponMod(<passive>)`, which applies the passive to every weapon that defines a mod by that name. The frag's `pas_ordnance_pack` sets `ammo_clip_size` "1++".
+- **Relative mod values.** Mods write `*n` (times), `/n`, `n++` (plus) or `n--` (minus); any other value replaces the base one. Counts in the final patch's scripts: 263 `*n`, 11 `/n`, 13 `n++`, 4 `n--`.
+- `pf-game/src/loadout.rs` reads both. The viewmodel uses the primary; the HUD uses the offhands and the secondary.
+
 ## Attachments (mods) and body groups
 
-- **Default attachment.** The R-201's default is the **HCOG**: the first preset pilot loadout in `scripts/vscripts/_loadouts.nut` (`pilot_preset_loadout_1`) sets `primaryAttachment` to `"hcog"`.
 - **How a mod applies.** A mod is a block under `Mods` in the weapon script. Its values replace the base ones. For the R-201's `hcog`:
   - `bodygroup1_set`/`2_set` 0 (iron sights off), `bodygroup4_set` 1 (rear-sight-off part), `bodygroup6_set` 1 (`sight_hcog`);
   - `zoom_fov` 45;

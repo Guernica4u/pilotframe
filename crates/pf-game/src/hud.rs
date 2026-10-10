@@ -1,13 +1,16 @@
 //! The pilot HUD, built from the game's own files: the layout of the pilot's
 //! helmet screen (`scripts/screens/vgui_fullscreen_pilot.res` and its base), the
 //! HUD fonts (`.vfont`) and font sizes (`resource/hudscriptedscheme.res`), the
-//! textures under `materials/vgui/HUD`, the weapon's name from the English
-//! localisation, and the weapon's crosshair settings.
+//! textures under `materials/vgui/HUD`, text from the English localisation, key
+//! names from the default key binds, and the weapon's crosshair settings.
+//! Which elements show and what goes in them follows the HUD script
+//! (`cl_main_hud.nut`) for the pilot's loadout ([`crate::loadout`]).
 //!
 //! The helmet screen is drawn flat into images and shown curved, the way the
 //! game warps it (`hudwarp`); textures the game marks `$additive` add light.
-//! Not yet like the game (docs/hud.md): the font glow, and most of the screen's
-//! elements. Without the game files there is simply no HUD.
+//! Not yet like the game (docs/hud.md): the font glow, the boxes drawn around
+//! key names, and most of the screen's elements. Without the game files there
+//! is simply no HUD.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -19,20 +22,10 @@ use pf_fmt_ui::{kv, layout, vfont};
 use crate::Screen;
 use crate::hudwarp::{self, PIXELS_PER_UNIT, SCREEN};
 use crate::level::LevelEntity;
+use crate::loadout::{DEFAULT_PRESET, Loadout, WeaponScript};
 use crate::viewmodel::Viewmodel;
 /// Screen HUD elements (the crosshair) are sized for a screen this tall.
 const CROSSHAIR_SPACE_TALL: f32 = 480.0;
-/// The parts of the helmet screen we draw so far: the weapon panel.
-const ELEMENTS: [&str; 8] = [
-    "dpadIconBG",
-    "dpadIcon",
-    "dpadSideBG",
-    "weaponAmmoBar",
-    "weaponLabel",
-    "weaponAmmoCount",
-    "weaponMagLabel",
-    "weaponAmmoMag",
-];
 /// The R-201's crosshair (`CrosshairData` in its script): 44 × 44, turned 90°,
 /// drawn from hip only, faded while sprinting/reloading. It's a "spread" element:
 /// the texture is one arm, drawn once per step of `spread_delta_angle` around the
@@ -74,6 +67,154 @@ enum Live {
 /// game's HUD "auto text" uses.
 #[derive(Component)]
 struct AutoText(String);
+
+/// What the HUD script puts in an element.
+enum Fill {
+    /// As the layout file has it.
+    Layout,
+    /// This image (`SetImage`).
+    Image(String),
+    /// This text.
+    Text(String),
+    /// A changing value, with its auto-text format token if it has one.
+    Live(Live, Option<&'static str>),
+}
+
+/// The elements the HUD script shows for this loadout, and what goes in them.
+/// - The weapon panel (`MainHud_InitWeapons`).
+/// - The two offhand slots (`InitOffhandWeaponHud`): slot 0 is the ordnance
+///   (`OFFHAND_RIGHT`, key `+offhand1`), slot 1 the special ability
+///   (`OFFHAND_LEFT`, `+offhand2`). Each shows its weapon's `hud_icon` and key,
+///   and either a count or a ready bar (see [`shows_bar`]).
+/// - The anti-Titan weapon in the d-pad's left slot (`MainHud_UpdateWeapons`):
+///   its `hud_icon` and key. Its title and description are drawn at alpha 0.
+fn elements(dir: &Path, loadout: &Loadout) -> Vec<(String, Fill)> {
+    let mut out: Vec<(String, Fill)> = [
+        ("dpadIconBG", Fill::Layout),
+        ("dpadIcon", Fill::Layout),
+        ("dpadSideBG", Fill::Layout),
+        ("weaponAmmoBar", Fill::Live(Live::AmmoBarFill, None)),
+        ("weaponLabel", Fill::Live(Live::WeaponName, None)),
+        (
+            "weaponAmmoCount",
+            Fill::Live(Live::AmmoCount, Some("#HudAutoText_ActiveWeaponClipAmmo")),
+        ),
+        (
+            "weaponMagLabel",
+            Fill::Live(
+                Live::MagCount,
+                Some("#HudAutoText_ActiveWeaponMagazineCount"),
+            ),
+        ),
+        ("weaponAmmoMag", Fill::Layout),
+    ]
+    .into_iter()
+    .map(|(n, f)| (n.to_string(), f))
+    .collect();
+    let passives: Vec<&str> = loadout.passives.iter().map(String::as_str).collect();
+    for (slot, name) in [(0, &loadout.ordnance), (1, &loadout.special)] {
+        let Some(weapon) = WeaponScript::load(dir, name, &passives) else {
+            continue;
+        };
+        let element = |part: &str| format!("Offhand{slot}{part}");
+        out.push((element("BG"), Fill::Layout));
+        if let Some(icon) = weapon.text("hud_icon") {
+            out.push((element("Icon"), Fill::Image(icon.to_string())));
+        }
+        out.push((element("Hint"), Fill::Layout));
+        if shows_bar(&weapon) {
+            // Full while ready; abilities can't be used yet, so always ready.
+            out.push((element("Bar"), Fill::Layout));
+        } else {
+            let format = localise(dir, &format!("#HudAutoText_PilotOffhandWeaponAmmo{slot}"));
+            let count = weapon.num("ammo_clip_size").unwrap_or(0.0) as u32;
+            let text = format.replace("%s1", &count.to_string());
+            out.push((element("Count"), Fill::Text(text)));
+        }
+    }
+    if let Some(icon) = WeaponScript::load(dir, &loadout.secondary, &passives)
+        .and_then(|w| w.text("hud_icon").map(str::to_string))
+    {
+        out.push(("dpadLeftIcon".into(), Fill::Image(icon)));
+        out.push(("dpadLeftIconHint".into(), Fill::Layout));
+    }
+    out
+}
+
+/// Whether an offhand slot shows a progress bar instead of a count
+/// (`GetOffhandProgressSource`): `offhand` and `offhand_hybrid` weapons only
+/// when they have a `charge_time`; every other fire mode always.
+fn shows_bar(weapon: &WeaponScript) -> bool {
+    match weapon.text("fire_mode").unwrap_or_default() {
+        "offhand" | "offhand_hybrid" => weapon.num("charge_time").is_some_and(|t| t != 0.0),
+        _ => true,
+    }
+}
+
+/// The key bound to each command in the game's default PC key binds
+/// (`cfg/config_default_pc.cfg`), e.g. `+offhand1` -> `F`. The first key wins
+/// when a command has more than one.
+fn default_binds(dir: &Path) -> HashMap<String, String> {
+    let text = std::fs::read_to_string(dir.join("cfg/config_default_pc.cfg")).unwrap_or_default();
+    parse_binds(&text)
+}
+
+fn parse_binds(text: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for line in text.lines() {
+        let line = line.split("//").next().unwrap_or_default();
+        let quoted: Vec<&str> = line.split('"').skip(1).step_by(2).collect();
+        if line.trim_start().starts_with("bind")
+            && let [key, command] = quoted[..]
+        {
+            out.entry(command.to_ascii_lowercase())
+                .or_insert_with(|| key.to_ascii_uppercase());
+        }
+    }
+    out
+}
+
+/// A label's `%command%` key-binding tokens replaced by their keys (`+name`
+/// first, then `name`), the way labels with key-binding icons show them.
+fn bind_text(text: &str, binds: &HashMap<String, String>) -> String {
+    let mut parts = text.split('%');
+    let mut out = parts.next().unwrap_or_default().to_string();
+    let rest: Vec<&str> = parts.collect();
+    for pair in rest.chunks(2) {
+        let name = pair[0].to_ascii_lowercase();
+        match binds.get(&format!("+{name}")).or_else(|| binds.get(&name)) {
+            Some(key) if pair.len() == 2 => out.push_str(key),
+            _ => {
+                out.push('%');
+                out.push_str(pair[0]);
+                if pair.len() == 2 {
+                    out.push('%');
+                }
+            }
+        }
+        if let Some(after) = pair.get(1) {
+            out.push_str(after);
+        }
+    }
+    out
+}
+
+/// Where a VGUI label puts its text in its box (`textAlignment`; labels
+/// default to `west`): (across, down).
+fn text_alignment(name: Option<&str>) -> (JustifyContent, AlignItems) {
+    use {AlignItems as V, JustifyContent as H};
+    match name.unwrap_or("west").to_ascii_lowercase().as_str() {
+        "north-west" | "northwest" => (H::FlexStart, V::FlexStart),
+        "north" => (H::Center, V::FlexStart),
+        "north-east" | "northeast" => (H::FlexEnd, V::FlexStart),
+        "center" => (H::Center, V::Center),
+        "east" => (H::FlexEnd, V::Center),
+        "south-west" | "southwest" => (H::FlexStart, V::FlexEnd),
+        "south" => (H::Center, V::FlexEnd),
+        "south-east" | "southeast" => (H::FlexEnd, V::FlexEnd),
+        _ => (H::FlexStart, V::Center),
+    }
+}
 
 #[derive(Component)]
 struct Crosshair {
@@ -214,6 +355,8 @@ fn spawn(
         return;
     };
     let fonts = load_fonts(&dir, &mut fonts);
+    let binds = default_binds(&dir);
+    let loadout = Loadout::preset(&dir, DEFAULT_PRESET).unwrap_or_default();
     let weapon_name = weapon
         .as_ref()
         .map(|w| localise(&dir, w.short_name()))
@@ -256,8 +399,8 @@ fn spawn(
         }
     };
 
-    for name in ELEMENTS {
-        let (Some(node), Some(rect)) = (root.get(name), rects.get(&name.to_ascii_lowercase()))
+    for (name, fill) in elements(&dir, &loadout) {
+        let (Some(node), Some(rect)) = (root.get(&name), rects.get(&name.to_ascii_lowercase()))
         else {
             continue;
         };
@@ -268,9 +411,11 @@ fn spawn(
         let base = (HudBox(*rect), hud_node(rect), ZIndex(z));
         match node.text("ControlName").unwrap_or_default() {
             "ImagePanel" => {
-                if let Some((image, additive)) = node
-                    .text("image")
-                    .and_then(|i| hud_image(&dir, &mut images, i))
+                let image = match &fill {
+                    Fill::Image(i) => Some(i.as_str()),
+                    _ => node.text("image"),
+                };
+                if let Some((image, additive)) = image.and_then(|i| hud_image(&dir, &mut images, i))
                 {
                     commands.spawn((
                         base,
@@ -283,35 +428,43 @@ fn spawn(
                 let font = node
                     .text("font")
                     .and_then(|f| fonts.get(&f.to_ascii_lowercase()));
-                let live = match name {
-                    "weaponAmmoCount" => Live::AmmoCount,
-                    "weaponMagLabel" => Live::MagCount,
-                    _ => Live::WeaponName,
-                };
-                let east = node
-                    .text("textAlignment")
-                    .is_some_and(|a| a.eq_ignore_ascii_case("east"));
+                let (across, down) = text_alignment(node.text("textAlignment"));
                 let tall = font.map_or(12.0, |f| f.tall);
-                let mut text = commands.spawn((
-                    base,
-                    ChildOf(layers.normal),
-                    Text::new(if live == Live::WeaponName {
-                        weapon_name.clone()
-                    } else {
-                        String::new()
-                    }),
-                    TextColor(color(node.text("fgcolor_override"))),
-                    TextLayout::justify(if east { Justify::Right } else { Justify::Left }),
-                    live,
-                ));
-                // What `MainHud_InitWeapons` sets as each label's auto text.
-                let format = match live {
-                    Live::AmmoCount => Some("#HudAutoText_ActiveWeaponClipAmmo"),
-                    Live::MagCount => Some("#HudAutoText_ActiveWeaponMagazineCount"),
-                    _ => None,
+                // The box, with the text placed in it by its alignment.
+                let (base_box, base_node, base_z) = base;
+                let holder = commands
+                    .spawn((
+                        base_box,
+                        Node {
+                            display: Display::Flex,
+                            justify_content: across,
+                            align_items: down,
+                            overflow: Overflow::visible(),
+                            ..base_node
+                        },
+                        base_z,
+                        ChildOf(layers.normal),
+                    ))
+                    .id();
+                let start = match &fill {
+                    Fill::Live(Live::WeaponName, _) => weapon_name.clone(),
+                    Fill::Live(..) => String::new(),
+                    Fill::Text(t) => t.clone(),
+                    _ => bind_text(node.text("labelText").unwrap_or_default(), &binds),
                 };
-                if let Some(token) = format {
-                    text.insert(AutoText(localise(&dir, token)));
+                let right = across == JustifyContent::FlexEnd;
+                let mut text = commands.spawn((
+                    Text::new(start),
+                    TextColor(color(node.text("fgcolor_override"))),
+                    TextLayout::justify(if right { Justify::Right } else { Justify::Left })
+                        .with_no_wrap(),
+                    ChildOf(holder),
+                ));
+                if let Fill::Live(live, format) = fill {
+                    text.insert(live);
+                    if let Some(token) = format {
+                        text.insert(AutoText(localise(&dir, token)));
+                    }
                 }
                 if let Some(f) = font {
                     text.insert(TextFont {
@@ -338,14 +491,16 @@ fn spawn(
                     ));
                 }
                 if let Some((fg, additive)) = fg {
-                    commands.spawn((
+                    let mut fill_part = commands.spawn((
                         HudBox(*rect),
                         hud_node(rect),
                         ZIndex(z + 1),
                         ImageNode::new(fg).with_color(color(node.text("fgcolor_override"))),
-                        Live::AmmoBarFill,
                         ChildOf(layer(additive)),
                     ));
+                    if let Fill::Live(live, _) = fill {
+                        fill_part.insert(live);
+                    }
                 }
             }
             _ => {}
@@ -451,5 +606,40 @@ fn place(
         node.top = Val::Px((wh - size) / 2.0 + y);
         node.width = Val::Px(size);
         node.height = Val::Px(size);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_binds_fill_label_tokens() {
+        let binds = parse_binds(
+            "bind \"f\"\t\t\"+offhand1\"\nbind \"q\" \"+offhand2\"\n\
+             bind \"MOUSE3\" \"+offhand2\" // also\nbind \"3\" \"weaponSelectOrdnance\"\n",
+        );
+        assert_eq!(bind_text("%offhand1%", &binds), "F");
+        assert_eq!(bind_text("%offhand2%", &binds), "Q");
+        assert_eq!(bind_text("[%weaponSelectOrdnance%]", &binds), "[3]");
+        assert_eq!(bind_text("%unbound% x", &binds), "%unbound% x");
+        assert_eq!(bind_text("100%", &binds), "100%");
+    }
+
+    #[test]
+    fn offhands_show_a_bar_unless_charge_free_offhand() {
+        let weapon = |pairs: &[(&str, &str)]| WeaponScript {
+            values: pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        assert!(!shows_bar(&weapon(&[("fire_mode", "offhand")])));
+        assert!(shows_bar(&weapon(&[
+            ("fire_mode", "offhand"),
+            ("charge_time", "2")
+        ])));
+        assert!(shows_bar(&weapon(&[("fire_mode", "offhand_instant")])));
+        assert!(shows_bar(&weapon(&[])));
     }
 }
