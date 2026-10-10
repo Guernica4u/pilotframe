@@ -1,6 +1,6 @@
 # Pilot HUD
 
-How TF1 builds the pilot HUD, read from the owner's game files (PC retail disc, `englishclient_mp_common` pack) and `client.dll`. `pf-game/src/hud.rs` draws it from these same files at run time; nothing is copied into the repo.
+How TF1 builds the pilot HUD, read from the owner's game files (the `englishclient_mp_common` pack of the final PC patch, v1.0.10.1) and `client.dll`. `pf-game/src/hud.rs` draws it from these same files at run time; nothing is copied into the repo.
 
 ## Where things are
 
@@ -15,7 +15,7 @@ How TF1 builds the pilot HUD, read from the owner's game files (PC retail disc, 
 | Crosshair per weapon | the weapon script's `CrosshairData` block |
 | HUD scripts (reference only) | `scripts/vscripts/client/cl_main_hud.nut` (weapon panel: `MainHud_InitWeapons`) |
 
-The game's R1Delta copy of the common pack points some entries at R1Delta's own pack (archive number 0x1337), so HUD files are read from the **retail disc** instead.
+**Which copy.** Files come from the owner's EA install (final patch v1.0.10.1), unpacked with `pf-pc vpk-extract` into `Resources/ea_extracted/common`; the game falls back to the launch build from the retail discs. The R1Delta copy of the common pack isn't used: it points about 28,000 entries at R1Delta's own pack (archive number 0x1337). The game DLLs (`client.dll`, `vguimatsurface.dll`, `engine.dll`) are byte-identical in the EA and R1Delta copies, so addresses in these notes hold for both. The final patch changed some HUD data from the launch build, e.g. the R-201's clip is 24 (240 total) instead of 30 (300).
 
 ## The helmet screen
 
@@ -44,7 +44,7 @@ The game's R1Delta copy of the common pack points some entries at R1Delta's own 
 | `weaponLabel` | text | `HudFontSmall` (Conduit ITC Pro Medium, 12, glow 3), white |
 | `weaponAmmoCount` | text | rounds in the clip, `HudFontMedPlain` (18), right-aligned |
 | `weaponAmmoBar` | bar | clip fraction: `hud_bar_small` tinted 128 grey over black at alpha 123 |
-| `weaponMagLabel` + `weaponAmmoMag` | text + icon | spare magazines, white at alpha 140, formatted by the localisation's `HudAutoText_ActiveWeaponMagazineCount` ("x%s1"). The weapon's `ammo_default_total` includes the loaded magazine: an R1Delta screenshot shows 24 in the clip and "x9" for the R-201's 300. |
+| `weaponMagLabel` + `weaponAmmoMag` | text + icon | spare magazines, white at alpha 140, formatted by the localisation's `HudAutoText_ActiveWeaponMagazineCount` ("x%s1"). The weapon's `ammo_default_total` includes the loaded magazine: an R1Delta screenshot shows 24 in the clip and "x9" for the R-201's 240 (final patch). |
 
 ## Fonts (`.vfont`)
 

@@ -8,8 +8,8 @@
 //! deltas with a hip and an aim version each. Timings come from the weapon's
 //! settings file (`scripts/weapons/mp_weapon_rspn101.txt`).
 //!
-//! Models and textures come from the player's own files (`pf-pc common-extract`
-//! and `model-materials` into `Resources/pc_extracted/common`). Without them
+//! Models and textures come from the player's own files ([`crate::data`]).
+//! Without them
 //! there's simply no weapon on screen.
 
 use std::path::{Path, PathBuf};
@@ -247,10 +247,6 @@ impl Viewmodel {
     }
 }
 
-fn common_dir() -> PathBuf {
-    PathBuf::from("Resources/pc_extracted/common")
-}
-
 /// Camera-bone space (x left, y up, z forward) to Bevy camera space (x right,
 /// y up, looking down -z).
 fn to_view(p: Vec3) -> Vec3 {
@@ -354,7 +350,7 @@ pub fn spawn(
     materials: &mut Assets<StandardMaterial>,
     images: &mut Assets<Image>,
 ) {
-    let dir = common_dir();
+    let dir = crate::data::common_dir();
     let Some(data) = WeaponData::load(&dir, DEFAULT_ATTACHMENT) else {
         info!(
             "no viewmodel: {WEAPON_SCRIPT} not found under {}",

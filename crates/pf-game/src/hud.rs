@@ -10,7 +10,7 @@
 //! elements. Without the game files there is simply no HUD.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -80,10 +80,6 @@ struct Crosshair {
     alpha: f32,
     /// Which arm: its push direction is `arm × CROSSHAIR_ARM_STEP_DEG`.
     arm: usize,
-}
-
-fn common_dir() -> PathBuf {
-    PathBuf::from("Resources/pc_extracted/common")
 }
 
 /// Read a `.res` file and lay its `#base` files underneath it.
@@ -212,7 +208,7 @@ fn spawn(
     mut materials: ResMut<Assets<StandardMaterial>>,
     weapon: Option<Single<&Viewmodel>>,
 ) {
-    let dir = common_dir();
+    let dir = crate::data::common_dir();
     let Some(root) = load_res(&dir.join("scripts/screens/vgui_fullscreen_pilot.res")) else {
         info!("no HUD: the pilot HUD layout isn't under {}", dir.display());
         return;
@@ -404,7 +400,7 @@ fn update(
             Live::MagCount => text.0 = auto(format, w.reserve().div_ceil(w.clip_size().max(1))),
             // The gun may arrive after the HUD; look its name up once.
             Live::WeaponName if text.0.is_empty() => {
-                text.0 = localise(&common_dir(), w.short_name())
+                text.0 = localise(&crate::data::common_dir(), w.short_name())
             }
             _ => {}
         }

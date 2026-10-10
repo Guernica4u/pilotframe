@@ -208,7 +208,7 @@ fn extract_vpk(dir_path: &Path, filter: &str, out_dir: &Path) -> io::Result<()> 
         .ok_or_else(|| io::Error::other("unexpected VPK dir file name"))?;
     let mut archives = std::collections::HashMap::new();
 
-    let (mut count, mut bytes) = (0usize, 0u64);
+    let (mut count, mut bytes, mut bad) = (0usize, 0u64, 0usize);
     for f in dir.files.iter().filter(|f| f.path.contains(filter)) {
         if blocked(&f.path) {
             continue;
@@ -233,8 +233,12 @@ fn extract_vpk(dir_path: &Path, filter: &str, out_dir: &Path) -> io::Result<()> 
             }
             data.extend_from_slice(&raw);
         }
+        // Report a bad file and carry on (EA installs rebuild their sounds
+        // after install, so some pack entries don't match their checksums).
         if crc32(&data) != f.crc32 {
-            return Err(io::Error::other(format!("{}: CRC-32 mismatch", f.path)));
+            eprintln!("skip (CRC-32 mismatch) {}", f.path);
+            bad += 1;
+            continue;
         }
         let dest = out_dir.join(&f.path);
         if let Some(parent) = dest.parent() {
@@ -245,7 +249,7 @@ fn extract_vpk(dir_path: &Path, filter: &str, out_dir: &Path) -> io::Result<()> 
         bytes += data.len() as u64;
     }
     println!(
-        "extracted {count} files, {:.1} MB, all CRCs OK",
+        "extracted {count} files, {:.1} MB; {bad} skipped for bad CRCs",
         bytes as f64 / 1048576.0
     );
     Ok(())
