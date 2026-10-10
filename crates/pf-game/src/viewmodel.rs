@@ -26,12 +26,14 @@ use pf_fmt_mdl::anim::{self, Animation, Bone, Pose};
 
 use crate::Screen;
 use crate::input::Action;
+use crate::matproxy::{self, ProxyMaterial};
 use crate::player::Player;
 use crate::recoil::{Recoil, RecoilData};
 use crate::settings::Settings;
 use crate::spread::{Spread, SpreadData, SpreadInput};
 use crate::sway::{self, Sway};
 use crate::tuning::{Tuning, TuningAsset};
+use crate::unlit_two::UnlitTwoTexture;
 use crate::view;
 
 /// The viewmodel lives on its own render layer, seen only by its own camera.
@@ -51,12 +53,14 @@ pub struct ViewmodelPlugin;
 
 impl Plugin for ViewmodelPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            animate
-                .after(crate::player::place_camera)
-                .run_if(in_state(Screen::InGame)),
-        );
+        app.add_plugins(MaterialPlugin::<UnlitTwoTexture>::default())
+            .add_systems(
+                Update,
+                (animate, drive_proxies)
+                    .chain()
+                    .after(crate::player::place_camera)
+                    .run_if(in_state(Screen::InGame)),
+            );
     }
 }
 
@@ -70,6 +74,8 @@ struct WeaponData {
     /// All the rounds you spawn with, the loaded magazine included
     /// (`ammo_default_total`).
     ammo_total: u32,
+    /// `ammo_stockpile_max`.
+    max_carry: u32,
     spread: SpreadData,
     /// Body group name → sub-model (`bodygroupN_name` / `bodygroupN_set`).
     bodygroups: Vec<(String, usize)>,
@@ -124,6 +130,7 @@ impl WeaponData {
             fire_rate: num("fire_rate", 10.0),
             clip: num("ammo_clip_size", 30.0) as u32,
             ammo_total: num("ammo_default_total", 0.0) as u32,
+            max_carry: num("ammo_stockpile_max", 0.0) as u32,
             spread: SpreadData::from_script(|k| kv.get(k).and_then(|v| v.trim().parse().ok())),
             bodygroups,
             anim_alt: num("anim_alt_idleAttack", 0.0) as u32,
@@ -207,6 +214,8 @@ pub struct Viewmodel {
     /// moved from the hip one to the aimed one, 0..1.
     pivots: [Option<pf_fmt_mdl::Attachment>; 2],
     pivot_blend: f32,
+    /// The holo-sight value the reticles' `HoloSight` proxy shows, 0..1.
+    holo: f32,
 }
 
 /// What the HUD shows about the gun.
@@ -286,6 +295,7 @@ fn build_rig(
     material_dirs: &[PathBuf],
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    reticles: &mut Assets<UnlitTwoTexture>,
     images: &mut Assets<Image>,
 ) -> Option<Rig> {
     let bones = anim::skeleton(mdl).ok()?;
@@ -301,10 +311,22 @@ fn build_rig(
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals.clone())
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, m.uvs.clone())
         .with_inserted_indices(Indices::U32(m.indices.clone()));
-        let loaded = m
+        let name = m
             .materials
             .iter()
-            .find_map(|name| pf_world::load_material(material_dirs, name));
+            .find(|name| pf_world::read_first(material_dirs, &format!("{name}.vmt")).is_some());
+        let vmt = name
+            .and_then(|n| pf_world::read_first(material_dirs, &format!("{n}.vmt")))
+            .map(|t| String::from_utf8_lossy(&t).into_owned())
+            .unwrap_or_default();
+        let shader = vmt
+            .split(|c: char| c.is_whitespace() || c == '{')
+            .find(|w| !w.is_empty() && !w.starts_with("//"))
+            .unwrap_or_default()
+            .trim_matches('"')
+            .to_ascii_lowercase();
+        let proxies = ProxyMaterial::parse(&vmt);
+        let loaded = name.and_then(|n| pf_world::load_material(material_dirs, n));
         // Attachments like the HCOG's reticle are unlit, see-through or glowing,
         // and tinted by the material's `$color2`.
         let (additive, unlit, tint, blend) = loaded
@@ -312,7 +334,44 @@ fn build_rig(
             .map_or((false, false, None, AlphaMode::Opaque), |l| {
                 (l.additive, l.unlit, l.tint, l.alpha)
             });
+        let decal = loaded.as_ref().is_some_and(|l| l.decal);
+        // Respawn's `Basic` shader (the ammo counter) draws unlit.
+        let unlit = unlit || shader == "basic";
         let texture = loaded.and_then(|l| l.texture).map(|i| images.add(i));
+        let handle = meshes.add(mesh);
+        if shader == "unlittwotexture" {
+            // The reticles: base × scrolling noise.
+            // A missing texture would keep the material from ever drawing, so
+            // fall back to plain white.
+            let second = texture2(material_dirs, &vmt).map(|i| images.add(i));
+            let texture = texture.or_else(|| Some(images.add(Image::default())));
+            let second = second.or_else(|| Some(images.add(Image::default())));
+            let material = reticles.add(crate::unlit_two::material(
+                texture.unwrap_or_default(),
+                second.unwrap_or_default(),
+                additive,
+            ));
+            let mut entity = commands.spawn((
+                Mesh3d(handle.clone()),
+                MeshMaterial3d(material),
+                RenderLayers::layer(LAYER),
+                NoFrustumCulling,
+                Transform::IDENTITY,
+                ChildOf(parent),
+            ));
+            entity.insert(DrivenMaterial {
+                proxies: proxies.unwrap_or_default(),
+                tint: Vec3::from(tint.unwrap_or([1.0; 3])),
+            });
+            out.push(SkinnedMesh {
+                handle,
+                positions,
+                normals,
+                bones: m.bones.clone(),
+                weights: m.weights.clone(),
+            });
+            continue;
+        }
         let material = materials.add(StandardMaterial {
             base_color: match (tint, texture.is_some()) {
                 (Some([r, g, b]), _) => Color::linear_rgb(r, g, b),
@@ -324,10 +383,11 @@ fn build_rig(
             cull_mode: None,
             unlit,
             alpha_mode: if additive { AlphaMode::Add } else { blend },
+            // `$decal` meshes sit on the gun's surface (the ammo counter).
+            depth_bias: if decal { DECAL_DEPTH_BIAS } else { 0.0 },
             ..default()
         });
-        let handle = meshes.add(mesh);
-        commands.spawn((
+        let mut entity = commands.spawn((
             Mesh3d(handle.clone()),
             MeshMaterial3d(material),
             RenderLayers::layer(LAYER),
@@ -336,6 +396,12 @@ fn build_rig(
             Transform::IDENTITY,
             ChildOf(parent),
         ));
+        if let Some(proxies) = proxies {
+            entity.insert(DrivenMaterial {
+                proxies,
+                tint: Vec3::from(tint.unwrap_or([1.0; 3])),
+            });
+        }
         out.push(SkinnedMesh {
             handle,
             positions,
@@ -347,12 +413,90 @@ fn build_rig(
     Some(Rig { bones, meshes: out })
 }
 
+/// How far `$decal` meshes are pulled towards the camera so they draw over
+/// the surface they sit on. Ours.
+const DECAL_DEPTH_BIAS: f32 = 1.0;
+
+/// A mesh whose material its `.vmt` proxies drive every frame.
+#[derive(Component)]
+struct DrivenMaterial {
+    proxies: ProxyMaterial,
+    /// `$color2`.
+    tint: Vec3,
+}
+
+/// The `$texture2` of an `UnlitTwoTexture` material. Read raw: material paths
+/// use backslashes, which our KeyValues parser takes as escapes.
+fn texture2(material_dirs: &[PathBuf], vmt: &str) -> Option<Image> {
+    let line = vmt.lines().find(|l| {
+        l.trim_start()
+            .to_ascii_lowercase()
+            .starts_with("\"$texture2\"")
+    })?;
+    let path = line
+        .split('"')
+        .nth(3)?
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    let path = path.trim_end_matches(".vtf");
+    pf_world::vtf_to_image(&pf_world::read_first(
+        material_dirs,
+        &format!("{path}.vtf"),
+    )?)
+}
+
+/// A driven mesh and whichever material it has.
+type DrivenQuery<'a> = (
+    &'a mut DrivenMaterial,
+    Option<&'a MeshMaterial3d<StandardMaterial>>,
+    Option<&'a MeshMaterial3d<UnlitTwoTexture>>,
+);
+
+/// Run each driven material's proxies against the gun, and apply the results:
+/// texture transforms, `$color` (× `$color2`) and `$alpha`.
+fn drive_proxies(
+    viewmodel: Option<Single<&Viewmodel>>,
+    mut standard: ResMut<Assets<StandardMaterial>>,
+    mut unlit_two: ResMut<Assets<UnlitTwoTexture>>,
+    mut driven: Query<DrivenQuery>,
+) {
+    let Some(vm) = viewmodel else {
+        return;
+    };
+    let cx = matproxy::Context {
+        clip: vm.ammo,
+        clip_size: vm.data.clip,
+        reserve: vm.reserve,
+        max_carry: vm.data.max_carry,
+        holo: vm.holo,
+    };
+    for (mut d, std_handle, two_handle) in &mut driven {
+        d.proxies.update(&cx);
+        let ([r, g, b], alpha) = d.proxies.color_alpha();
+        let color = Vec3::new(r, g, b) * d.tint;
+        let base = d.proxies.transform("basetexturetransform");
+        if let Some(h) = std_handle
+            && let Some(mut m) = standard.get_mut(&h.0)
+        {
+            m.uv_transform = base;
+            m.base_color = Color::linear_rgba(color.x, color.y, color.z, alpha);
+        }
+        if let Some(h) = two_handle
+            && let Some(mut m) = unlit_two.get_mut(&h.0)
+        {
+            m.extension
+                .set(color, alpha, base, d.proxies.transform("texture2transform"));
+        }
+    }
+}
+
 /// Spawn the viewmodel camera, its light, and the weapon and arms under `camera`.
 pub fn spawn(
     commands: &mut Commands,
     camera: Entity,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    reticles: &mut Assets<UnlitTwoTexture>,
     images: &mut Assets<Image>,
 ) {
     let dir = crate::data::common_dir();
@@ -408,6 +552,7 @@ pub fn spawn(
         &material_dirs,
         meshes,
         materials,
+        reticles,
         images,
     ) else {
         return;
@@ -421,6 +566,7 @@ pub fn spawn(
             &material_dirs,
             meshes,
             materials,
+            reticles,
             images,
         )?;
         let map = rig
@@ -516,6 +662,7 @@ pub fn spawn(
         recoil: Recoil::default(),
         pivots,
         pivot_blend: 0.0,
+        holo: 0.0,
     });
 }
 
@@ -635,6 +782,15 @@ pub fn animate(
     // Dev: `PF_DEV_ADS=1` holds aim (to see aimed effects in screenshots).
     let aim_held = actions.pressed(&Action::Zoom) || std::env::var_os("PF_DEV_ADS").is_some();
     let aiming = aim_held && !busy && !sprinting;
+    // The holo-sight value (`0x18009e320`): up while zoomed, down otherwise,
+    // over the zoom times. (The game uses the aim-in/out animations' rates
+    // when the weapon has them.)
+    vm.holo = if aiming {
+        vm.holo + dt / vm.data.zoom_time_in.max(1e-3)
+    } else {
+        vm.holo - dt / vm.data.zoom_time_out.max(1e-3)
+    }
+    .clamp(0.0, 1.0);
     vm.ads = if aiming {
         approach(vm.ads, 1.0, vm.data.zoom_time_in, dt)
     } else {

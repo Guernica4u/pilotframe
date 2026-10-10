@@ -31,7 +31,46 @@ The reticle meshes use `hcog_reticle_front`, `hcog_reticle_rear` and `hcog_retic
 - a second texture `dev/noise_post` scrolled by noise proxies;
 - `$holoOffset` (front [0.1 0]).
 
-**Drawn so far:** unlit, translucent or additive, tinted by `$color2`. **Not yet:** the noise layer, the proxies, the holo offset, and overbright (our gun camera isn't HDR, so the 8× tint clips to full red).
+**How the reticle shows** (material proxies in `client.dll`):
+- **`HoloSight`** sets `$alpha` from a value the viewmodel keeps (`0x18009e320`).
+  - While zoomed, it rises each frame by frame time ÷ the aim-in time (or at the aim-in animation's rate, when the weapon has one). Otherwise it falls at the aim-out rate. Clamped 0..1.
+  - So the reticle fades in as you aim and is invisible from the hip.
+  - With a ConVar set, it's simply the zoom fraction.
+  - `HoloSight` runs last, so it overwrites the front chevron's random-alpha `UniformNoise`.
+- **`UniformNoise`**: a random value in [min, max] each frame. The front reticle's `$scroll` gets one per axis, so its noise texture jumps around every frame (shimmer). The field emitter's `$color` flickers 0.8–1.
+- **`TextureTransform`** (Source's): uv′ = T(center + translate)·R(rotate)·S(scale)·T(−center)·uv, center 0.5. Used for `$texture2transform` (the noise) and the front reticle's `$holoOffset`.
+- **`UnlitTwoTexture`**: the base texture × the second texture (`dev/noise_post`) × `$color` × `$color2`, alpha × `$alpha`.
+
+**Sight body:** `hcog.vmt` is `VertexLitGeneric` with `$selfillum` and mask `hcog_ilm` at `$selfillumtint` [10 10 10]. That's the glowing blue glass.
+
+## On-gun ammo counter
+
+The R-201 viewmodel has an ammo screen built from meshes: two clip digits, a clip meter, magazine ticks (hip and aimed versions) and a background. These use `Basic` materials with proxies (`client.dll`, factories registered by name; each proxy's bind is vtable slot 1):
+
+| Proxy | Value |
+|---|---|
+| `ClipAmmo` | rounds in the clip (spare rounds if the weapon has no clip) |
+| `MaxClipAmmo` | clip size, at least 1 |
+| `RemainingAmmo` | spare rounds |
+| `MaxCarryAmmo` | `ammo_stockpile_max` |
+| `RemainingClipCount` | spare ÷ clip size, rounded **up** |
+| `NumericCounterAtlasFrame` | with p = 10^digitIndex: frame 0 (blank) if value < p and digitIndex > 0, else (value ÷ p mod 10) + 1. The atlas is blank, then 0–9 |
+| `TickCounterAtlasFrames` | ticks = a full row if (row+1)·length ≤ count, 0 if row·length ≥ count, else count mod length (length 0 = the atlas size); frame start = atlas size − ticks, frame count = length |
+| `TextureAtlas` | uv′ = (count/size)·uv + start/size per axis (count defaults to 1) |
+| `ProgressBar` | uv shifted by 1 − value/max (0 if max is 0) |
+| `ClipAmmoColor` | red (1, 0.29, 0.26) if clip ≤ 10% of its size; blue (0.52, 0.905, 1) if ≥ 40%; else orange (1, 0.5, 0.25) |
+| `RemainingAmmoColor` | red if spare ≤ one clip, orange if ≤ three clips, else blue |
+| `BackgroundAmmoColor` | (1, 0.69, 0.65) if clip ≤ 10%, else white |
+| `Divide` | Source's: src1 ÷ src2 |
+
+The R-201's tick row length is `MaxCarryAmmo` ÷ `MaxClipAmmo` (240 ÷ 24 = 10). The counter's `_ilm` masks aren't in the game files.
+
+**Ours:**
+- `pf-game/src/matproxy.rs` runs these proxies each frame; `pf-game/src/unlit_two.rs` with `assets/shaders/unlit_two_texture.wgsl` draws `UnlitTwoTexture`.
+- `Basic` is drawn unlit. `$decal` meshes get a small depth bias (ours).
+- The holo value ramps over the zoom times; the game uses the aim-in/out animations' rates when the weapon has them.
+- **Overbright:** the reticle tints are up to 8×, and our gun camera clips at white, so the reticle looks dimmer than the game's. That needs HDR rendering.
+- **Not yet:** the sight body's `$selfillum` glow.
 
 ## Gun field of view
 

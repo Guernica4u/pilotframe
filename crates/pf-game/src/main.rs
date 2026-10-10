@@ -19,6 +19,7 @@ mod input;
 mod level;
 mod loadout;
 mod map;
+mod matproxy;
 mod menu;
 mod player;
 mod recoil;
@@ -26,6 +27,7 @@ mod settings;
 mod spread;
 mod sway;
 mod tuning;
+mod unlit_two;
 mod view;
 mod viewmodel;
 

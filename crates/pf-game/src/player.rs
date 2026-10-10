@@ -79,6 +79,7 @@ pub struct Player {
     keys: u8,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_player(
     mut commands: Commands,
     spawn: Res<SpawnPoint>,
@@ -87,6 +88,7 @@ fn spawn_player(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    mut reticles: ResMut<Assets<crate::unlit_two::UnlitTwoTexture>>,
 ) {
     let mut player = commands.spawn((
         LevelEntity,
@@ -123,6 +125,7 @@ fn spawn_player(
         camera,
         &mut meshes,
         &mut materials,
+        &mut reticles,
         &mut images,
     );
 }
