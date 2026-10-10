@@ -192,7 +192,14 @@ Ported from `vguimatsurface.dll` (December 2014 build); `pf-game/src/hudwarp.rs`
 
 **Ours:** the HUD is drawn flat into two images, one for normal textures and one for `$additive` ones. They're shown on a grid mesh in the same 60 px cells, with every corner moved by that formula. The additive image adds light; the normal one blends as premultiplied alpha.
 
-**Where the screen sits:** `Create_PilotHud` puts it 208 units in front of the camera, 426 units wide. We view it at FOV 70 (the pilot's base `fov`), which covers about 1.1× the screen width. That value was measured from an R1Delta screenshot, which can't be trusted for this (see below); it's still to be read from code.
+**Where the screen sits:** `Create_PilotHud` puts it 208 units in front of the cockpit's `CAMERA_BASE` attachment, 426 units wide.
+
+**The cockpit and its FOV.** Every pilot class (`scripts/players/mp/pilot_*.set`) has a cockpit model, `models/weapons/arms/human_pov_cockpit.mdl`, with its own sway settings (`cockpitSway*`, below). The HUD screen is parented to it. The cockpit is a `C_Titan_Cockpit` (client.dll):
+- Its constructor (`0x1803f58f0`) sets its FOV (+0x2364) from `cockpit_default_fov`, default **75**. No script calls `SetCockpitFOV`, and `cockpit_forced_fov` defaults to 0.
+- Its per-frame cockpit-screen code (`0x1803f7930`) overwrites the FOV with **70.0** in its normal path (when a player float at +0x2a3c is 0; the field isn't identified yet).
+- So we view the screen at FOV 70, which covers about 1.1× the screen width. The R1Delta screenshot measured the same, though it can't be trusted for this (see below). Still to read: the code that renders the cockpit with this FOV, to confirm it's the Source 4:3 horizontal convention like the other FOVs.
+
+**Cockpit sway (not ported yet).** The pilot classes set `cockpitSwayTurnAngleFactor` -0.6, `TurnAngleRollFactor` 0.2, `TurnOriginFactor` -0.15, `MoveAngleFactor` -0.4, `MoveAngleRollFactor` -0.2, `MoveOriginFactor` -0.15, `cockpitSwayGain` 5.0, plus min/max limits. The HUD moves with the cockpit, so it drifts as you turn and move.
 
 **R1Delta draws its own curve.** R1Delta's `tier0.dll` has `client/rendering/hudwarp_hooks.cpp` with settings `hudwarp_use_gpu` and `hudwarp_disable`: it replaces the game's warp with its own GPU version. Against an R1Delta screenshot, no settings of the game's formula fit (16 px RMS over 9 elements). Dropping the depth term fits to 5.6 px, so R1Delta's version evidently differs from the original. **We keep the original's formula** (from `vguimatsurface.dll`) and don't fit warp-dependent positions to R1Delta screenshots. The game also has `hudwarp_override` (default off) to take the five values from `hudwarp_*` ConVars instead of the script.
 

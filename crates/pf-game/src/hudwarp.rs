@@ -34,10 +34,9 @@ const CHOP: f32 = 60.0;
 /// 426 units wide (852 screen units, so 2 per world unit).
 const PANEL_DISTANCE: f32 = 208.0;
 const UNITS_PER_WORLD_UNIT: f32 = 2.0;
-/// The field of view the helmet screen is seen with (Source convention: 4:3
-/// horizontal): 70, the pilot's base `fov`. Measured from an R1Delta
-/// screenshot, but R1Delta draws its own HUD curve (docs/hud.md), so this is
-/// still to be read from the game's code.
+/// The field of view the helmet screen is seen with: the pilot cockpit's FOV,
+/// which the cockpit's code sets to 70 (`C_Titan_Cockpit`, docs/hud.md).
+/// Assumed to be the Source convention (4:3 horizontal) like the other FOVs.
 const PANEL_FOV_DEG: f32 = 70.0;
 
 /// The warp's settings (`WarpGlobalSettings`).
