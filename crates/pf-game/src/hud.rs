@@ -807,8 +807,9 @@ fn update(
     for (live, mut text, format) in &mut texts {
         match live {
             Live::AmmoCount => text.0 = auto(format, w.ammo()),
-            // Spare magazines, counting a part-full one.
-            Live::MagCount => text.0 = auto(format, w.reserve().div_ceil(w.clip_size().max(1))),
+            // Whole spare magazines: the count drops when a reload takes from
+            // a full one (seen in the game; the code computing it isn't read yet).
+            Live::MagCount => text.0 = auto(format, w.reserve() / w.clip_size().max(1)),
             // The gun may arrive after the HUD; look its name up once.
             Live::WeaponName if text.0.is_empty() => {
                 text.0 = localise(&crate::data::common_dir(), w.short_name())
