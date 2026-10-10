@@ -23,6 +23,7 @@ mod matproxy;
 mod menu;
 mod player;
 mod recoil;
+mod self_illum;
 mod settings;
 mod spread;
 mod sway;

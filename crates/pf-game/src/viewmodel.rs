@@ -29,6 +29,7 @@ use crate::input::Action;
 use crate::matproxy::{self, ProxyMaterial};
 use crate::player::Player;
 use crate::recoil::{Recoil, RecoilData};
+use crate::self_illum::{SelfIllum, SelfIllumMaterial};
 use crate::settings::Settings;
 use crate::spread::{Spread, SpreadData, SpreadInput};
 use crate::sway::{self, Sway};
@@ -54,6 +55,7 @@ pub struct ViewmodelPlugin;
 impl Plugin for ViewmodelPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<UnlitTwoTexture>::default())
+            .add_plugins(MaterialPlugin::<SelfIllumMaterial>::default())
             .add_systems(
                 Update,
                 (animate, drive_proxies)
@@ -296,6 +298,7 @@ fn build_rig(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     reticles: &mut Assets<UnlitTwoTexture>,
+    glows: &mut Assets<SelfIllumMaterial>,
     images: &mut Assets<Image>,
 ) -> Option<Rig> {
     let bones = anim::skeleton(mdl).ok()?;
@@ -372,7 +375,7 @@ fn build_rig(
             });
             continue;
         }
-        let material = materials.add(StandardMaterial {
+        let standard = StandardMaterial {
             base_color: match (tint, texture.is_some()) {
                 (Some([r, g, b]), _) => Color::linear_rgb(r, g, b),
                 (None, true) => Color::WHITE,
@@ -386,16 +389,37 @@ fn build_rig(
             // `$decal` meshes sit on the gun's surface (the ammo counter).
             depth_bias: if decal { DECAL_DEPTH_BIAS } else { 0.0 },
             ..default()
+        };
+        // `$selfillum` materials (the sight's glass) glow through their mask.
+        let glow = crate::self_illum::settings(&vmt).and_then(|(mask, tint)| {
+            let image = pf_world::vtf_to_image(&pf_world::read_first(
+                material_dirs,
+                &format!("{mask}.vtf"),
+            )?)?;
+            Some((images.add(image), tint))
         });
         let mut entity = commands.spawn((
             Mesh3d(handle.clone()),
-            MeshMaterial3d(material),
             RenderLayers::layer(LAYER),
             // The mesh moves every frame; its spawn-time bounds would be wrong.
             NoFrustumCulling,
             Transform::IDENTITY,
             ChildOf(parent),
         ));
+        match glow {
+            Some((mask, [r, g, b])) => {
+                entity.insert(MeshMaterial3d(glows.add(SelfIllumMaterial {
+                    base: standard,
+                    extension: SelfIllum {
+                        mask,
+                        tint: Vec4::new(r, g, b, 1.0),
+                    },
+                })));
+            }
+            None => {
+                entity.insert(MeshMaterial3d(materials.add(standard)));
+            }
+        }
         if let Some(proxies) = proxies {
             entity.insert(DrivenMaterial {
                 proxies,
@@ -497,6 +521,7 @@ pub fn spawn(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     reticles: &mut Assets<UnlitTwoTexture>,
+    glows: &mut Assets<SelfIllumMaterial>,
     images: &mut Assets<Image>,
 ) {
     let dir = crate::data::common_dir();
@@ -553,6 +578,7 @@ pub fn spawn(
         meshes,
         materials,
         reticles,
+        glows,
         images,
     ) else {
         return;
@@ -567,6 +593,7 @@ pub fn spawn(
             meshes,
             materials,
             reticles,
+            glows,
             images,
         )?;
         let map = rig

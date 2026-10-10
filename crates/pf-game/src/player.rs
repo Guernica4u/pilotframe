@@ -89,6 +89,7 @@ fn spawn_player(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut reticles: ResMut<Assets<crate::unlit_two::UnlitTwoTexture>>,
+    mut glows: ResMut<Assets<crate::self_illum::SelfIllumMaterial>>,
 ) {
     let mut player = commands.spawn((
         LevelEntity,
@@ -126,6 +127,7 @@ fn spawn_player(
         &mut meshes,
         &mut materials,
         &mut reticles,
+        &mut glows,
         &mut images,
     );
 }

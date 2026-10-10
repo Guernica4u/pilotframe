@@ -70,7 +70,7 @@ The R-201's tick row length is `MaxCarryAmmo` ÷ `MaxClipAmmo` (240 ÷ 24 = 10).
 - `Basic` is drawn unlit. `$decal` meshes get a small depth bias (ours).
 - The holo value ramps over the zoom times; the game uses the aim-in/out animations' rates when the weapon has them.
 - **Overbright:** the reticle tints are up to 8×, and our gun camera clips at white, so the reticle looks dimmer than the game's. That needs HDR rendering.
-- **Not yet:** the sight body's `$selfillum` glow.
+- The sight body's `$selfillum`: lit colour + base × mask × tint (`pf-game/src/self_illum.rs`, `assets/shaders/self_illum.wgsl`).
 
 ## Gun field of view
 
