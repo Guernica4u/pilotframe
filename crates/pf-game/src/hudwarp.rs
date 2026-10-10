@@ -32,8 +32,8 @@ const LAYER: usize = 2;
 const CHOP: f32 = 60.0;
 /// `Create_PilotHud` puts the helmet screen 208 units in front of the camera,
 /// 426 units wide (852 screen units, so 2 per world unit).
-const PANEL_DISTANCE: f32 = 208.0;
-const UNITS_PER_WORLD_UNIT: f32 = 2.0;
+pub const PANEL_DISTANCE: f32 = 208.0;
+pub const UNITS_PER_WORLD_UNIT: f32 = 2.0;
 /// The field of view the helmet screen is seen with: the pilot cockpit's FOV,
 /// which the cockpit's code sets to 70 (`C_Titan_Cockpit`, docs/hud.md).
 /// Assumed to be the Source convention (4:3 horizontal) like the other FOVs.
@@ -79,6 +79,10 @@ impl Warp {
         )
     }
 }
+
+/// The warped helmet-screen meshes; they move with the cockpit's sway.
+#[derive(Component)]
+pub struct HudPanel;
 
 /// The two flat HUD layers' UI roots.
 pub struct Layers {
@@ -217,6 +221,7 @@ pub fn spawn(
     for (z, material) in [(-10.0, normal_material), (-9.0, additive_material)] {
         commands.spawn((
             LevelEntity,
+            HudPanel,
             Mesh3d(mesh.clone()),
             MeshMaterial3d(material),
             RenderLayers::layer(LAYER),

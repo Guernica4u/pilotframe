@@ -199,7 +199,44 @@ Ported from `vguimatsurface.dll` (December 2014 build); `pf-game/src/hudwarp.rs`
 - Its per-frame cockpit-screen code (`0x1803f7930`) overwrites the FOV with **70.0** in its normal path (when a player float at +0x2a3c is 0; the field isn't identified yet).
 - So we view the screen at FOV 70, which covers about 1.1× the screen width. The R1Delta screenshot measured the same, though it can't be trusted for this (see below). Still to read: the code that renders the cockpit with this FOV, to confirm it's the Source 4:3 horizontal convention like the other FOVs.
 
-**Cockpit sway (not ported yet).** The pilot classes set `cockpitSwayTurnAngleFactor` -0.6, `TurnAngleRollFactor` 0.2, `TurnOriginFactor` -0.15, `MoveAngleFactor` -0.4, `MoveAngleRollFactor` -0.2, `MoveOriginFactor` -0.15, `cockpitSwayGain` 5.0, plus min/max limits. The HUD moves with the cockpit, so it drifts as you turn and move.
+## Cockpit sway (the HUD drifting)
+
+Ported from `client.dll`; `pf-game/src/cockpit_sway.rs` follows it. The HUD hangs off the cockpit model, so it drifts as the pilot moves and turns. `cockpit_sway` (default 1) turns it on.
+
+**Settings** (player class, offsets 0x124–0x16c in the class settings). Table defaults, then the pilot classes' values where they set one:
+
+| Setting | Default | Pilot |
+|---|---|---|
+| `cockpitSwayGain` | 3.0 | 5.0 |
+| `cockpitSwayMin/MaxOrigin{X,Y,Z}` | ∓1 | (default) |
+| `cockpitSwayMin/MaxAngle{Pitch,Yaw,Roll}` | ∓0.5 | (default) |
+| `cockpitSwayTurnAngleFactor` | -4.0 | -0.6 |
+| `cockpitSwayTurnAngleRollFactor` | 0.0 | 0.2 |
+| `cockpitSwayTurnOriginFactor` | -1 | -0.15 |
+| `cockpitSwayMoveAngleFactor` | -0.3 | -0.4 |
+| `cockpitSwayMoveAngleRollFactor` | -0.2 | -0.2 |
+| `cockpitSwayMoveOriginFactor` | -0.15 | -0.15 |
+
+**How the game runs it** (`0x1803f8be0`): the cockpit reuses the weapon-sway code (`weapon_sway`, default 1).
+- **Settings block.** It builds a weapon-sway settings block (defaults `0x18047f030`: unbounded limits, rates 12, everything else 0). It fills in the cockpit's limits, `gain` as both rates, and each direction's factors, some sign-flipped.
+- **Update.** It runs the shared update (`0x18047f1e0`) with the player's velocity, the view angles and the frame time. Then it applies the result (`0x18047fed0`): a rotation about a pivot plus an offset, composed onto the cockpit's transform.
+- **Inputs to the update.** Velocity is turned into view space (forward, left, up). Turn rates are the per-frame angle change ÷ frame time, kept in a ring of 5 and averaged (× 0.2).
+- **Targets.** Per direction, the update adds velocity × frame time × factor and turn rate × frame time × factor, for an offset (x, y, z) and angles (pitch, yaw, roll). Each target is clamped to its limits.
+- **Easing.** Each value then eases towards its target: x = (1 − e)·target + e·x with e = exp(−rate·dt); angles via the angle difference.
+- **With the cockpit's values** every term is symmetric, so the targets are:
+  - offset (v_f·move, v_l·move + r_yaw·turn, v_u·move − r_pitch·turn)
+  - pitch −v_u·move_angle − r_pitch·turn_angle
+  - yaw v_l·move_angle + r_yaw·turn_angle
+  - roll −v_l·move_roll − r_yaw·turn_roll
+
+  where v is the velocity and r the averaged turn rate, each × frame time.
+
+**Ours:**
+- The turn rate is scaled by "a frame time" from the engine's globals (+0x28); we use this frame's.
+- The pivot vectors the game passes (globals at `0x1817f92d8`/`e8`) are taken as zero.
+- The sway moves our flat warped screen: left/up offsets and yaw/pitch shift it (208·tan for the angles), roll turns it, and the forward offset scales it by 208/(208 + x). That's the small-angle view of rotating a screen 208 inches ahead about the eye.
+
+**Gun sway:** the same update and apply functions drive the viewmodel from the weapon script's `sway_*` settings (loader `0x18047ddd0`). Not ported yet.
 
 **R1Delta draws its own curve.** R1Delta's `tier0.dll` has `client/rendering/hudwarp_hooks.cpp` with settings `hudwarp_use_gpu` and `hudwarp_disable`: it replaces the game's warp with its own GPU version. Against an R1Delta screenshot, no settings of the game's formula fit (16 px RMS over 9 elements). Dropping the depth term fits to 5.6 px, so R1Delta's version evidently differs from the original. **We keep the original's formula** (from `vguimatsurface.dll`) and don't fit warp-dependent positions to R1Delta screenshots. The game also has `hudwarp_override` (default off) to take the five values from `hudwarp_*` ConVars instead of the script.
 

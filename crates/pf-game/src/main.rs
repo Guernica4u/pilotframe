@@ -9,6 +9,7 @@
 //! Systems declare what data they need in their parameters, and Bevy hands it over.
 //! *States* (here [`Screen`]) switch whole groups of systems on and off.
 
+mod cockpit_sway;
 mod data;
 mod dev;
 mod hud;

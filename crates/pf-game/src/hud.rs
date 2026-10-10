@@ -47,7 +47,7 @@ impl Plugin for HudPlugin {
             .add_systems(OnEnter(Screen::InGame), spawn)
             .add_systems(
                 Update,
-                (update, titan_meter, crop_bars, place)
+                (update, titan_meter, crop_bars, cockpit_sway, place)
                     .chain()
                     .run_if(in_state(Screen::InGame)),
             );
@@ -90,6 +90,13 @@ struct ReadyImage(Handle<Image>);
 /// The Titan build timer (`UpdateTitanModeHUD`, `cl_replacement_titan_hud.nut`).
 /// The first Titan takes the playlist's `titan_build_time`. Nothing earns time
 /// off it yet (kills do in the game), so it simply counts down from the start.
+/// The cockpit's sway settings and state ([`crate::cockpit_sway`]).
+#[derive(Resource, Default)]
+struct CockpitSway {
+    settings: crate::cockpit_sway::Settings,
+    sway: crate::cockpit_sway::Sway,
+}
+
 #[derive(Resource)]
 struct TitanBuild {
     total: f32,
@@ -532,6 +539,10 @@ fn spawn(
     let fonts = load_fonts(&dir, &mut fonts);
     let binds = default_binds(&dir);
     let loadout = Loadout::preset(&dir, DEFAULT_PRESET).unwrap_or_default();
+    commands.insert_resource(CockpitSway {
+        settings: crate::cockpit_sway::Settings::load(&dir),
+        ..default()
+    });
     commands.insert_resource(TitanBuild {
         total: titan_build_time(&dir).max(1.0),
         start: time.elapsed_secs(),
@@ -822,6 +833,48 @@ fn update(
     for (mut c, mut image) in &mut crosshairs {
         c.alpha += (target - c.alpha).clamp(-step, step);
         image.color = Color::srgba(1.0, 1.0, 1.0, c.alpha);
+    }
+}
+
+/// Move the helmet screen with the cockpit's sway. The game sways the cockpit
+/// model the screen hangs off: an offset and a rotation about the eye. On our
+/// flat screen that's (for the small angles involved, at the screen's 208
+/// inches):
+/// - left/up offsets and yaw/pitch shift it (yaw by 208·tan(yaw));
+/// - roll turns it;
+/// - the forward offset scales it by 208 / (208 + forward).
+fn cockpit_sway(
+    time: Res<Time>,
+    state: Option<ResMut<CockpitSway>>,
+    player: Option<Single<&crate::player::Player>>,
+    mut panels: Query<&mut Transform, With<hudwarp::HudPanel>>,
+) {
+    let (Some(mut state), Some(player)) = (state, player) else {
+        return;
+    };
+    let (yaw, pitch) = player.view_angles();
+    let view = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
+    // Bevy's view space is x right, y up, -z forward.
+    let local = view.inverse() * player.movement().velocity;
+    let velocity = [-local.z, -local.x, local.y];
+    // The game's angles: pitch down, yaw left, in degrees.
+    let angles = [-pitch.to_degrees(), yaw.to_degrees()];
+    let CockpitSway { settings, sway } = &mut *state;
+    sway.update(settings, time.delta_secs(), velocity, angles);
+
+    let units = hudwarp::UNITS_PER_WORLD_UNIT;
+    let distance = hudwarp::PANEL_DISTANCE;
+    let [forward, left, up] = sway.origin;
+    let [sway_pitch, sway_yaw, sway_roll] = sway.angles;
+    let x = -left * units - distance * sway_yaw.to_radians().tan() * units;
+    let y = up * units - distance * sway_pitch.to_radians().tan() * units;
+    let scale = distance / (distance + forward);
+    for mut t in &mut panels {
+        t.translation.x = x;
+        t.translation.y = y;
+        // The game's roll turns the panel clockwise on screen.
+        t.rotation = Quat::from_rotation_z(-sway_roll.to_radians());
+        t.scale = Vec3::new(scale, scale, 1.0);
     }
 }
 

@@ -238,6 +238,12 @@ impl Player {
         &self.state
     }
 
+    /// The view's (yaw, pitch) in radians: yaw 0 faces -Z and turns left,
+    /// pitch looks up.
+    pub fn view_angles(&self) -> (f32, f32) {
+        (self.yaw, self.pitch)
+    }
+
     /// How far the gun is kicked relative to the view (radians: pitch up, yaw
     /// left, roll left).
     pub fn weapon_kick(&self) -> Vec3 {
