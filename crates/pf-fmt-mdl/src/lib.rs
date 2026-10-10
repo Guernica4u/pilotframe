@@ -59,6 +59,41 @@ pub fn body_groups(mdl: &[u8]) -> io::Result<Vec<(String, usize)>> {
         .collect()
 }
 
+/// A named point on the model (`$attachment`), fixed to one bone.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attachment {
+    pub name: String,
+    /// The bone it moves with.
+    pub bone: usize,
+    /// Its placement in the bone's space: a 3×4 matrix, rows of
+    /// (rotation x, rotation y, rotation z, translation).
+    pub matrix: [[f32; 4]; 3],
+}
+
+/// The model's attachments (`mstudioattachment_t`, 92 bytes each: name
+/// offset, flags, bone, 3×4 matrix, padding).
+pub fn attachments(mdl: &[u8]) -> io::Result<Vec<Attachment>> {
+    let m = Reader::new(mdl, "mdl");
+    let (count, index) = (m.count(240)?, m.u32(244)? as usize);
+    (0..count)
+        .map(|i| {
+            let at = index + i * 92;
+            let name_at = at as i64 + m.i32(at)? as i64;
+            let mut matrix = [[0.0; 4]; 3];
+            for (r, row) in matrix.iter_mut().enumerate() {
+                for (c, v) in row.iter_mut().enumerate() {
+                    *v = m.f32(at + 12 + (r * 4 + c) * 4)?;
+                }
+            }
+            Ok(Attachment {
+                name: m.cstr(name_at as usize, 64)?,
+                bone: m.count(at + 8)?,
+                matrix,
+            })
+        })
+        .collect()
+}
+
 /// Read a model with `body(group name)` choosing each body group's sub-model
 /// (what a weapon script's `bodygroupN_set` does). Out-of-range picks use the last.
 pub fn load_with_body(

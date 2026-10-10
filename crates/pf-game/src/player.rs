@@ -156,6 +156,14 @@ fn aim(
         -stick.x * look::STICK_YAW_SPEED,
         stick.y * look::STICK_PITCH_SPEED,
     ) * time.delta_secs();
+    // Dev: `PF_DEV_TURN=<degrees per second>` turns the view by itself (to see
+    // turn-dependent effects in screenshots).
+    if let Some(rate) = std::env::var("PF_DEV_TURN")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+    {
+        turn.x += rate.to_radians() * time.delta_secs();
+    }
 
     player.yaw = (player.yaw + turn.x).rem_euclid(TAU);
     player.pitch = (player.pitch + turn.y).clamp(-FRAC_PI_2 + 0.01, FRAC_PI_2 - 0.01);

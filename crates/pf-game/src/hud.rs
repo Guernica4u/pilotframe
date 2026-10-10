@@ -91,10 +91,10 @@ struct ReadyImage(Handle<Image>);
 /// The first Titan takes the playlist's `titan_build_time`. Nothing earns time
 /// off it yet (kills do in the game), so it simply counts down from the start.
 /// The cockpit's sway settings and state ([`crate::cockpit_sway`]).
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct CockpitSway {
-    settings: crate::cockpit_sway::Settings,
-    sway: crate::cockpit_sway::Sway,
+    settings: crate::sway::Settings,
+    sway: crate::sway::Sway,
 }
 
 #[derive(Resource)]
@@ -540,8 +540,8 @@ fn spawn(
     let binds = default_binds(&dir);
     let loadout = Loadout::preset(&dir, DEFAULT_PRESET).unwrap_or_default();
     commands.insert_resource(CockpitSway {
-        settings: crate::cockpit_sway::Settings::load(&dir),
-        ..default()
+        settings: crate::cockpit_sway::Settings::load(&dir).sway(),
+        sway: default(),
     });
     commands.insert_resource(TitanBuild {
         total: titan_build_time(&dir).max(1.0),
@@ -853,19 +853,23 @@ fn cockpit_sway(
         return;
     };
     let (yaw, pitch) = player.view_angles();
-    let view = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
-    // Bevy's view space is x right, y up, -z forward.
-    let local = view.inverse() * player.movement().velocity;
-    let velocity = [-local.z, -local.x, local.y];
-    // The game's angles: pitch down, yaw left, in degrees.
-    let angles = [-pitch.to_degrees(), yaw.to_degrees()];
+    let (velocity, view) = crate::sway::view_input(player.movement().velocity, yaw, pitch);
     let CockpitSway { settings, sway } = &mut *state;
-    sway.update(settings, time.delta_secs(), velocity, angles);
+    sway.update(
+        settings,
+        &crate::sway::Input {
+            dt: time.delta_secs(),
+            velocity,
+            view,
+            zoomed: false,
+            zoom_fraction: 0.0,
+            on_ground: player.movement().on_ground,
+        },
+    );
 
     let units = hudwarp::UNITS_PER_WORLD_UNIT;
     let distance = hudwarp::PANEL_DISTANCE;
-    let [forward, left, up] = sway.origin;
-    let [sway_pitch, sway_yaw, sway_roll] = sway.angles;
+    let ([forward, left, up], [sway_pitch, sway_yaw, sway_roll]) = sway.total();
     let x = -left * units - distance * sway_yaw.to_radians().tan() * units;
     let y = up * units - distance * sway_pitch.to_radians().tan() * units;
     let scale = distance / (distance + forward);

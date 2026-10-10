@@ -29,6 +29,7 @@ use crate::input::Action;
 use crate::player::Player;
 use crate::settings::Settings;
 use crate::spread::{Spread, SpreadData, SpreadInput};
+use crate::sway::{self, Sway};
 use crate::tuning::{Tuning, TuningAsset};
 use crate::view;
 
@@ -82,6 +83,8 @@ struct WeaponData {
     zoom_fov: f32,
     raise_time: f32,
     lower_time: f32,
+    /// Sway and bob (`sway_*`, `bob_*`).
+    sway: sway::Settings,
 }
 
 impl WeaponData {
@@ -94,7 +97,9 @@ impl WeaponData {
             .map(String::as_str)
             .collect();
         mods.extend(loadout.passives.iter().map(String::as_str));
-        let kv = WeaponScript::load(dir, &loadout.primary, &mods)?.values;
+        let script = WeaponScript::load(dir, &loadout.primary, &mods)?;
+        let sway = sway::Settings::from_script(&script);
+        let kv = script.values;
         let num = |k: &str, default: f32| {
             kv.get(k)
                 .and_then(|v| v.trim().parse().ok())
@@ -126,6 +131,7 @@ impl WeaponData {
             zoom_fov: num("zoom_fov", 50.0),
             raise_time: num("raise_time", 0.3),
             lower_time: num("lower_time", 0.25),
+            sway,
         })
     }
 }
@@ -190,6 +196,11 @@ pub struct Viewmodel {
     /// Time not yet run through the spread's fixed ticks, seconds.
     spread_pending: f32,
     action: Option<GunAction>,
+    sway: Sway,
+    /// The sway's pivot attachments (hip, aimed) and how far the pivot has
+    /// moved from the hip one to the aimed one, 0..1.
+    pivots: [Option<pf_fmt_mdl::Attachment>; 2],
+    pivot_blend: f32,
 }
 
 /// What the HUD shows about the gun.
@@ -460,6 +471,17 @@ pub fn spawn(
         anims.len(),
         if arms.is_some() { " + arms" } else { "" }
     );
+    let attachments = pf_fmt_mdl::attachments(&mdl).unwrap_or_default();
+    let pivot = |name: &str| {
+        attachments
+            .iter()
+            .find(|a| a.name.eq_ignore_ascii_case(name))
+            .cloned()
+    };
+    let pivots = [
+        pivot(&data.sway.hip.rotate_attach),
+        pivot(&data.sway.zoomed.rotate_attach),
+    ];
     let ammo = data.clip;
     // `ammo_default_total` counts the loaded magazine too (an R1Delta screenshot:
     // 24 in the clip with 9 spare magazines of the R-201's 300).
@@ -484,6 +506,9 @@ pub fn spawn(
         spread: Spread::default(),
         spread_pending: 0.0,
         action,
+        sway: Sway::default(),
+        pivots,
+        pivot_blend: 0.0,
     });
 }
 
@@ -650,7 +675,57 @@ pub fn animate(
     }
 
     let world = anim::world_transforms(bones, &pose);
-    let to_camera = world[vm.camera_bone].inverse();
+
+    // Sway and bob, as the game runs them for the viewmodel (`0x18009f740`):
+    // the update, then the pivot moving between the hip and aimed attachments
+    // over their blend times, then the sway applied about it.
+    let (yaw, pitch) = player.view_angles();
+    let (velocity, view) = sway::view_input(state.velocity, yaw, pitch);
+    let zoomed = aiming;
+    vm.sway.update(
+        &vm.data.sway,
+        &sway::Input {
+            dt,
+            velocity,
+            view,
+            zoomed,
+            zoom_fraction: vm.ads,
+            on_ground: state.on_ground,
+        },
+    );
+    let target = if zoomed && vm.data.sway.zoomed_enabled {
+        1.0
+    } else {
+        0.0
+    };
+    let blend_time = if target > 0.0 {
+        vm.data.sway.zoomed.rotate_attach_blend_time
+    } else {
+        vm.data.sway.hip.rotate_attach_blend_time
+    };
+    vm.pivot_blend = if blend_time <= 0.0 {
+        target
+    } else {
+        approach(vm.pivot_blend, target, blend_time, dt)
+    };
+    let attachment = |a: &Option<pf_fmt_mdl::Attachment>| {
+        a.as_ref().map_or(Affine3A::IDENTITY, |a| {
+            let [r0, r1, r2] = a.matrix;
+            let local = Affine3A::from_cols_array(&[
+                r0[0], r1[0], r2[0], r0[1], r1[1], r2[1], r0[2], r1[2], r2[2], r0[3], r1[3], r2[3],
+            ]);
+            world.get(a.bone).copied().unwrap_or(Affine3A::IDENTITY) * local
+        })
+    };
+    let (hip_pivot, aim_pivot) = (attachment(&vm.pivots[0]), attachment(&vm.pivots[1]));
+    let pivot = {
+        let (_, hip_rot, hip_pos) = hip_pivot.to_scale_rotation_translation();
+        let (_, aim_rot, aim_pos) = aim_pivot.to_scale_rotation_translation();
+        let t = vm.pivot_blend;
+        Affine3A::from_rotation_translation(hip_rot.slerp(aim_rot, t), hip_pos.lerp(aim_pos, t))
+    };
+    let swayed = sway::transform(&vm.sway, pivot);
+    let to_camera = world[vm.camera_bone].inverse() * swayed;
     skin(
         &mut meshes,
         &vm.weapon,

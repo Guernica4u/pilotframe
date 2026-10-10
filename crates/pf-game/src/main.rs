@@ -23,6 +23,7 @@ mod menu;
 mod player;
 mod settings;
 mod spread;
+mod sway;
 mod tuning;
 mod view;
 mod viewmodel;

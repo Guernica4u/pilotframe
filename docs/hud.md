@@ -201,7 +201,7 @@ Ported from `vguimatsurface.dll` (December 2014 build); `pf-game/src/hudwarp.rs`
 
 ## Cockpit sway (the HUD drifting)
 
-Ported from `client.dll`; `pf-game/src/cockpit_sway.rs` follows it. The HUD hangs off the cockpit model, so it drifts as the pilot moves and turns. `cockpit_sway` (default 1) turns it on.
+Ported from `client.dll`; `pf-game/src/cockpit_sway.rs` builds the cockpit's settings for the shared sway code (`pf-game/src/sway.rs`, see [weapons.md](weapons.md), "Sway and bob"). The HUD hangs off the cockpit model, so it drifts as the pilot moves and turns. `cockpit_sway` (default 1) turns it on.
 
 **Settings** (player class, offsets 0x124–0x16c in the class settings). Table defaults, then the pilot classes' values where they set one:
 
@@ -236,7 +236,7 @@ Ported from `client.dll`; `pf-game/src/cockpit_sway.rs` follows it. The HUD hang
 - The pivot vectors the game passes (globals at `0x1817f92d8`/`e8`) are taken as zero.
 - The sway moves our flat warped screen: left/up offsets and yaw/pitch shift it (208·tan for the angles), roll turns it, and the forward offset scales it by 208/(208 + x). That's the small-angle view of rotating a screen 208 inches ahead about the eye.
 
-**Gun sway:** the same update and apply functions drive the viewmodel from the weapon script's `sway_*` settings (loader `0x18047ddd0`). Not ported yet.
+**Gun sway:** the same update and apply functions drive the viewmodel; see [weapons.md](weapons.md).
 
 **R1Delta draws its own curve.** R1Delta's `tier0.dll` has `client/rendering/hudwarp_hooks.cpp` with settings `hudwarp_use_gpu` and `hudwarp_disable`: it replaces the game's warp with its own GPU version. Against an R1Delta screenshot, no settings of the game's formula fit (16 px RMS over 9 elements). Dropping the depth term fits to 5.6 px, so R1Delta's version evidently differs from the original. **We keep the original's formula** (from `vguimatsurface.dll`) and don't fit warp-dependent positions to R1Delta screenshots. The game also has `hudwarp_override` (default off) to take the five values from `hudwarp_*` ConVars instead of the script.
 

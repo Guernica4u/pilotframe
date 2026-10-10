@@ -36,3 +36,43 @@ The reticle meshes use `hcog_reticle_front`, `hcog_reticle_rear` and `hcog_retic
 ## Gun field of view
 
 `viewmodelfov` (pilot settings, offset 0x28) is used as-is: `0x18003d260` returns it as an integer, and the FOV slider doesn't scale it. The world FOV is the pilot `fov` (offset 0x24) × `cl_fovScale`, rounded (`0x18003d1e0`).
+
+## Sway and bob
+
+Ported from `client.dll`; `pf-game/src/sway.rs` follows it, and the cockpit uses the same code (see [hud.md](hud.md), "Cockpit sway"). `weapon_sway` (default 1) turns it on.
+
+**Settings** (loader `0x18047ddd0`):
+- Two blocks of the same layout: hip, and aimed (keys with `_zoomed`, 0x1a0 further on).
+- `sway_rotate_attach` names the pivot attachment, with `sway_rotate_attach_blend_time`.
+- `sway_min/max_{x,y,z,pitch,yaw,roll}` are the limits; `sway_translate_gain` and `sway_rotate_gain` the easing rates.
+- `bob_cycle_time`, `bob_min/max_speed`, `bob_vert/horz_dist`, `bob_pitch/yaw/roll`, `bob_gain`.
+- Factors `sway_{move_forward,move_back,move_left,move_right,move_up,move_down,turn_left,turn_right,turn_up,turn_down}_{translate_x,y,z,rotate_pitch,yaw,roll}`.
+- `sway_enable_zoomed` (default 1).
+- **Defaults:** missing keys are 0, except the gains (12 hip, 24 aimed), `bob_gain` 12, `bob_min_speed` 0.1 and `bob_max_speed` 0.2. A missing limit is 0, so that axis doesn't move. The R-201's aimed block only frees yaw ±0.03° and pitch ±0.01°.
+
+**Update** (`0x18047f1e0`), each frame:
+1. **Block.** Use the aimed block if zoomed (the player's zoom state, on while aiming) and `sway_enable_zoomed`; otherwise the hip one.
+2. **Bob.**
+   - **When it runs.** Planar speed in view space is remapped to 0..1 between the bob speeds. With `bob_cycle_time` > 0, a positive speed fraction and on the ground, the phase advances by fraction × dt, wrapping at 2 × cycle.
+   - **The waves.** Two sines, sin(2π·(phase mod cycle)/cycle) and sin(2π·phase/(2·cycle)), eased at `bob_gain`. The first gives the vertical distance and pitch, the second the horizontal distance, yaw and roll.
+   - **Stopping.** Otherwise the phase eases to the nearest whole step (0, cycle or 2 × cycle) and the waves ease to 0.
+3. **Turn rate.** The per-frame view-angle change ÷ dt, kept in a ring of 5 and averaged.
+4. **Targets.** Each input adds |input| × its direction's six factors:
+   - forward/back/left/right/up/down velocity × dt;
+   - yaw rate (left/right) and pitch rate (up/down), each × a frame time.
+
+   Offsets are clamped to their limits; angles are normalised, then clamped.
+5. **Easing.** Offset: x = (1 − e)·target + e·x with e = exp(−`sway_translate_gain`·dt). Angles the same way with `sway_rotate_gain`, through the angle difference.
+6. **Aimed limits.** With `sway_enable_zoomed`, the angles are clamped to limits lerped from hip to aimed by clamp(zoom fraction × 20, 0, 1).
+
+**Apply** (`0x18047fed0`): rotate about the pivot by sway + bob angles, then move by sway + bob offset, in the gun model's space; then on to the view.
+
+**Pivot** (`0x18009f740`):
+- The hip and aimed `sway_rotate_attach` attachments (R-201: `SWAY_ROTATE`, `SWAY_ROTATE_ZOOMED`), read from the gun's current pose in model space.
+- A blend moves towards 1 while zoomed (0 otherwise) over that block's blend time (R-201: 0.2 s into aim, instant out).
+- The pivot is lerped and slerped between the two.
+
+**Ours:**
+- The turn rate's frame time (an engine global at +0x28) is taken to be this frame's.
+- The first frame has no previous view, so it counts as no turn.
+- The aim fraction is our zoom ramp, not the engine's.

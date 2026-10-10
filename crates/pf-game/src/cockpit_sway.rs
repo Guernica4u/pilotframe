@@ -2,12 +2,9 @@
 //! sway"). The helmet HUD hangs off the cockpit model, so it drifts a little
 //! as the pilot moves and turns.
 //!
-//! The game drives the cockpit with its weapon-sway code: the cockpit's seven
-//! settings fill a weapon-sway block (some with the sign flipped), and the
-//! shared update eases an offset and three angles towards targets made from
-//! this frame's movement and the recent turn rate. With the cockpit's values
-//! every term is linear and symmetric, so it reduces to the sums in
-//! [`Sway::update`].
+//! The game drives the cockpit with its weapon-sway code ([`crate::sway`]):
+//! the cockpit's seven settings fill a weapon-sway block, some with the sign
+//! flipped ([`Settings::sway`]).
 //!
 //! Axes and units are the game's: offsets in inches along (forward, left, up),
 //! angles in degrees (pitch down, yaw left, roll right).
@@ -16,11 +13,10 @@ use std::path::Path;
 
 use pf_fmt_ui::kv;
 
+use crate::sway::{self, Dir};
+
 /// The pilot class the cockpit's settings come from.
 const PILOT_CLASS: &str = "scripts/players/mp/pilot_male_br.set";
-/// Turn rates are averaged over this many frames (the game keeps a ring of 5
-/// and weights each by 0.2).
-const TURN_SAMPLES: usize = 5;
 
 /// The player-class settings the cockpit sway uses.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -97,71 +93,37 @@ impl Settings {
     }
 }
 
-/// The cockpit's current sway.
-#[derive(Clone, Debug, Default)]
-pub struct Sway {
-    /// Offset (forward, left, up), inches.
-    pub origin: [f32; 3],
-    /// Angles (pitch, yaw, roll), degrees.
-    pub angles: [f32; 3],
-    /// The last few frames' turn rates (pitch, yaw), degrees per second.
-    rates: [[f32; 2]; TURN_SAMPLES],
-    next: usize,
-    /// Last frame's view (pitch, yaw), degrees.
-    last_view: Option<[f32; 2]>,
-}
-
-/// `a - b` as an angle in -180..180 degrees.
-fn angle_diff(a: f32, b: f32) -> f32 {
-    (a - b + 180.0).rem_euclid(360.0) - 180.0
-}
-
-impl Sway {
-    /// One frame of `dt` seconds. `velocity` is the player's, in the view's
-    /// (forward, left, up); `view` is (pitch down, yaw left) in degrees.
-    ///
-    /// Targets, each clamped to its limits (the game's per-direction factors
-    /// with the cockpit's values filled in), with v the velocity × `dt` and
-    /// r the averaged turn rate × `dt`:
-    /// - offset: forward v_f·move, left v_l·move + r_yaw·turn, up v_u·move − r_pitch·turn
-    /// - pitch −v_u·move_angle − r_pitch·turn_angle; yaw v_l·move_angle + r_yaw·turn_angle;
-    ///   roll −v_l·move_roll − r_yaw·turn_roll
-    ///
-    /// Each value then eases towards its target: `x = lerp(target, x, e^(−gain·dt))`.
-    pub fn update(&mut self, s: &Settings, dt: f32, velocity: [f32; 3], view: [f32; 2]) {
-        if dt <= 0.0 {
-            return;
-        }
-        // Turn rate this frame, then the average of the last few.
-        let last = self.last_view.unwrap_or(view);
-        self.next = (self.next + 1) % TURN_SAMPLES;
-        self.rates[self.next] = [
-            angle_diff(view[0], last[0]) / dt,
-            angle_diff(view[1], last[1]) / dt,
-        ];
-        self.last_view = Some(view);
-        let average = |i: usize| self.rates.iter().map(|r| r[i]).sum::<f32>() / TURN_SAMPLES as f32;
-        // The game scales the turn rate by a frame time from its globals; we
-        // take it to be this frame's.
-        let (pitch_rate, yaw_rate) = (average(0) * dt, average(1) * dt);
-        let [forward, left, up] = velocity.map(|v| v * dt);
-
-        let origin = [
-            forward * s.move_origin,
-            left * s.move_origin + yaw_rate * s.turn_origin,
-            up * s.move_origin - pitch_rate * s.turn_origin,
-        ];
-        let angles = [
-            -up * s.move_angle - pitch_rate * s.turn_angle,
-            left * s.move_angle + yaw_rate * s.turn_angle,
-            -left * s.move_angle_roll - yaw_rate * s.turn_angle_roll,
-        ];
-        let keep = (-s.gain * dt).exp();
+impl Settings {
+    /// The weapon-sway settings the game builds for the cockpit
+    /// (`0x1803f8be0`): a fresh block with the cockpit's limits, `gain` as both
+    /// rates, and each direction's factors, some with the sign flipped.
+    pub fn sway(&self) -> sway::Settings {
+        let mut b = sway::Block::blank();
         for i in 0..3 {
-            let target = origin[i].clamp(s.min_origin[i], s.max_origin[i]);
-            self.origin[i] = (1.0 - keep) * target + keep * self.origin[i];
-            let target = angles[i].clamp(s.min_angle[i], s.max_angle[i]);
-            self.angles[i] += (1.0 - keep) * angle_diff(target, self.angles[i]);
+            b.min[i] = self.min_origin[i];
+            b.max[i] = self.max_origin[i];
+            b.min[i + 3] = self.min_angle[i];
+            b.max[i + 3] = self.max_angle[i];
+        }
+        b.translate_gain = self.gain;
+        b.rotate_gain = self.gain;
+        let (mo, ma, mr) = (self.move_origin, self.move_angle, self.move_angle_roll);
+        let (to, ta, tr) = (self.turn_origin, self.turn_angle, self.turn_angle_roll);
+        // (translate x, y, z, rotate pitch, yaw, roll)
+        *b.dir(Dir::MoveForward) = [mo, 0.0, 0.0, 0.0, 0.0, 0.0];
+        *b.dir(Dir::MoveBack) = [-mo, 0.0, 0.0, 0.0, 0.0, 0.0];
+        *b.dir(Dir::MoveLeft) = [0.0, mo, 0.0, 0.0, ma, -mr];
+        *b.dir(Dir::MoveRight) = [0.0, -mo, 0.0, 0.0, -ma, mr];
+        *b.dir(Dir::MoveUp) = [0.0, 0.0, mo, -ma, 0.0, 0.0];
+        *b.dir(Dir::MoveDown) = [0.0, 0.0, -mo, ma, 0.0, 0.0];
+        *b.dir(Dir::TurnLeft) = [0.0, to, 0.0, 0.0, ta, -tr];
+        *b.dir(Dir::TurnRight) = [0.0, -to, 0.0, 0.0, -ta, tr];
+        *b.dir(Dir::TurnUp) = [0.0, 0.0, to, ta, 0.0, 0.0];
+        *b.dir(Dir::TurnDown) = [0.0, 0.0, -to, -ta, 0.0, 0.0];
+        sway::Settings {
+            hip: b,
+            zoomed: sway::Block::blank(),
+            zoomed_enabled: true,
         }
     }
 }
@@ -183,30 +145,31 @@ mod tests {
         }
     }
 
-    #[test]
-    fn still_stays_centred() {
-        let mut sway = Sway::default();
-        for _ in 0..60 {
-            sway.update(&pilot(), 1.0 / 60.0, [0.0; 3], [0.0, 90.0]);
+    fn frame(velocity: [f32; 3], yaw: f32) -> sway::Input {
+        sway::Input {
+            dt: 1.0 / 60.0,
+            velocity,
+            view: [0.0, yaw, 0.0],
+            zoomed: false,
+            zoom_fraction: 0.0,
+            on_ground: true,
         }
-        assert_eq!(sway.origin, [0.0; 3]);
-        assert_eq!(sway.angles, [0.0; 3]);
     }
 
     #[test]
     fn running_forward_pulls_back_and_turning_left_lags_right() {
-        let s = pilot();
-        let mut sway = Sway::default();
+        let s = pilot().sway();
+        let mut sway = sway::Sway::default();
         for _ in 0..120 {
-            sway.update(&s, 1.0 / 60.0, [300.0, 0.0, 0.0], [0.0, 0.0]);
+            sway.update(&s, &frame([300.0, 0.0, 0.0], 0.0));
         }
         // 300 in/s at 60 fps is 5 inches a frame; × -0.15 = -0.75 inch.
         assert!((sway.origin[0] + 0.75).abs() < 0.01, "{:?}", sway.origin);
-        let mut sway = Sway::default();
+        let mut sway = sway::Sway::default();
         let mut yaw = 0.0;
         for _ in 0..120 {
             yaw += 3.0; // 180°/s to the left
-            sway.update(&s, 1.0 / 60.0, [0.0; 3], [0.0, yaw]);
+            sway.update(&s, &frame([0.0; 3], yaw));
         }
         // 3° a frame × -0.6 = -1.8°, clamped to the -0.5° limit; the offset
         // goes right (negative left) and roll is -3 × 0.2 = -0.6, clamped.
