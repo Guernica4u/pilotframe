@@ -632,7 +632,9 @@ pub fn animate(
     }
 
     // Aim and sprint weights.
-    let aiming = actions.pressed(&Action::Zoom) && !busy && !sprinting;
+    // Dev: `PF_DEV_ADS=1` holds aim (to see aimed effects in screenshots).
+    let aim_held = actions.pressed(&Action::Zoom) || std::env::var_os("PF_DEV_ADS").is_some();
+    let aiming = aim_held && !busy && !sprinting;
     vm.ads = if aiming {
         approach(vm.ads, 1.0, vm.data.zoom_time_in, dt)
     } else {

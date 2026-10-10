@@ -116,7 +116,10 @@ Defaults are loaded in the instruction just before each setting's name where it'
 **How a punch moves** (read from the game's code, 2026-10-08, and checked against a recording of the real game; these values were confirmed live):
 - Each axis gets base + random × r, with r uniform in −0.5..0.5 (a named random stream per event, e.g. `viewpunchJumpX`).
 - The punch is added to the view's **angular speed**, at 20 (deg/s) per degree.
-- The spring steps at a fixed **0.0166 s**: angle += speed × h, clamped to ±89 pitch/roll and ±179 yaw. Then speed ×= exp(−damping × h), then speed −= angle × spring constant × h. Both reset to 0 once angle² and speed² are ≤ 0.001.
+- **How the spring moves.** Both reset to 0 once angle² and speed² are ≤ 0.001.
+  - The punch driver (`0x180165190`) has two steps. One is a fixed **0.0166 s** Euler step (`0x180164980`): angle += speed × h, clamped to ±89 pitch/roll and ±179 yaw; then speed ×= exp(−damping × h); then speed −= angle × spring constant × h.
+  - The other (`0x18015ea60`) solves x″ + damping·x′ + stiffness·x = 0 exactly over the frame time, per axis (`0x1804fe210`: critically damped when damping² − 4·stiffness is within ±1e-6, otherwise over- or underdamped).
+  - **We use the exact one.** The weapon kick springs are too stiff for the Euler step (R-201 roll: 12,500 hip, 20,000 aimed; k·h² > 4 makes it blow up), so the game must use the exact one in play. The jump punch still matches the recording.
 - Player fields: view punch angle at 0x26D0, speed at 0x26DC.
 - The gun has its own punch (0x26E8 / 0x26F4) on the same spring, kicked by punch × `viewpunch_jump_scaleWeapon` (0.2). The wall-run punch leaves the gun's roll out.
 - **Wall-run:** base yaw and roll are multiplied by (view right · wall normal), so a wall straight to the side gets the full roll.

@@ -4,8 +4,8 @@
 //! Values are the engine's own defaults read from the owner's `client.dll`, listed
 //! in docs/movement/r1-engine-values.md ("View"), and the way a punch moves is the
 //! game's (read from its code, and checked against a recording of the real game):
-//! a punch adds 20 × its angles to an angular speed, and a spring stepped at a
-//! fixed 60 Hz pulls the view back.
+//! a punch adds 20 × its angles to an angular speed, and a damped spring pulls
+//! the view back, solved exactly over each frame.
 //!
 //! There are two springs, as in the game: the view punch, and the weapon kick
 //! (recoil, [`crate::recoil`]; movement punches add 0.2 × to it too). The kick
@@ -18,8 +18,6 @@ use crate::recoil::SpringConstants;
 
 /// A punch of 1° adds this much angular speed, degrees/s.
 const PUNCH_TO_SPEED: f32 = 20.0;
-/// The spring's fixed time step, seconds.
-const SPRING_STEP: f32 = 0.0166;
 /// Below this (squared angle and squared speed) the spring stops.
 const SPRING_REST: f32 = 0.001;
 /// The gun's share of each punch (`viewpunch_jump_scaleWeapon`).
@@ -74,21 +72,24 @@ struct Spring {
 }
 
 impl Spring {
-    /// One fixed step, as the game does it (`0x180164980`): move, clamp, damp,
-    /// pull back, with per-axis constants.
-    fn step(&mut self, c: &SpringConstants) {
+    /// Advance by `dt` seconds (`0x18015ea60`): once angle and speed are both
+    /// tiny the spring stops; otherwise each axis is solved exactly
+    /// ([`solve`]) with its own constants.
+    fn advance(&mut self, c: &SpringConstants, dt: f32) {
         if self.angle.length_squared() <= SPRING_REST && self.speed.length_squared() <= SPRING_REST
         {
             *self = Self::default();
             return;
         }
-        self.angle += self.speed * SPRING_STEP;
-        self.angle = self.angle.clamp(
-            Vec3::new(-89.0, -179.0, -89.0),
-            Vec3::new(89.0, 179.0, 89.0),
-        );
-        self.speed *= (-c.damping * SPRING_STEP).exp();
-        self.speed -= self.angle * c.stiffness * SPRING_STEP;
+        for i in 0..3 {
+            (self.angle[i], self.speed[i]) = solve(
+                self.angle[i],
+                self.speed[i],
+                c.stiffness[i],
+                c.damping[i],
+                dt,
+            );
+        }
     }
 
     /// In radians, converted from Source's convention to ours: (pitch up, yaw left,
@@ -96,6 +97,40 @@ impl Spring {
     fn offsets(&self, extra_roll: f32) -> Vec3 {
         Vec3::new(-self.angle.x, self.angle.y, -(self.angle.z + extra_roll)) * std::f32::consts::PI
             / 180.0
+    }
+}
+
+/// A damped spring x'' + damping·x' + stiffness·x = 0 moved on by `t` seconds
+/// exactly, from angle `x` and speed `v` (`0x1804fe210`): critically damped
+/// when damping² − 4·stiffness is within ±1e-6 of 0, else over- or underdamped.
+/// Exact, so it stays stable however stiff the spring (the R-201's roll spring
+/// is 12,500–20,000).
+fn solve(x: f32, v: f32, stiffness: f32, damping: f32, t: f32) -> (f32, f32) {
+    let disc = damping * damping - 4.0 * stiffness;
+    let a = damping * 0.5;
+    if disc > 1e-6 {
+        // Two real rates.
+        let root = disc.sqrt() * 0.5;
+        let (r1, r2) = (-a + root, -a - root);
+        let c1 = (v - r2 * x) / (r1 - r2);
+        let c2 = x - c1;
+        let (e1, e2) = ((r1 * t).exp(), (r2 * t).exp());
+        (c1 * e1 + c2 * e2, r1 * c1 * e1 + r2 * c2 * e2)
+    } else if disc < -1e-6 {
+        // Oscillating, decaying at damping / 2.
+        let w = (-disc).sqrt() * 0.5;
+        let decay = (-a * t).exp();
+        let (sin, cos) = (w * t).sin_cos();
+        let b = (v + a * x) / w;
+        (
+            decay * (x * cos + b * sin),
+            decay * (v * cos - (a * v + stiffness * x) / w * sin),
+        )
+    } else {
+        let b = v + a * x;
+        let decay = (-a * t).exp();
+        let line = x + b * t;
+        (line * decay, (b - line * a) * decay)
     }
 }
 
@@ -109,8 +144,6 @@ pub struct ViewEffects {
     kick_spring: SpringConstants,
     weapon_fraction: f32,
     weapon_vm_scale: f32,
-    /// Time not yet stepped by the springs, seconds.
-    pending: f32,
     sprint_tilt: f32,
     sprint_tilt_speed: f32,
     rng: u32,
@@ -124,7 +157,6 @@ impl Default for ViewEffects {
             kick_spring: SpringConstants::BASE,
             weapon_fraction: 0.0,
             weapon_vm_scale: 0.0,
-            pending: 0.0,
             sprint_tilt: 0.0,
             sprint_tilt_speed: 0.0,
             rng: 0,
@@ -165,14 +197,8 @@ impl ViewEffects {
     /// Advance the springs by `dt` seconds. `turn_rate` is degrees/s of yaw (left
     /// positive); `sprinting` enables the turn tilt.
     pub fn update(&mut self, dt: f32, turn_rate: f32, sprinting: bool) {
-        // The game steps its springs at a fixed rate; so do we, whatever the
-        // frame rate.
-        self.pending = (self.pending + dt).min(0.25);
-        while self.pending >= SPRING_STEP {
-            self.pending -= SPRING_STEP;
-            self.view.step(&SpringConstants::BASE);
-            self.weapon.step(&self.kick_spring);
-        }
+        self.view.advance(&SpringConstants::BASE, dt);
+        self.weapon.advance(&self.kick_spring, dt);
 
         let target = if sprinting {
             (-turn_rate / SPRINT_TILT_TURN_RANGE).clamp(-1.0, 1.0)
@@ -236,6 +262,34 @@ mod tests {
     #[test]
     fn source_fov_70_is_about_55_vertical() {
         assert!((vertical_fov(70.0).to_degrees() - 55.4).abs() < 0.2);
+    }
+
+    #[test]
+    fn the_exact_spring_matches_small_steps_and_stays_stable_when_stiff() {
+        // Against many tiny Euler steps of the same equation.
+        let (k, c) = (65.0, 9.0);
+        let (mut x, mut v) = (1.0f32, 5.0f32);
+        for _ in 0..10_000 {
+            let acc = -k * x - c * v;
+            x += v * 1e-5;
+            v += acc * 1e-5;
+        }
+        let (ex, ev) = solve(1.0, 5.0, k, c, 0.1);
+        assert!(
+            (ex - x).abs() < 1e-3 && (ev - v).abs() < 1e-2,
+            "{ex} {ev} vs {x} {v}"
+        );
+        // Overdamped and critical too.
+        let (ox, _) = solve(1.0, 0.0, 10.0, 20.0, 0.5);
+        assert!(ox > 0.0 && ox < 1.0);
+        let (cx, _) = solve(1.0, 0.0, 25.0, 10.0, 0.5);
+        assert!(cx > 0.0 && cx < 1.0);
+        // The R-201's aimed roll spring at a 60 Hz frame: decays, no blow-up.
+        let (mut x, mut v) = (0.5f32, 0.0f32);
+        for _ in 0..120 {
+            (x, v) = solve(x, v, 20000.0, 20.0, 1.0 / 60.0);
+        }
+        assert!(x.abs() < 0.01 && v.abs() < 1.0, "{x} {v}");
     }
 
     #[test]

@@ -96,7 +96,7 @@ Ported from `client.dll`; `pf-game/src/recoil.rs` and the kick spring in `pf-gam
 - Otherwise: lerp(min, max, t), with t the burst value from `valueLerpStart` to `valueLerpEnd`, clamped. Min and max are each lerped hip → ADS by zoom.
 
 **Kick spring** (`0x180165190`):
-- **Two springs.** The game runs the view-punch spring (player +0x26d0/+0x26dc) and the weapon-kick spring (+0x26e8/+0x26f4), both stepped by the same code at 0.0166 s with per-axis constants.
+- **Two springs.** The game runs the view-punch spring (player +0x26d0/+0x26dc) and the weapon-kick spring (+0x26e8/+0x26f4), both moved by the same code with per-axis constants: solved exactly over each frame (see r1-engine-values.md, "View"). Stiff weapon springs need the exact solution; a fixed Euler step blows up on the R-201's roll spring.
 - **The kick spring's constants** come from the weapon's `viewkick_spring` set in `scripts/weapons/springs.txt`, lerped from the `hipfire_*` to the `ADS_*` values by the zoom fraction (`0x180487f50`). Without a set it uses the base constants (65 / 9; the pilot's `punch_pilot` set is the same).
 - **Movement punches** also add 0.2 × to the kick spring.
 
@@ -109,5 +109,5 @@ Ported from `client.dll`; `pf-game/src/recoil.rs` and the kick spring in `pf-gam
 **Ours:**
 - Crouch is 0 or 1; the game eases it over 400 ms.
 - Our own random generator replaces the named streams.
-- `PF_DEV_FIRE=1` holds the trigger, for screenshots.
+- `PF_DEV_FIRE=1` holds the trigger and `PF_DEV_ADS=1` holds aim, for screenshots.
 
