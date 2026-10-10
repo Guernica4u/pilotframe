@@ -12,6 +12,7 @@
 mod data;
 mod dev;
 mod hud;
+mod hudbar;
 mod hudwarp;
 mod input;
 mod level;

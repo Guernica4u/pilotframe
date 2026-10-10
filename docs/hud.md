@@ -69,6 +69,31 @@ What the HUD script shows for the default loadout (see [weapons.md](weapons.md),
 
 So either the setting's value on PC or the panel's view angle (measured, see "Hudwarp") is off. We keep the file's size until `SafeareaSettingIsEnabled` is read from code.
 
+## The hex: Titan meter (`UpdateTitanModeHUD`, `cl_replacement_titan_hud.nut`)
+
+While the first Titan builds, the d-pad's down slot shows:
+- `dpadDownIcon`: `HUD/titan_build_icon_5` (60 × 60, centred on the hex); `HUD/titan_stance_ready` once ready.
+- `dpadDownIconHint`: the key of `+ability 1` (V), `HudFontMedPlain`, centred, 28 left of and 11 above the hex's bottom centre.
+- `dpadDownDesc`: a countdown to the Titan (`HudAutoText_CountdownTime`, "%s1:%s2"), bottom-aligned with `textinsety` -6; blank once ready.
+- `dpadDownIconBG`: a circular bar (`HUD/hud_hex_progress_timer`, black at 220, counter-clockwise). `SetDpadCooldown` sets it to the fraction still to build and runs it down to 0, so it's a dark cover that shrinks as the Titan builds, leaving a revealed wedge clockwise from 12 o'clock.
+- `dpadDownIconProgressBar`: fill colour 0 (not drawn), background `HUD/hud_hex_progress_hollow_round_bg` at black 160 while building, clear once ready.
+
+**Build time:** the playlist's `titan_build_time` (`playlists.txt`, UTF-16; 240 in every MP playlist; the script default is 340). The R1Delta screenshot shows a 14:44 match clock and 3:44 on the Titan, so both started together. Kills take time off in the game; not here yet.
+
+**Countdown format, ours:** minutes, then two-digit seconds, rounded up. The game's formatting of `HATT_COUNTDOWN_TIME` isn't read yet.
+
+### Circular progress bars (`client.dll`)
+
+The progress bar's paint (`0x18041d1a0`) hands circular bars to `0x18041cdb0`:
+- **Value:** the bar's value goes through its remap: (v − in_lo) × in_scale, clamped to 0..1, then × out_scale + out_lo, clamped. The angle is value × 2π.
+- **Wedges:** 8 triangles of 45°, each from the centre (0.5, 0.5) to two points on the image's square edge. A table at `0x180b243b0` gives each wedge's start angle and edge points, clockwise from 12 o'clock: (0.5, 0) → (1, 0) → (1, 0.5) → … → (0, 0) → (0.5, 0). Each is drawn with the bar's texture and colour, UVs as the points.
+- **The partial wedge** ends on its edge at the tangent of the angle into it (measured from the edge's centre or corner), so the drawn shape is exactly the angular sector in the image's square space.
+- **`CircularClockwise`** (byte +0x2af): set, the sector runs clockwise from 12 o'clock; clear, counter-clockwise.
+
+We draw the same sector with a UI shader (`pf-game/assets/shaders/hud_circular_bar.wgsl`).
+
+**Label text inset:** `textinsety` is added to the text's y whatever the alignment, as in Source's `Label`.
+
 ## Fonts (`.vfont`)
 
 A TrueType/OpenType file followed by a trailer and the tag `VFONT1`. The byte before the tag, n, is the trailer's length, counting that byte. The rest of the trailer is the salt. To decode:
@@ -163,4 +188,4 @@ Ported from `vguimatsurface.dll` (December 2014 build); `pf-game/src/hudwarp.rs`
 
 - **Additive blending of the crosshair.** `standard_plus` is `$additive`, but the crosshair isn't on the helmet screen yet, so it's still alpha-blended.
 - **`shadowglow` on fonts.**
-- **The rest of the screen:** minimap, Titan meter (the hex and its timer), objectives, scores, damage indicators.
+- **The rest of the screen:** minimap, objectives, scores, damage indicators.

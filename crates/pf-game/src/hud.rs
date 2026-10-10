@@ -20,6 +20,7 @@ use bevy::window::PrimaryWindow;
 use pf_fmt_ui::{kv, layout, vfont};
 
 use crate::Screen;
+use crate::hudbar::CircularBar;
 use crate::hudwarp::{self, PIXELS_PER_UNIT, SCREEN};
 use crate::level::LevelEntity;
 use crate::loadout::{DEFAULT_PRESET, Loadout, WeaponScript};
@@ -42,10 +43,14 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(Screen::InGame), spawn).add_systems(
-            Update,
-            (update, place).chain().run_if(in_state(Screen::InGame)),
-        );
+        app.add_plugins(UiMaterialPlugin::<CircularBar>::default())
+            .add_systems(OnEnter(Screen::InGame), spawn)
+            .add_systems(
+                Update,
+                (update, titan_meter, place)
+                    .chain()
+                    .run_if(in_state(Screen::InGame)),
+            );
     }
 }
 
@@ -61,6 +66,48 @@ enum Live {
     WeaponName,
     /// The bar's filled part; its full width is the box's.
     AmmoBarFill,
+    /// The hex's dark cover over the part of the Titan still to build.
+    TitanCover,
+    /// The hex's ring background, shown while building.
+    TitanRing,
+    /// The Titan icon: building, then ready.
+    TitanIcon,
+    /// Time left until the Titan is ready.
+    TitanTimer,
+}
+
+/// The image an element switches to when the Titan is ready.
+#[derive(Component)]
+struct ReadyImage(Handle<Image>);
+
+/// The Titan build timer (`UpdateTitanModeHUD`, `cl_replacement_titan_hud.nut`).
+/// The first Titan takes the playlist's `titan_build_time`. Nothing earns time
+/// off it yet (kills do in the game), so it simply counts down from the start.
+#[derive(Resource)]
+struct TitanBuild {
+    total: f32,
+    start: f32,
+}
+
+/// The playlist's `titan_build_time` (`playlists.txt`, the first playlist's
+/// `vars`); the script's own default is 340.
+fn titan_build_time(dir: &Path) -> f32 {
+    read_text(&dir.join("playlists.txt"))
+        .and_then(|t| kv::parse(&t).nodes.into_iter().next())
+        .and_then(|root| {
+            let vars = root.get("rotation")?.get("vars")?;
+            vars.text("titan_build_time")?.trim().parse().ok()
+        })
+        .unwrap_or(340.0)
+}
+
+/// Seconds as the localisation's countdown format (`HudAutoText_CountdownTime`,
+/// "%s1:%s2"): minutes, then two-digit seconds, counting up from a part second.
+fn countdown(format: &str, seconds: f32) -> String {
+    let total = seconds.max(0.0).ceil() as u32;
+    format
+        .replace("%s1", &(total / 60).to_string())
+        .replace("%s2", &format!("{:02}", total % 60))
 }
 
 /// A label's text format from the localisation (`%s1` is the value), as the
@@ -78,7 +125,21 @@ enum Fill {
     Text(String),
     /// A changing value, with its auto-text format token if it has one.
     Live(Live, Option<&'static str>),
+    /// A progress bar with the colours the script sets (`None` keeps the
+    /// layout's) and what changes on its fill and background.
+    Bar {
+        fill: Option<Live>,
+        background: Option<Live>,
+        fg: Option<Color>,
+        bg: Option<Color>,
+    },
+    /// This image now, then the second one when the Titan is ready.
+    TitanImages(&'static str, &'static str),
 }
+
+/// The hex's Titan icons (`cl_replacement_titan_hud.nut` constants).
+const TITAN_BUILDING_ICON: &str = "HUD/titan_build_icon_5";
+const TITAN_READY_ICON: &str = "HUD/titan_stance_ready";
 
 /// The elements the HUD script shows for this loadout, and what goes in them.
 /// - The weapon panel (`MainHud_InitWeapons`).
@@ -138,6 +199,41 @@ fn elements(dir: &Path, loadout: &Loadout) -> Vec<(String, Fill)> {
         out.push(("dpadLeftIcon".into(), Fill::Image(icon)));
         out.push(("dpadLeftIconHint".into(), Fill::Layout));
     }
+    // The hex's down slot while the Titan builds (`UpdateTitanModeHUD`): the
+    // building icon, the call-in key, a countdown, a dark cover over the part
+    // still to build, and the ring background at black 160.
+    out.extend(
+        [
+            (
+                "dpadDownIconBG",
+                Fill::Bar {
+                    fill: Some(Live::TitanCover),
+                    background: None,
+                    fg: None,
+                    bg: None,
+                },
+            ),
+            (
+                "dpadDownIconProgressBar",
+                Fill::Bar {
+                    fill: None,
+                    background: Some(Live::TitanRing),
+                    fg: Some(Color::NONE),
+                    bg: Some(Color::srgba_u8(0, 0, 0, 160)),
+                },
+            ),
+            (
+                "dpadDownIcon",
+                Fill::TitanImages(TITAN_BUILDING_ICON, TITAN_READY_ICON),
+            ),
+            ("dpadDownIconHint", Fill::Layout),
+            (
+                "dpadDownDesc",
+                Fill::Live(Live::TitanTimer, Some("#HudAutoText_CountdownTime")),
+            ),
+        ]
+        .map(|(n, f)| (n.to_string(), f)),
+    );
     out
 }
 
@@ -237,17 +333,28 @@ fn load_res(path: &Path) -> Option<kv::Node> {
     Some(root)
 }
 
+/// A text file that may be UTF-16 (little-endian, with a byte-order mark),
+/// as the localisation and playlists are, or plain UTF-8.
+fn read_text(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    match bytes.strip_prefix(&[0xFF, 0xFE]) {
+        Some(utf16) => {
+            let units: Vec<u16> = utf16
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&c| u16::from_le_bytes(c))
+                .collect();
+            Some(String::from_utf16_lossy(&units))
+        }
+        None => Some(String::from_utf8_lossy(&bytes).into_owned()),
+    }
+}
+
 /// The English text for a `#TOKEN`, from `resource/r1_english.txt` (UTF-16).
 fn localise(dir: &Path, token: &str) -> String {
     let key = token.trim_start_matches('#');
-    let bytes = std::fs::read(dir.join("resource/r1_english.txt")).unwrap_or_default();
-    let units: Vec<u16> = bytes
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|&c| u16::from_le_bytes(c))
-        .collect();
-    let text = String::from_utf16_lossy(&units);
+    let text = read_text(&dir.join("resource/r1_english.txt")).unwrap_or_default();
     kv::parse(&text)
         .nodes
         .first()
@@ -341,8 +448,11 @@ fn hud_node(rect: &layout::Rect) -> Node {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn(
     mut commands: Commands,
+    time: Res<Time>,
+    mut bar_materials: ResMut<Assets<CircularBar>>,
     mut fonts: ResMut<Assets<Font>>,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -357,6 +467,10 @@ fn spawn(
     let fonts = load_fonts(&dir, &mut fonts);
     let binds = default_binds(&dir);
     let loadout = Loadout::preset(&dir, DEFAULT_PRESET).unwrap_or_default();
+    commands.insert_resource(TitanBuild {
+        total: titan_build_time(&dir).max(1.0),
+        start: time.elapsed_secs(),
+    });
     let weapon_name = weapon
         .as_ref()
         .map(|w| localise(&dir, w.short_name()))
@@ -413,15 +527,21 @@ fn spawn(
             "ImagePanel" => {
                 let image = match &fill {
                     Fill::Image(i) => Some(i.as_str()),
+                    Fill::TitanImages(now, _) => Some(*now),
                     _ => node.text("image"),
                 };
                 if let Some((image, additive)) = image.and_then(|i| hud_image(&dir, &mut images, i))
                 {
-                    commands.spawn((
+                    let mut panel = commands.spawn((
                         base,
                         ImageNode::new(image).with_color(color(node.text("drawColor"))),
                         ChildOf(layer(additive)),
                     ));
+                    if let Fill::TitanImages(_, ready) = fill
+                        && let Some((ready, _)) = hud_image(&dir, &mut images, ready)
+                    {
+                        panel.insert((Live::TitanIcon, ReadyImage(ready)));
+                    }
                 }
             }
             "Label" => {
@@ -453,7 +573,18 @@ fn spawn(
                     _ => bind_text(node.text("labelText").unwrap_or_default(), &binds),
                 };
                 let right = across == JustifyContent::FlexEnd;
+                // `textinsety` is added to the text's y, whatever the alignment
+                // (as in Source's `Label`).
+                let shift = node
+                    .text("textinsety")
+                    .and_then(|v| v.trim().parse::<f32>().ok())
+                    .unwrap_or(0.0)
+                    * PIXELS_PER_UNIT;
                 let mut text = commands.spawn((
+                    Node {
+                        top: Val::Px(shift),
+                        ..default()
+                    },
                     Text::new(start),
                     TextColor(color(node.text("fgcolor_override"))),
                     TextLayout::justify(if right { Justify::Right } else { Justify::Left })
@@ -475,30 +606,54 @@ fn spawn(
                 }
             }
             "CHudProgressBar" => {
+                let (fill_live, bg_live, fg_color, bg_color) = match fill {
+                    Fill::Live(live, _) => (Some(live), None, None, None),
+                    Fill::Bar {
+                        fill,
+                        background,
+                        fg,
+                        bg,
+                    } => (fill, background, fg, bg),
+                    _ => (None, None, None, None),
+                };
+                let fg_color = fg_color.unwrap_or_else(|| color(node.text("fgcolor_override")));
+                let bg_color = bg_color.unwrap_or_else(|| color(node.text("bgcolor_override")));
                 let bg = node
                     .text("bg_image")
                     .and_then(|i| hud_image(&dir, &mut images, i));
                 let fg = node
                     .text("fg_image")
                     .and_then(|i| hud_image(&dir, &mut images, i));
+                let setting = |key: &str| node.text(key).is_some_and(|v| v.trim() == "1");
                 // Background and fill may blend differently, so each goes on
-                // its own layer; the fill's width follows the clip.
+                // its own layer.
                 if let Some((bg, additive)) = bg {
-                    commands.spawn((
+                    let mut back = commands.spawn((
                         base,
-                        ImageNode::new(bg).with_color(color(node.text("bgcolor_override"))),
+                        ImageNode::new(bg).with_color(bg_color),
                         ChildOf(layer(additive)),
                     ));
+                    if let Some(live) = bg_live {
+                        back.insert(live);
+                    }
                 }
-                if let Some((fg, additive)) = fg {
+                // An invisible fill isn't drawn at all.
+                if let Some((fg, additive)) = fg.filter(|_| fg_color.alpha() > 0.0) {
                     let mut fill_part = commands.spawn((
                         HudBox(*rect),
                         hud_node(rect),
                         ZIndex(z + 1),
-                        ImageNode::new(fg).with_color(color(node.text("fgcolor_override"))),
                         ChildOf(layer(additive)),
                     ));
-                    if let Fill::Live(live, _) = fill {
+                    if setting("CircularEnabled") {
+                        let clockwise = setting("CircularClockwise");
+                        let bar = CircularBar::new(fg, fg_color, clockwise, 1.0);
+                        fill_part.insert(MaterialNode(bar_materials.add(bar)));
+                    } else {
+                        // A straight bar: its width follows the value.
+                        fill_part.insert(ImageNode::new(fg).with_color(fg_color));
+                    }
+                    if let Some(live) = fill_live {
                         fill_part.insert(live);
                     }
                 }
@@ -580,6 +735,57 @@ fn update(
     }
 }
 
+/// The hex's Titan meter while building, then ready
+/// (`UpdateTitanModeHUD`):
+/// - The cover's bar is set to the fraction still to build and runs down
+///   (`SetDpadCooldown` with `SetBarProgressOverTime`).
+/// - The text counts down to the Titan being ready, then goes blank.
+/// - When ready, the icon switches to the ready one and the ring's background
+///   goes clear (`SetDpadProgressColor` 0, 0).
+#[allow(clippy::type_complexity)]
+fn titan_meter(
+    time: Res<Time>,
+    build: Option<Res<TitanBuild>>,
+    mut bars: ResMut<Assets<CircularBar>>,
+    covers: Query<(&Live, &MaterialNode<CircularBar>)>,
+    mut texts: Query<(&Live, &mut Text, Option<&AutoText>)>,
+    mut images: Query<(&Live, &mut ImageNode, Option<&ReadyImage>)>,
+) {
+    let Some(build) = build else {
+        return;
+    };
+    let left = (build.total - (time.elapsed_secs() - build.start)).max(0.0);
+    let ready = left <= 0.0;
+    for (live, MaterialNode(handle)) in &covers {
+        if *live == Live::TitanCover
+            && let Some(mut bar) = bars.get_mut(handle)
+        {
+            bar.set_progress(left / build.total);
+        }
+    }
+    for (live, mut text, format) in &mut texts {
+        if *live == Live::TitanTimer {
+            let shown = match (ready, format) {
+                (false, Some(f)) => countdown(&f.0, left),
+                _ => String::new(),
+            };
+            if text.0 != shown {
+                text.0 = shown;
+            }
+        }
+    }
+    if !ready {
+        return;
+    }
+    for (live, mut image, ready_image) in &mut images {
+        match (live, ready_image) {
+            (Live::TitanIcon, Some(ReadyImage(r))) if image.image != *r => image.image = r.clone(),
+            (Live::TitanRing, _) => image.color = Color::NONE,
+            _ => {}
+        }
+    }
+}
+
 /// Place the crosshair's arms around the middle of the window, each pushed out
 /// by the weapon's spread as the game projects it: tan(spread / 2) /
 /// tan(fov / 2) × half the screen height, with the fov in the game's (4:3
@@ -624,6 +830,14 @@ mod tests {
         assert_eq!(bind_text("[%weaponSelectOrdnance%]", &binds), "[3]");
         assert_eq!(bind_text("%unbound% x", &binds), "%unbound% x");
         assert_eq!(bind_text("100%", &binds), "100%");
+    }
+
+    #[test]
+    fn countdown_shows_minutes_and_two_digit_seconds() {
+        assert_eq!(countdown("%s1:%s2", 224.0), "3:44");
+        assert_eq!(countdown("%s1:%s2", 223.2), "3:44");
+        assert_eq!(countdown("%s1:%s2", 65.0), "1:05");
+        assert_eq!(countdown("%s1:%s2", 0.0), "0:00");
     }
 
     #[test]
