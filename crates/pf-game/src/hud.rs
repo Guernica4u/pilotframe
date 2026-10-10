@@ -70,6 +70,11 @@ enum Live {
     AmmoBarFill,
 }
 
+/// A label's text format from the localisation (`%s1` is the value), as the
+/// game's HUD "auto text" uses.
+#[derive(Component)]
+struct AutoText(String);
+
 #[derive(Component)]
 struct Crosshair {
     alpha: f32,
@@ -303,6 +308,15 @@ fn spawn(
                     TextLayout::justify(if east { Justify::Right } else { Justify::Left }),
                     live,
                 ));
+                // What `MainHud_InitWeapons` sets as each label's auto text.
+                let format = match live {
+                    Live::AmmoCount => Some("#HudAutoText_ActiveWeaponClipAmmo"),
+                    Live::MagCount => Some("#HudAutoText_ActiveWeaponMagazineCount"),
+                    _ => None,
+                };
+                if let Some(token) = format {
+                    text.insert(AutoText(localise(&dir, token)));
+                }
                 if let Some(f) = font {
                     text.insert(TextFont {
                         font: FontSource::Handle(f.handle.clone()),
@@ -371,18 +385,23 @@ fn spawn(
 fn update(
     time: Res<Time>,
     weapon: Option<Single<&Viewmodel>>,
-    mut texts: Query<(&Live, &mut Text)>,
+    mut texts: Query<(&Live, &mut Text, Option<&AutoText>)>,
     mut bars: Query<(&Live, &HudBox, &mut Node), Without<Text>>,
     mut crosshairs: Query<(&mut Crosshair, &mut ImageNode)>,
 ) {
     let Some(w) = weapon else {
         return;
     };
-    for (live, mut text) in &mut texts {
+    let auto = |format: Option<&AutoText>, value: u32| {
+        format.map_or(value.to_string(), |f| {
+            f.0.replace("%s1", &value.to_string())
+        })
+    };
+    for (live, mut text, format) in &mut texts {
         match live {
-            Live::AmmoCount => text.0 = w.ammo().to_string(),
+            Live::AmmoCount => text.0 = auto(format, w.ammo()),
             // Spare magazines, counting a part-full one.
-            Live::MagCount => text.0 = w.reserve().div_ceil(w.clip_size().max(1)).to_string(),
+            Live::MagCount => text.0 = auto(format, w.reserve().div_ceil(w.clip_size().max(1))),
             // The gun may arrive after the HUD; look its name up once.
             Live::WeaponName if text.0.is_empty() => {
                 text.0 = localise(&common_dir(), w.short_name())

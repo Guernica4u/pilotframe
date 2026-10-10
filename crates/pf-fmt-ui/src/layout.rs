@@ -6,7 +6,11 @@
 //!   bottom edge), or `%n` (percent of the screen).
 //! - `wide` / `tall`: a number, `%n`, or `f n` (the full screen minus n).
 //! - `pin_to_sibling` places one of our corners (`pin_corner_to_sibling`) on one
-//!   of the sibling's (`pin_to_sibling_corner`), then moves by `xpos`/`ypos`.
+//!   of the sibling's (`pin_to_sibling_corner`), then moves by `xpos`/`ypos`
+//!   *outward from that corner*: to the left of a left corner and above a top
+//!   one, to the right/below otherwise. (The game's left and right panels use
+//!   the same numbers on mirrored corners, e.g. `GameInfoBG` and `dpadIconBG`
+//!   both `xpos 20`; checked against a screenshot of the real HUD.)
 //!   Corners: 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right, 4 top
 //!   centre, 5 right centre, 6 bottom centre, 7 left centre, 8 centre.
 //! - `auto_wide_tocontents`: as wide as its text, which the caller measures.
@@ -103,13 +107,16 @@ impl<F: Fn(&Node) -> Option<f32>> Solver<'_, F> {
         let sibling = node.text("pin_to_sibling").map(str::to_string);
         let rect = match sibling.and_then(|s| self.rect(&s)) {
             Some(sib) => {
-                let (px, py) = sib.corner(num("pin_to_sibling_corner").unwrap_or(0));
+                let sib_corner = num("pin_to_sibling_corner").unwrap_or(0);
+                let (px, py) = sib.corner(sib_corner);
+                let (sx, sy) = corner_fraction(sib_corner);
+                let out = |f: f32| if f == 0.0 { -1.0 } else { 1.0 };
                 let (fx, fy) = corner_fraction(num("pin_corner_to_sibling").unwrap_or(0));
                 let dx = plain(node.text("xpos"));
                 let dy = plain(node.text("ypos"));
                 Rect {
-                    x: px - w * fx + dx,
-                    y: py - h * fy + dy,
+                    x: px - w * fx + dx * out(sx),
+                    y: py - h * fy + dy * out(sy),
                     w,
                     h,
                 }
@@ -197,6 +204,23 @@ mod tests {
         );
         let c = r["centre"];
         assert_eq!((c.x, c.y), (362.0, 450.0));
+    }
+
+    #[test]
+    fn offsets_point_outward_from_the_pinned_corner() {
+        // The game's Offhand0Icon / Offhand1Icon: same numbers, mirrored corners.
+        let file = parse(
+            r#"s {
+                Safe  { xpos 0 ypos 0 wide 100 tall 100 }
+                Right { xpos -20 ypos -10 wide 10 tall 10 pin_to_sibling Safe
+                        pin_corner_to_sibling 3 pin_to_sibling_corner 3 }
+                Left  { xpos -20 ypos -10 wide 10 tall 10 pin_to_sibling Safe
+                        pin_corner_to_sibling 2 pin_to_sibling_corner 2 }
+            }"#,
+        );
+        let r = layout(&file.nodes[0], (100.0, 100.0), |_| None);
+        assert_eq!((r["right"].x, r["right"].y), (70.0, 80.0));
+        assert_eq!((r["left"].x, r["left"].y), (20.0, 80.0));
     }
 
     #[test]

@@ -22,6 +22,7 @@ The game's R1Delta copy of the common pack points some entries at R1Delta's own 
 `Create_PilotHud` (in `cl_main_hud.nut`) places an 852 × 480 VGUI screen 208 units in front of the cockpit camera, 426 × 240 units in size, and bends it ("hudwarp": `xWarp` 45, `xScale` 1.3, `yWarp` 30, `yScale` 1.1, `viewDist` 1). **We draw it flat, scaled to fit the window.** The curve is still to do.
 
 **Layout rules** (`pf-fmt-ui::layout`):
+- **Pin offsets point outward from the sibling's corner:** left of a left corner, above a top corner, right/below otherwise. The left and right panels use the same numbers on mirrored corners (`GameInfoBG` and `dpadIconBG` both `xpos 20`; `Offhand0Icon` and `Offhand1Icon` both `xpos -200`). Checked against an R1Delta screenshot: the weapon name lands within 5 px.
 - `xpos`/`ypos` take a number, `c±n` (from centre), `r±n` (from the right/bottom) or `%n`.
 - `wide`/`tall` take a number, `%n` or `f n`.
 - `pin_to_sibling` puts our corner `pin_corner_to_sibling` on the sibling's corner `pin_to_sibling_corner`, then offsets by `xpos`/`ypos`. Corners: 0 TL, 1 TR, 2 BL, 3 BR, 4 top centre, 5 right centre, 6 bottom centre, 7 left centre, 8 centre.
@@ -43,7 +44,7 @@ The game's R1Delta copy of the common pack points some entries at R1Delta's own 
 | `weaponLabel` | text | `HudFontSmall` (Conduit ITC Pro Medium, 12, glow 3), white |
 | `weaponAmmoCount` | text | rounds in the clip, `HudFontMedPlain` (18), right-aligned |
 | `weaponAmmoBar` | bar | clip fraction: `hud_bar_small` tinted 128 grey over black at alpha 123 |
-| `weaponMagLabel` + `weaponAmmoMag` | text + icon | spare magazines, white at alpha 140 |
+| `weaponMagLabel` + `weaponAmmoMag` | text + icon | spare magazines, white at alpha 140, formatted by the localisation's `HudAutoText_ActiveWeaponMagazineCount` ("x%s1"). The weapon's `ammo_default_total` includes the loaded magazine: an R1Delta screenshot shows 24 in the clip and "x9" for the R-201's 300. |
 
 ## Fonts (`.vfont`)
 

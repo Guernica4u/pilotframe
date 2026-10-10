@@ -67,7 +67,8 @@ struct WeaponData {
     short_name: String,
     fire_rate: f32,
     clip: u32,
-    /// Spare rounds you spawn with (`ammo_default_total`).
+    /// All the rounds you spawn with, the loaded magazine included
+    /// (`ammo_default_total`).
     ammo_total: u32,
     spread: SpreadData,
     /// Body group name → sub-model (`bodygroupN_name` / `bodygroupN_set`).
@@ -475,7 +476,9 @@ pub fn spawn(
         if arms.is_some() { " + arms" } else { "" }
     );
     let ammo = data.clip;
-    let reserve = data.ammo_total;
+    // `ammo_default_total` counts the loaded magazine too (an R1Delta screenshot:
+    // 24 in the clip with 9 spare magazines of the R-201's 300).
+    let reserve = data.ammo_total.saturating_sub(data.clip);
     commands.entity(view_camera).insert(Viewmodel {
         mdl,
         weapon,
