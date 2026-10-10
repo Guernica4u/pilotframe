@@ -62,7 +62,7 @@ What the HUD script shows for the default loadout (see [weapons.md](weapons.md),
 - **Not yet:** the box drawn around the key name. It's code (`EnableKeyBindingIcons`), not a texture, so it needs reading from the DLLs. We show the bare key name.
 - **Label alignment:** a VGUI label places its text by `textAlignment` (default `west`): `west`/`east`/`center` are vertically centred; `north*` top, `south*` bottom.
 
-**Open: the safe area.** Offhand icons are pinned to `SafeAreaCenter` (730 × 420 in the file). `MainHud_InitAspectRatio` resizes it to 90% of the screen width and 95% of the height when the safe-area setting is off (`level.safeAreaScale != 1`). Against the R1Delta screenshot, with our 70° panel view:
+**Open: the safe area** (measured against R1Delta, so possibly R1Delta's curve rather than the layout). Offhand icons are pinned to `SafeAreaCenter` (730 × 420 in the file). `MainHud_InitAspectRatio` resizes it to 90% of the screen width and 95% of the height when the safe-area setting is off (`level.safeAreaScale != 1`). Against the R1Delta screenshot, with our 70° panel view:
 - the file's 730 puts the icons about 13 px (at 1280 wide) too close to the centre;
 - 766.8 puts them about 18 px too far out, and too low;
 - the screenshot fits about 745, at the file's height.
@@ -92,7 +92,17 @@ The progress bar's paint (`0x18041d1a0`) hands circular bars to `0x18041cdb0`:
 
 We draw the same sector with a UI shader (`pf-game/assets/shaders/hud_circular_bar.wgsl`).
 
-**Label text inset:** `textinsety` is added to the text's y whatever the alignment, as in Source's `Label`.
+
+## Score panel (`MainHud_InitScoreBars`)
+
+Bottom left, pinned to `SafeArea`'s bottom-left corner:
+- `GameInfoBG`/`FG` (the hex) with `GameInfoTeamIcon`: `TEAM_ICON_MILITIA` (`../ui/scoreboard_mcorp_logo`) or `TEAM_ICON_IMC`.
+- `GameInfoLabel` above it: the time left (`HATT_COUNTDOWN_TIME` to the match's end); `GameModeLabel` beside it: `GAMETYPE_TEXT[mode]` (Pilot Hunter is mode `tdm`, `#GAMEMODE_PILOT_HUNTER`), all caps.
+- Per team, `ScoresFriendly`/`ScoresEnemy` bars, remapped from 0..score limit to 0.011..0.96 of the strip, plus the score (`HudAutoText_FriendlyTeamScore`, "%s1") and team name (`#TEAM_MCOR` "Militia", `#TEAM_IMC` "IMC").
+- `Player_Status_BG` (`HUD/hud_hex_8v8_bg_left`). The Titan counts draw one icon per Titan, so nothing at the start.
+- **Ours:** Pilotframe has no modes or teams, so the HUD shows Pilot Hunter on the Militia with 0–0 and the playlist's `TDM_timelimit` (15 min) running down from the start.
+
+**Label insets** (Source's `Label` paint): `textinsety` is added to the text's y whatever the alignment; `textinsetx` moves the text in from the side it's aligned to (added for west, subtracted for east, ignored when centred).
 
 ## Fonts (`.vfont`)
 
@@ -182,10 +192,12 @@ Ported from `vguimatsurface.dll` (December 2014 build); `pf-game/src/hudwarp.rs`
 
 **Ours:** the HUD is drawn flat into two images, one for normal textures and one for `$additive` ones. They're shown on a grid mesh in the same 60 px cells, with every corner moved by that formula. The additive image adds light; the normal one blends as premultiplied alpha.
 
-**Where the screen sits:** `Create_PilotHud` puts it 208 units in front of the camera, 426 units wide. Matching the R1Delta screenshot needs it seen at FOV 70 (the pilot's base `fov`): it then covers about 1.1× the screen width. That's measured, not yet found in code.
+**Where the screen sits:** `Create_PilotHud` puts it 208 units in front of the camera, 426 units wide. We view it at FOV 70 (the pilot's base `fov`), which covers about 1.1× the screen width. That value was measured from an R1Delta screenshot, which can't be trusted for this (see below); it's still to be read from code.
+
+**R1Delta draws its own curve.** R1Delta's `tier0.dll` has `client/rendering/hudwarp_hooks.cpp` with settings `hudwarp_use_gpu` and `hudwarp_disable`: it replaces the game's warp with its own GPU version. Against an R1Delta screenshot, no settings of the game's formula fit (16 px RMS over 9 elements). Dropping the depth term fits to 5.6 px, so R1Delta's version evidently differs from the original. **We keep the original's formula** (from `vguimatsurface.dll`) and don't fit warp-dependent positions to R1Delta screenshots. The game also has `hudwarp_override` (default off) to take the five values from `hudwarp_*` ConVars instead of the script.
 
 ## Still to match
 
 - **Additive blending of the crosshair.** `standard_plus` is `$additive`, but the crosshair isn't on the helmet screen yet, so it's still alpha-blended.
 - **`shadowglow` on fonts.**
-- **The rest of the screen:** minimap, objectives, scores, damage indicators.
+- **The rest of the screen:** minimap, objectives, damage indicators.

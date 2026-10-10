@@ -47,7 +47,7 @@ impl Plugin for HudPlugin {
             .add_systems(OnEnter(Screen::InGame), spawn)
             .add_systems(
                 Update,
-                (update, titan_meter, place)
+                (update, titan_meter, crop_bars, place)
                     .chain()
                     .run_if(in_state(Screen::InGame)),
             );
@@ -74,7 +74,14 @@ enum Live {
     TitanIcon,
     /// Time left until the Titan is ready.
     TitanTimer,
+    /// Time left in the match.
+    MatchClock,
 }
+
+/// A straight bar's fill showing only this fraction of its image, from the
+/// left; set up once the image's size is known.
+#[derive(Component)]
+struct BarCrop(f32);
 
 /// The image an element switches to when the Titan is ready.
 #[derive(Component)]
@@ -87,18 +94,32 @@ struct ReadyImage(Handle<Image>);
 struct TitanBuild {
     total: f32,
     start: f32,
+    /// The match's time limit, seconds.
+    match_length: f32,
+}
+
+/// The game mode and team the HUD shows. Pilotframe has no modes or teams
+/// yet, so this is Pilot Hunter (the game's `tdm`) on the Militia, as in the
+/// R1Delta screenshot.
+const GAME_MODE: &str = "tdm";
+const GAME_MODE_NAME: &str = "#GAMEMODE_PILOT_HUNTER";
+const FRIENDLY_TEAM_NAME: &str = "#TEAM_MCOR";
+const ENEMY_TEAM_NAME: &str = "#TEAM_IMC";
+/// `TEAM_ICON_MILITIA` (`cl_main_hud.nut`).
+const FRIENDLY_TEAM_ICON: &str = "../ui/scoreboard_mcorp_logo";
+
+/// A value from the first playlist's `vars` (`playlists.txt`).
+fn playlist_var(dir: &Path, key: &str) -> Option<f32> {
+    let text = read_text(&dir.join("playlists.txt"))?;
+    let root = kv::parse(&text).nodes.into_iter().next()?;
+    let vars = root.get("rotation")?.get("vars")?;
+    vars.text(key)?.trim().parse().ok()
 }
 
 /// The playlist's `titan_build_time` (`playlists.txt`, the first playlist's
 /// `vars`); the script's own default is 340.
 fn titan_build_time(dir: &Path) -> f32 {
-    read_text(&dir.join("playlists.txt"))
-        .and_then(|t| kv::parse(&t).nodes.into_iter().next())
-        .and_then(|root| {
-            let vars = root.get("rotation")?.get("vars")?;
-            vars.text("titan_build_time")?.trim().parse().ok()
-        })
-        .unwrap_or(340.0)
+    playlist_var(dir, "titan_build_time").unwrap_or(340.0)
 }
 
 /// Seconds as the localisation's countdown format (`HudAutoText_CountdownTime`,
@@ -135,6 +156,8 @@ enum Fill {
     },
     /// This image now, then the second one when the Titan is ready.
     TitanImages(&'static str, &'static str),
+    /// A straight bar filled to this fraction.
+    Fraction(f32),
 }
 
 /// The hex's Titan icons (`cl_replacement_titan_hud.nut` constants).
@@ -234,7 +257,49 @@ fn elements(dir: &Path, loadout: &Loadout) -> Vec<(String, Fill)> {
         ]
         .map(|(n, f)| (n.to_string(), f)),
     );
+    out.extend(score_panel(dir));
     out
+}
+
+/// The score panel, bottom left (`MainHud_InitScoreBars`):
+/// - The hex with the team's logo, the time left above it (`HATT_COUNTDOWN_TIME`
+///   to the match's end) and the mode's name beside it.
+/// - A strip per team: its score bar (remapped from 0..score limit to
+///   0.011..0.96 of the strip), its score and its name.
+/// - The 8-player status background; the Titan counts draw nothing with no
+///   Titans out.
+fn score_panel(dir: &Path) -> Vec<(String, Fill)> {
+    let limit = playlist_var(dir, &format!("{GAME_MODE}_scorelimit")).unwrap_or(1.0);
+    let score = 0.0;
+    let fraction = 0.011 + (score / limit.max(1.0)).clamp(0.0, 1.0) * (0.96 - 0.011);
+    let team = |token: &str| {
+        localise(dir, "#HudAutoText_FriendlyTeamName").replace("%s1", &localise(dir, token))
+    };
+    let score_text = localise(dir, "#HudAutoText_FriendlyTeamScore").replace("%s1", "0");
+    [
+        ("GameInfoBG", Fill::Layout),
+        ("GameInfoFG", Fill::Layout),
+        ("ScoresBG", Fill::Layout),
+        ("ScoresFG", Fill::Layout),
+        ("Player_Status_BG", Fill::Layout),
+        ("GameModeLabel", Fill::Text(localise(dir, GAME_MODE_NAME))),
+        ("ScoresFriendly", Fill::Fraction(fraction)),
+        ("ScoresLabelFriendly", Fill::Text(score_text.clone())),
+        (
+            "ScoresTeamLabelFriendly",
+            Fill::Text(team(FRIENDLY_TEAM_NAME)),
+        ),
+        ("ScoresEnemy", Fill::Fraction(fraction)),
+        ("ScoresLabelEnemy", Fill::Text(score_text)),
+        ("ScoresTeamLabelEnemy", Fill::Text(team(ENEMY_TEAM_NAME))),
+        (
+            "GameInfoLabel",
+            Fill::Live(Live::MatchClock, Some("#HudAutoText_CountdownTime")),
+        ),
+        ("GameInfoTeamIcon", Fill::Image(FRIENDLY_TEAM_ICON.into())),
+    ]
+    .map(|(n, f)| (n.to_string(), f))
+    .into()
 }
 
 /// Whether an offhand slot shows a progress bar instead of a count
@@ -470,6 +535,7 @@ fn spawn(
     commands.insert_resource(TitanBuild {
         total: titan_build_time(&dir).max(1.0),
         start: time.elapsed_secs(),
+        match_length: playlist_var(&dir, &format!("{GAME_MODE}_timelimit")).unwrap_or(0.0) * 60.0,
     });
     let weapon_name = weapon
         .as_ref()
@@ -572,17 +638,31 @@ fn spawn(
                     Fill::Text(t) => t.clone(),
                     _ => bind_text(node.text("labelText").unwrap_or_default(), &binds),
                 };
+                let all_caps = node.text("allcaps").is_some_and(|v| v.trim() == "1");
+                let start = if all_caps {
+                    start.to_uppercase()
+                } else {
+                    start
+                };
                 let right = across == JustifyContent::FlexEnd;
-                // `textinsety` is added to the text's y, whatever the alignment
-                // (as in Source's `Label`).
-                let shift = node
-                    .text("textinsety")
-                    .and_then(|v| v.trim().parse::<f32>().ok())
-                    .unwrap_or(0.0)
-                    * PIXELS_PER_UNIT;
+                // Text insets as Source's `Label` paints them: `textinsety` is
+                // added to y whatever the alignment; `textinsetx` moves the
+                // text in from the side it's aligned to (none when centred).
+                let inset = |key: &str| {
+                    node.text(key)
+                        .and_then(|v| v.trim().parse::<f32>().ok())
+                        .unwrap_or(0.0)
+                        * PIXELS_PER_UNIT
+                };
+                let inset_x = match across {
+                    JustifyContent::FlexStart => inset("textinsetx"),
+                    JustifyContent::FlexEnd => -inset("textinsetx"),
+                    _ => 0.0,
+                };
                 let mut text = commands.spawn((
                     Node {
-                        top: Val::Px(shift),
+                        left: Val::Px(inset_x),
+                        top: Val::Px(inset("textinsety")),
                         ..default()
                     },
                     Text::new(start),
@@ -606,6 +686,10 @@ fn spawn(
                 }
             }
             "CHudProgressBar" => {
+                let fraction = match fill {
+                    Fill::Fraction(f) => f,
+                    _ => 1.0,
+                };
                 let (fill_live, bg_live, fg_color, bg_color) = match fill {
                     Fill::Live(live, _) => (Some(live), None, None, None),
                     Fill::Bar {
@@ -639,9 +723,11 @@ fn spawn(
                 }
                 // An invisible fill isn't drawn at all.
                 if let Some((fg, additive)) = fg.filter(|_| fg_color.alpha() > 0.0) {
+                    let mut fill_rect = *rect;
+                    fill_rect.w *= fraction;
                     let mut fill_part = commands.spawn((
                         HudBox(*rect),
-                        hud_node(rect),
+                        hud_node(&fill_rect),
                         ZIndex(z + 1),
                         ChildOf(layer(additive)),
                     ));
@@ -650,8 +736,12 @@ fn spawn(
                         let bar = CircularBar::new(fg, fg_color, clockwise, 1.0);
                         fill_part.insert(MaterialNode(bar_materials.add(bar)));
                     } else {
-                        // A straight bar: its width follows the value.
+                        // A straight bar: its width follows the value, showing
+                        // that much of its image from the left.
                         fill_part.insert(ImageNode::new(fg).with_color(fg_color));
+                        if fraction < 1.0 {
+                            fill_part.insert(BarCrop(fraction));
+                        }
                     }
                     if let Some(live) = fill_live {
                         fill_part.insert(live);
@@ -735,6 +825,18 @@ fn update(
     }
 }
 
+/// Cut straight bars' fills to their fraction of the image, once it's loaded.
+fn crop_bars(images: Res<Assets<Image>>, mut bars: Query<(&BarCrop, &mut ImageNode)>) {
+    for (BarCrop(fraction), mut node) in &mut bars {
+        if node.rect.is_none()
+            && let Some(image) = images.get(&node.image)
+        {
+            let size = image.size_f32();
+            node.rect = Some(Rect::new(0.0, 0.0, size.x * fraction, size.y));
+        }
+    }
+}
+
 /// The hex's Titan meter while building, then ready
 /// (`UpdateTitanModeHUD`):
 /// - The cover's bar is set to the fraction still to build and runs down
@@ -763,7 +865,16 @@ fn titan_meter(
             bar.set_progress(left / build.total);
         }
     }
+    let match_left = (build.match_length - (time.elapsed_secs() - build.start)).max(0.0);
     for (live, mut text, format) in &mut texts {
+        if *live == Live::MatchClock
+            && let Some(f) = format
+        {
+            let shown = countdown(&f.0, match_left);
+            if text.0 != shown {
+                text.0 = shown;
+            }
+        }
         if *live == Live::TitanTimer {
             let shown = match (ready, format) {
                 (false, Some(f)) => countdown(&f.0, left),
