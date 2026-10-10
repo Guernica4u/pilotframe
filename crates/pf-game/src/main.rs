@@ -21,6 +21,7 @@ mod loadout;
 mod map;
 mod menu;
 mod player;
+mod recoil;
 mod settings;
 mod spread;
 mod sway;

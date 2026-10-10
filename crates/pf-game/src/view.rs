@@ -5,15 +5,17 @@
 //! in docs/movement/r1-engine-values.md ("View"), and the way a punch moves is the
 //! game's (read from its code, and checked against a recording of the real game):
 //! a punch adds 20 × its angles to an angular speed, and a spring stepped at a
-//! fixed 60 Hz pulls the view back. The gun gets the same punch at 0.2 × on a
-//! spring of its own.
+//! fixed 60 Hz pulls the view back.
+//!
+//! There are two springs, as in the game: the view punch, and the weapon kick
+//! (recoil, [`crate::recoil`]; movement punches add 0.2 × to it too). The kick
+//! spring uses the weapon's own constants. The camera shows the view punch plus
+//! the share of the kick that isn't the gun's; the gun shows its share.
 
 use bevy::prelude::*;
 
-/// Spring that pulls the view back after a punch (`viewpunch_base_springConstant`
-/// and `viewpunch_base_springDamping`, the same for every axis).
-const SPRING_CONSTANT: f32 = 65.0;
-const SPRING_DAMPING: f32 = 9.0;
+use crate::recoil::SpringConstants;
+
 /// A punch of 1° adds this much angular speed, degrees/s.
 const PUNCH_TO_SPEED: f32 = 20.0;
 /// The spring's fixed time step, seconds.
@@ -72,8 +74,9 @@ struct Spring {
 }
 
 impl Spring {
-    /// One fixed step, as the game does it: move, clamp, damp, pull back.
-    fn step(&mut self) {
+    /// One fixed step, as the game does it (`0x180164980`): move, clamp, damp,
+    /// pull back, with per-axis constants.
+    fn step(&mut self, c: &SpringConstants) {
         if self.angle.length_squared() <= SPRING_REST && self.speed.length_squared() <= SPRING_REST
         {
             *self = Self::default();
@@ -84,8 +87,8 @@ impl Spring {
             Vec3::new(-89.0, -179.0, -89.0),
             Vec3::new(89.0, 179.0, 89.0),
         );
-        self.speed *= (-SPRING_DAMPING * SPRING_STEP).exp();
-        self.speed -= self.angle * SPRING_CONSTANT * SPRING_STEP;
+        self.speed *= (-c.damping * SPRING_STEP).exp();
+        self.speed -= self.angle * c.stiffness * SPRING_STEP;
     }
 
     /// In radians, converted from Source's convention to ours: (pitch up, yaw left,
@@ -96,11 +99,16 @@ impl Spring {
     }
 }
 
-/// The view and gun punch springs, plus the sprint tilt.
-#[derive(Default)]
+/// The view punch and weapon kick springs, plus the sprint tilt.
 pub struct ViewEffects {
     view: Spring,
     weapon: Spring,
+    /// The kick spring's constants, and how the kick splits between the view
+    /// and the gun (the gun's fraction, and how much of it the gun shows):
+    /// set from the held weapon each frame ([`Self::set_weapon`]).
+    kick_spring: SpringConstants,
+    weapon_fraction: f32,
+    weapon_vm_scale: f32,
     /// Time not yet stepped by the springs, seconds.
     pending: f32,
     sprint_tilt: f32,
@@ -108,7 +116,37 @@ pub struct ViewEffects {
     rng: u32,
 }
 
+impl Default for ViewEffects {
+    fn default() -> Self {
+        Self {
+            view: Spring::default(),
+            weapon: Spring::default(),
+            kick_spring: SpringConstants::BASE,
+            weapon_fraction: 0.0,
+            weapon_vm_scale: 0.0,
+            pending: 0.0,
+            sprint_tilt: 0.0,
+            sprint_tilt_speed: 0.0,
+            rng: 0,
+        }
+    }
+}
+
 impl ViewEffects {
+    /// The held weapon's kick spring and view/gun split for this frame.
+    pub fn set_weapon(&mut self, spring: SpringConstants, fraction: f32, vm_scale: f32) {
+        self.kick_spring = spring;
+        self.weapon_fraction = fraction;
+        self.weapon_vm_scale = vm_scale;
+    }
+
+    /// A weapon kick (`0x18003c840`): `soft` is added to the kick spring's
+    /// speed (× 20), `hard` to its angle. Degrees, Source convention.
+    pub fn kick(&mut self, soft: Vec3, hard: Vec3) {
+        self.weapon.speed += soft * PUNCH_TO_SPEED;
+        self.weapon.angle += hard;
+    }
+
     /// Kick the view and the gun. `side` scales the base yaw and roll (e.g. how
     /// much the wall is to one side, -1..1); `scale` scales the whole punch.
     /// `weapon_roll` false leaves the gun's roll alone (the wall-run punch does).
@@ -132,8 +170,8 @@ impl ViewEffects {
         self.pending = (self.pending + dt).min(0.25);
         while self.pending >= SPRING_STEP {
             self.pending -= SPRING_STEP;
-            self.view.step();
-            self.weapon.step();
+            self.view.step(&SpringConstants::BASE);
+            self.weapon.step(&self.kick_spring);
         }
 
         let target = if sprinting {
@@ -151,14 +189,30 @@ impl ViewEffects {
     }
 
     /// Offsets to add to the camera, in radians: (pitch up, yaw left, roll left).
-    /// `sprint_max_roll` is the pilot's `sprinttiltMaxRoll` in degrees.
+    /// `sprint_max_roll` is the pilot's `sprinttiltMaxRoll` in degrees. The view
+    /// punch, plus the kick's pitch and yaw that aren't the gun's and all of its
+    /// roll (`0x18003ba40`).
     pub fn offsets(&self, sprint_max_roll: f32) -> Vec3 {
-        self.view.offsets(self.sprint_tilt * sprint_max_roll)
+        let view_share = 1.0 - self.weapon_fraction;
+        let kick = self.weapon.angle * Vec3::new(view_share, view_share, 1.0);
+        Spring {
+            angle: self.view.angle + kick,
+            speed: Vec3::ZERO,
+        }
+        .offsets(self.sprint_tilt * sprint_max_roll)
     }
 
-    /// How far the gun is kicked relative to the view, in radians, as `offsets`.
+    /// How far the gun is kicked relative to the view, in radians, as `offsets`:
+    /// its share of the kick's pitch and yaw, and the kick's roll undone
+    /// (`0x1800378d0`).
     pub fn weapon_offsets(&self) -> Vec3 {
-        self.weapon.offsets(0.0)
+        let share = self.weapon_fraction * self.weapon_vm_scale;
+        let a = self.weapon.angle;
+        Spring {
+            angle: Vec3::new(a.x * share, a.y * share, -a.z),
+            speed: Vec3::ZERO,
+        }
+        .offsets(0.0)
     }
 
     /// -0.5..0.5, from a small fixed-seed generator (the effect doesn't need to be

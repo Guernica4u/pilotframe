@@ -252,6 +252,19 @@ impl Player {
         (self.yaw, self.pitch)
     }
 
+    /// The view punch and weapon kick springs.
+    pub fn view_effects(&mut self) -> &mut view::ViewEffects {
+        &mut self.view
+    }
+
+    /// Move the aim itself by (pitch down, yaw left) degrees, the game's
+    /// convention (recoil's permanent kick).
+    pub fn add_aim(&mut self, pitch_down: f32, yaw_left: f32) {
+        self.yaw = (self.yaw + yaw_left.to_radians()).rem_euclid(TAU);
+        self.pitch =
+            (self.pitch - pitch_down.to_radians()).clamp(-FRAC_PI_2 + 0.01, FRAC_PI_2 - 0.01);
+    }
+
     /// How far the gun is kicked relative to the view (radians: pitch up, yaw
     /// left, roll left).
     pub fn weapon_kick(&self) -> Vec3 {

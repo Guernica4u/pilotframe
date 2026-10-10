@@ -76,3 +76,38 @@ Ported from `client.dll`; `pf-game/src/sway.rs` follows it, and the cockpit uses
 - The turn rate's frame time (an engine global at +0x28) is taken to be this frame's.
 - The first frame has no previous view, so it counts as no turn.
 - The aim fraction is our zoom ramp, not the engine's.
+
+## Recoil (view kick)
+
+Ported from `client.dll`; `pf-game/src/recoil.rs` and the kick spring in `pf-game/src/view.rs` follow it. `viewkick_*` settings sit at 0x134–0x1c8 in the weapon settings. Table defaults: the four `viewkick_scale_min/max_*` and `viewkick_duck_scale` are 1, everything else 0.
+
+**Each shot** (`0x180491190`, called from the fire code `0x18049c4c0`):
+- **Pitch and yaw:** `base` + a random size between `random_innerexclude`/2 and `random`/2, with a random sign. The game uses named shared random streams ("weaponKickX", "weaponKickXFlip"…) so client and server agree.
+- **Roll:** `base` + random between `randomMin` and `randomMax`, randomly signed.
+- **Scale.** Pitch and yaw are scaled by the kick scale × ((`viewkick_duck_scale` − 1) × crouch fraction + 1) × a shot count. Roll is scaled by a separate factor; we take both multipliers as 1.
+- **Soft and hard.** The kick × `softScale` goes to the kick spring's speed (× 20), × `hardScale` to its angle (`0x18003c840`).
+- **Permanent kick.** `viewkick_perm_pitch/yaw` (same random form) × the kick scale is added to the player's real aim angles, for the predicting local player.
+- **Burst accumulator.**
+  - **Reading** (`0x180488060`): it holds for `valueDecayDelay` after the last shot, then falls at `valueDecayRate`/s, down to 0.
+  - **Each shot:** after the kick is computed, it becomes min(value now + `valuePerShot`, `valueLerpEnd`).
+
+**Kick scale** (`0x18048b940`):
+- The first shot of a trigger pull uses lerp(`scale_firstshot_hipfire`, `_ads`, zoom) if that's non-zero.
+- Otherwise: lerp(min, max, t), with t the burst value from `valueLerpStart` to `valueLerpEnd`, clamped. Min and max are each lerped hip → ADS by zoom.
+
+**Kick spring** (`0x180165190`):
+- **Two springs.** The game runs the view-punch spring (player +0x26d0/+0x26dc) and the weapon-kick spring (+0x26e8/+0x26f4), both stepped by the same code at 0.0166 s with per-axis constants.
+- **The kick spring's constants** come from the weapon's `viewkick_spring` set in `scripts/weapons/springs.txt`, lerped from the `hipfire_*` to the `ADS_*` values by the zoom fraction (`0x180487f50`). Without a set it uses the base constants (65 / 9; the pilot's `punch_pilot` set is the same).
+- **Movement punches** also add 0.2 × to the kick spring.
+
+**View and gun split:**
+- **Fractions.** wf = lerp(`viewkick_hipfire_weaponFraction`, `viewkick_ads_weaponFraction`, zoom), and vms the same for the `_vmScale` values.
+- **Camera** (`0x18003ba40`): view punch + kick pitch/yaw × (1 − wf) + all of the kick's roll.
+- **Gun, relative to the view** (`0x1800378d0`): kick pitch/yaw × wf × vms, and the kick's roll undone.
+- **R-201:** hip fire splits the kick, the camera taking half and the gun another quarter; aimed, the camera takes all of it.
+
+**Ours:**
+- Crouch is 0 or 1; the game eases it over 400 ms.
+- Our own random generator replaces the named streams.
+- `PF_DEV_FIRE=1` holds the trigger, for screenshots.
+

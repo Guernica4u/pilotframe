@@ -27,6 +27,7 @@ use pf_fmt_mdl::anim::{self, Animation, Bone, Pose};
 use crate::Screen;
 use crate::input::Action;
 use crate::player::Player;
+use crate::recoil::{Recoil, RecoilData};
 use crate::settings::Settings;
 use crate::spread::{Spread, SpreadData, SpreadInput};
 use crate::sway::{self, Sway};
@@ -85,6 +86,8 @@ struct WeaponData {
     lower_time: f32,
     /// Sway and bob (`sway_*`, `bob_*`).
     sway: sway::Settings,
+    /// Recoil (`viewkick_*`).
+    recoil: RecoilData,
 }
 
 impl WeaponData {
@@ -99,6 +102,7 @@ impl WeaponData {
         mods.extend(loadout.passives.iter().map(String::as_str));
         let script = WeaponScript::load(dir, &loadout.primary, &mods)?;
         let sway = sway::Settings::from_script(&script);
+        let recoil = RecoilData::from_script(dir, &script);
         let kv = script.values;
         let num = |k: &str, default: f32| {
             kv.get(k)
@@ -132,6 +136,7 @@ impl WeaponData {
             raise_time: num("raise_time", 0.3),
             lower_time: num("lower_time", 0.25),
             sway,
+            recoil,
         })
     }
 }
@@ -197,6 +202,7 @@ pub struct Viewmodel {
     spread_pending: f32,
     action: Option<GunAction>,
     sway: Sway,
+    recoil: Recoil,
     /// The sway's pivot attachments (hip, aimed) and how far the pivot has
     /// moved from the hip one to the aimed one, 0..1.
     pivots: [Option<pf_fmt_mdl::Attachment>; 2],
@@ -507,6 +513,7 @@ pub fn spawn(
         spread_pending: 0.0,
         action,
         sway: Sway::default(),
+        recoil: Recoil::default(),
         pivots,
         pivot_blend: 0.0,
     });
@@ -536,17 +543,21 @@ pub fn animate(
     tunings: Res<Assets<TuningAsset>>,
     mut meshes: ResMut<Assets<Mesh>>,
     viewmodel: Single<(&mut Viewmodel, &mut Transform)>,
-    player: Single<(&Player, &ActionState<Action>, &mut Projection), Without<Viewmodel>>,
+    player: Single<(&mut Player, &ActionState<Action>, &mut Projection), Without<Viewmodel>>,
 ) {
     let dt = time.delta_secs();
     let (mut vm, mut transform) = viewmodel.into_inner();
     let vm = vm.as_mut();
-    let (player, actions, mut projection) = player.into_inner();
+    let (mut player, actions, mut projection) = player.into_inner();
+    // The kick spring and the view/gun split follow the zoom (recoil).
+    let (fraction, vm_scale) = vm.data.recoil.split_at(vm.ads);
+    let spring = vm.data.recoil.spring_at(vm.ads);
+    player.view_effects().set_weapon(spring, fraction, vm_scale);
     // The gun's own punch: turning its camera the other way moves the gun on
     // screen by the punch.
     let kick = player.weapon_kick();
     transform.rotation = Quat::from_euler(EulerRot::YXZ, kick.y, kick.x, kick.z).inverse();
-    let state = player.movement();
+    let state = *player.movement();
     vm.clock += dt;
     vm.since_shot += dt;
     vm.cooldown -= dt;
@@ -598,16 +609,20 @@ pub fn animate(
         on_ground: state.on_ground,
     };
     // Full auto: a shot every 1 / fire_rate seconds while the trigger is held.
-    if actions.pressed(&Action::Fire)
-        && !busy
-        && vm.sprint < 0.5
-        && vm.cooldown <= 0.0
-        && vm.ammo > 0
-    {
+    // Dev: `PF_DEV_FIRE=1` holds the trigger (to see recoil in screenshots).
+    let trigger = actions.pressed(&Action::Fire) || std::env::var_os("PF_DEV_FIRE").is_some();
+    if trigger && !busy && vm.sprint < 0.5 && vm.cooldown <= 0.0 && vm.ammo > 0 {
         vm.ammo -= 1;
         vm.cooldown = 1.0 / vm.data.fire_rate.max(0.1);
         vm.since_shot = 0.0;
         vm.spread.fire(&vm.data.spread, &spread_input, vm.clock);
+        let duck = if state.crouched { 1.0 } else { 0.0 };
+        let kick = vm.recoil.fire(&vm.data.recoil, vm.clock, vm.ads, duck);
+        player.view_effects().kick(kick.soft, kick.hard);
+        player.add_aim(kick.perm.x, kick.perm.y);
+    }
+    if !trigger {
+        vm.recoil.release();
     }
     vm.spread_pending = (vm.spread_pending + dt).min(0.25);
     while vm.spread_pending >= SPREAD_TICK {
