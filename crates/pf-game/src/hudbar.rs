@@ -1,5 +1,5 @@
 //! Circular HUD progress bars (`CHudProgressBar` with `CircularEnabled`), as
-//! the game paints them (`client.dll`, notes in docs/hud.md): the bar's image
+//! the game paints them (`client.dll`, notes in docs/port/hud.md): the bar's image
 //! is cut to a circle sector starting at 12 o'clock and covering progress ×
 //! 360°, clockwise or counter-clockwise (`CircularClockwise`).
 //!

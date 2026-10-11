@@ -1,4 +1,4 @@
-//! Recoil ("view kick"), ported from `client.dll` (docs/weapons.md, "Recoil").
+//! Recoil ("view kick"), ported from `client.dll` (docs/port/weapons.md, "Recoil").
 //!
 //! Each shot rolls a kick from the weapon script's `viewkick_*` settings,
 //! scales it by how far into a burst the gun is and by crouching, and splits it

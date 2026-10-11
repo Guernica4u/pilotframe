@@ -10,7 +10,7 @@
 //!   calls `GiveExtraWeaponMod(<passive>)`, which applies it to every weapon that
 //!   defines a mod by that name (the frag's `pas_ordnance_pack` adds a grenade).
 //!
-//! Notes: docs/weapons.md ("Loadout").
+//! Notes: docs/port/weapons.md ("Loadout").
 
 use std::collections::HashMap;
 use std::path::Path;

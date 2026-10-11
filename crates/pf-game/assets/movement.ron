@@ -1,8 +1,8 @@
 // Pilot movement tuning, read by pf-movement through the game (pf-game).
 //
-// [set]    = the pilot settings files on the PC discs (scripts/players/mp/pilot_*.set).
+// [set]    = the pilot settings files (scripts/players/mp/pilot_*.set).
 // [engine] = the game's own engine defaults, read from the owner's client.dll
-//            (docs/movement/r1-engine-values.md has each one's name and description).
+//            (docs/port/movement/r1-engine-values.md has each one's name and description).
 // [mp]     = multiplayer server values: Respawn's listenserver.cfg (if_mp column)
 //            as shipped with R1Delta, confirmed live in the running game.
 // [live]   = read from the running game's player object (local, read-only).

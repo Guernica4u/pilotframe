@@ -2,7 +2,7 @@
 //! a wall-run or hang) and the sprint turn tilt.
 //!
 //! Values are the engine's own defaults read from the owner's `client.dll`, listed
-//! in docs/movement/r1-engine-values.md ("View"), and the way a punch moves is the
+//! in docs/port/movement/r1-engine-values.md ("View"), and the way a punch moves is the
 //! game's (read from its code, and checked against a recording of the real game):
 //! a punch adds 20 × its angles to an angular speed, and a damped spring pulls
 //! the view back, solved exactly over each frame.

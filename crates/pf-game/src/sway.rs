@@ -1,4 +1,4 @@
-//! Weapon sway and bob, ported from `client.dll` (docs/weapons.md, "Sway and
+//! Weapon sway and bob, ported from `client.dll` (docs/port/weapons.md, "Sway and
 //! bob"). The game uses the same code for the gun (from the weapon script's
 //! `sway_*` and `bob_*` settings) and for the pilot's cockpit, which carries
 //! the helmet HUD ([`crate::cockpit_sway`]).

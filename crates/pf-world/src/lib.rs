@@ -1,7 +1,7 @@
 //! Drawing a Titanfall map in Bevy, shared by the map viewer and the game:
 //! world geometry with the original textures and baked lighting, static props,
 //! fog, and the map's collision triangles. Everything here works from files
-//! unpacked from the player's own discs (`pf-pc`); nothing is bundled.
+//! unpacked from the player's EA install (`pf-vpk`); nothing is bundled.
 //!
 //! Use: add [`WorldPlugin`], call [`load`] and insert the result with
 //! [`LoadedMap::insert`], then run [`spawn_map`] and [`props::spawn_props`].
@@ -280,7 +280,7 @@ pub fn world_box(bsp: &pf_fmt_bsp::Bsp) -> Option<([f32; 3], [f32; 3])> {
 }
 
 /// Walk up from the map file looking for `materials` folders: the map's own
-/// (nearest), then a shared `common/materials` (what `pf-pc materials-for` writes).
+/// (nearest), then a shared `common/materials` (as `pf-vpk extract` lays them out).
 pub fn find_materials_dirs(map: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for dir in map.ancestors() {

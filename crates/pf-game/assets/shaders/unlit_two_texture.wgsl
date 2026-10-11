@@ -1,7 +1,7 @@
 // Respawn's UnlitTwoTexture as the sight reticles use it: the base texture
 // times a second texture (each through its own 2D transform), times the
 // colour (`$color` × `$color2`), with alpha from both textures and `$alpha`.
-// See docs/weapons.md, "The HCOG reticle".
+// See docs/port/weapons.md, "The HCOG reticle".
 
 #import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},

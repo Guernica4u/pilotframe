@@ -1,6 +1,6 @@
 //! Weapon spread (accuracy cone), ported from the game: the per-tick update the
 //! player runs on its weapon, the kick on each shot, its decay, and the value the
-//! crosshair and bullets read. Notes: docs/hud.md ("Weapon spread").
+//! crosshair and bullets read. Notes: docs/port/hud.md ("Weapon spread").
 //!
 //! Spread is an angle in degrees. It is a base (from how you're moving) plus a
 //! firing kick (separate for hip fire and aiming, blended by how far you're aimed).

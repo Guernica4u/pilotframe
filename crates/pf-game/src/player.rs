@@ -11,8 +11,8 @@ use pf_movement::{Mode, MoveInput, MovementState, step};
 use crate::Screen;
 use crate::input::{self, Action, look};
 use crate::level::{ChosenMap, LevelEntity, MapCollision, SpawnPoint};
-use crate::menu::playing;
 use crate::settings::Settings;
+use crate::shell::playing;
 use crate::tuning::{Tuning, TuningAsset};
 use crate::view;
 

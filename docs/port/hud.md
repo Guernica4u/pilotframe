@@ -15,7 +15,7 @@ How TF1 builds the pilot HUD, read from the owner's game files (the `englishclie
 | Crosshair per weapon | the weapon script's `CrosshairData` block |
 | HUD scripts (reference only) | `scripts/vscripts/client/cl_main_hud.nut` (weapon panel: `MainHud_InitWeapons`) |
 
-**Which copy.** Files come from the owner's EA install (final patch v1.0.10.1), unpacked with `pf-pc vpk-extract` into `Resources/ea_extracted/common`; the game falls back to the launch build from the retail discs. The R1Delta copy of the common pack isn't used: it points about 28,000 entries at R1Delta's own pack (archive number 0x1337). The game DLLs (`client.dll`, `vguimatsurface.dll`, `engine.dll`) are byte-identical in the EA and R1Delta copies, so addresses in these notes hold for both. The final patch changed some HUD data from the launch build, e.g. the R-201's clip is 24 (240 total) instead of 30 (300).
+**Which copy.** Files come from the owner's EA install (final patch v1.0.10.1), unpacked with `pf-vpk extract` into `Resources/ea_extracted/common` (until R1 reads the VPKs directly). The R1Delta copy of the common pack isn't used: it points about 28,000 entries at R1Delta's own pack (archive number 0x1337). The game DLLs (`client.dll`, `vguimatsurface.dll`, `engine.dll`) are byte-identical in the EA and R1Delta copies, so addresses in these notes hold for both. The final patch changed some HUD data from the launch build, e.g. the R-201's clip is 24 (240 total) instead of 30 (300).
 
 ## The helmet screen
 

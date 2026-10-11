@@ -2,7 +2,7 @@
 //! (`vguimatsurface.dll`). The game draws the HUD flat, cuts every shape into
 //! cells of `hudwarp_chopsize` (60) pixels, and moves each corner as if the
 //! screen were wrapped onto a sphere seen from a little way behind its centre.
-//! Notes: docs/hud.md ("Hudwarp").
+//! Notes: docs/port/hud.md ("Hudwarp").
 //!
 //! The helmet screen is a panel in front of the camera, so it covers a bit more
 //! than the window (it's seen with a 70° view) and its edges fall off screen.
@@ -37,7 +37,7 @@ pub const UNITS_PER_WORLD_UNIT: f32 = 2.0;
 /// The field of view the helmet screen is seen with: the cockpit's
 /// `cockpit_default_fov` (75), in the Source convention (4:3 horizontal).
 /// At 16:9 it shows exactly the 426 × 240 screen at 208 units, so the 852 × 480
-/// layout fills the window (docs/hud.md, "The cockpit and its FOV").
+/// layout fills the window (docs/port/hud.md, "The cockpit and its FOV").
 const PANEL_FOV_DEG: f32 = 75.0;
 
 /// The warp's settings (`WarpGlobalSettings`).

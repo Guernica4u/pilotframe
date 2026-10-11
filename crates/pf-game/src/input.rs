@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use leafwing_input_manager::prelude::*;
 
-use crate::menu::playing;
+use crate::shell::playing;
 
 pub struct InputPlugin;
 

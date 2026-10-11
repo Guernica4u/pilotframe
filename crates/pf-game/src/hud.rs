@@ -8,7 +8,7 @@
 //!
 //! The helmet screen is drawn flat into images and shown curved, the way the
 //! game warps it (`hudwarp`); textures the game marks `$additive` add light.
-//! Not yet like the game (docs/hud.md): the font glow, the boxes drawn around
+//! Not yet like the game (docs/port/hud.md): the font glow, the boxes drawn around
 //! key names, and most of the screen's elements. Without the game files there
 //! is simply no HUD.
 

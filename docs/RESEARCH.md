@@ -1,5 +1,7 @@
 # Research notes: formats, tools, and sources
 
+> **Kept for credits and history.** This is the 2026-10-04 research snapshot, from when the Xbox 360 disc was the planned source. Since the 2026-10-10 reset the only source is the EA PC install (see [PLAN.md](../PLAN.md)); the 360 and retail-disc parts below no longer apply.
+
 Research snapshot: **2026-10-04**. Anything marked **(unverified)** has to be checked against the real disc in Milestone 0 before we rely on it.
 
 > Unofficial project. Not affiliated with, endorsed by, or connected to Electronic Arts or Respawn Entertainment. "Titanfall" is a trademark of Electronic Arts Inc. It's named here only to say what this project is compatible with.

@@ -1,6 +1,6 @@
-//! Pilotframe: the game app. Main menu → map select → walk the map with pilot
-//! movement (`pf-movement`). Maps: a built-in greybox test map (needs no game
-//! files) and Colony (from files unpacked from the player's own discs).
+//! Pilotframe: the game app. Starts straight into a map (the dev shell) and
+//! walks it with pilot movement (`pf-movement`). Maps: Colony (from the
+//! player's EA install) and a built-in greybox test map (needs no game files).
 //!
 //! Run with `cargo run -p pf-game --release`.
 //!
@@ -20,11 +20,11 @@ mod level;
 mod loadout;
 mod map;
 mod matproxy;
-mod menu;
 mod player;
 mod recoil;
 mod self_illum;
 mod settings;
+mod shell;
 mod spread;
 mod sway;
 mod tuning;
@@ -41,11 +41,8 @@ const TICK_HZ: f64 = 60.0;
 /// Which screen the game is on.
 #[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Screen {
-    #[default]
-    MainMenu,
-    MapSelect,
-    Options,
     /// One frame: reads the chosen map and builds its collision.
+    #[default]
     Loading,
     InGame,
 }
@@ -71,7 +68,7 @@ fn main() {
             player::PlayerPlugin,
             viewmodel::ViewmodelPlugin,
             hud::HudPlugin,
-            menu::MenuPlugin,
+            shell::ShellPlugin,
             dev::DevPlugin,
         ))
         .run();

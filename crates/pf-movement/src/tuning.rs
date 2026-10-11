@@ -1,7 +1,7 @@
 //! Every movement number lives here and is loaded from a `.ron` file, so tuning
 //! never needs a code change. There's deliberately no `Default`: values come from
-//! data, each with its source logged in `docs/movement/values.md` (and the engine
-//! defaults in `docs/movement/r1-engine-values.md`).
+//! data, each with its source logged in `docs/port/movement/values.md` (and the engine
+//! defaults in `docs/port/movement/r1-engine-values.md`).
 
 use serde::Deserialize;
 

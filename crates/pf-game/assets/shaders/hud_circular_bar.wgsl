@@ -1,7 +1,7 @@
 // A HUD progress bar drawn as a circle sector (`CHudProgressBar` with
 // `CircularEnabled`): the texture shows only within `progress` x 360 degrees of
 // 12 o'clock, turning clockwise or counter-clockwise. Angles are measured in
-// the texture's own square space, as the game's wedges are. See docs/hud.md.
+// the texture's own square space, as the game's wedges are. See docs/port/hud.md.
 
 #import bevy_ui::ui_vertex_output::UiVertexOutput
 

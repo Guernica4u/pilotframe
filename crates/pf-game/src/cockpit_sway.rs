@@ -1,4 +1,4 @@
-//! The pilot cockpit's sway, ported from `client.dll` (docs/hud.md, "Cockpit
+//! The pilot cockpit's sway, ported from `client.dll` (docs/port/hud.md, "Cockpit
 //! sway"). The helmet HUD hangs off the cockpit model, so it drifts a little
 //! as the pilot moves and turns.
 //!

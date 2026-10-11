@@ -1,6 +1,6 @@
 //! Material proxies: the small programs in a `.vmt`'s `Proxies` block that
 //! change its variables every frame. The ones the gun's sight and ammo counter
-//! use are ported from `client.dll` (docs/weapons.md, "The HCOG reticle" and
+//! use are ported from `client.dll` (docs/port/weapons.md, "The HCOG reticle" and
 //! "On-gun ammo counter"); `Divide`, `UniformNoise` and `TextureTransform` are
 //! Source's standard ones.
 //!

@@ -1,0 +1,15 @@
+[package]
+name = "pf-vpk"
+description = "List and extract files from the game's VPK archives"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pf-vfs.workspace = true
+pf-fmt-vpk = { path = "../../crates/pf-fmt-vpk" }
+pf-lzham = { path = "../../crates/pf-lzham" }
+
+[lints]
+workspace = true

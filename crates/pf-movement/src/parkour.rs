@@ -3,7 +3,7 @@
 //! Each mode is a small function that takes this tick's state and returns the next.
 //! `try_start` runs at the end of every airborne free-move tick and decides whether
 //! one of them begins. How the wall moves work follows the game's own code, written
-//! up in plain words in docs/movement/r1-engine-values.md ("Behaviour"); the mantle
+//! up in plain words in docs/port/movement/r1-engine-values.md ("Behaviour"); the mantle
 //! still follows the engine's settings and is due the same treatment.
 
 use glam::Vec3;
