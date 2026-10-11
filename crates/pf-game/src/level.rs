@@ -69,20 +69,7 @@ fn load_level(mut commands: Commands, chosen: Res<ChosenMap>, mut next: ResMut<N
                     return;
                 }
             };
-            // World and props go into one triangle mesh, so every movement
-            // query searches a single tree.
-            let (mut points, mut triangles) = pf_world::collision_triangles(&map.geometry);
-            let (prop_points, prop_triangles) = pf_world::props::prop_collision(&map.props);
-            let base = points.len() as u32;
-            points.extend(prop_points);
-            triangles.extend(prop_triangles.iter().map(|t| t.map(|i| base + i)));
-            let mut world = StaticWorld::new();
-            world.add_trimesh(&points, &triangles);
-            info!(
-                "Colony collision: {} triangles ({} from props)",
-                triangles.len(),
-                prop_triangles.len()
-            );
+            let world = map_collision(&map);
             let (feet, yaw) = pf_world::spawn_point(&map.geometry);
             commands.insert_resource(MapCollision(world));
             // Spawn a little above the marker so we drop onto the floor.
@@ -94,6 +81,24 @@ fn load_level(mut commands: Commands, chosen: Res<ChosenMap>, mut next: ResMut<N
         }
     }
     next.set(Screen::InGame);
+}
+
+/// A map's collision: world and props in one triangle mesh, so every
+/// movement query searches a single tree.
+pub fn map_collision(map: &pf_world::LoadedMap) -> StaticWorld {
+    let (mut points, mut triangles) = pf_world::collision_triangles(&map.geometry);
+    let (prop_points, prop_triangles) = pf_world::props::prop_collision(&map.props);
+    let base = points.len() as u32;
+    points.extend(prop_points);
+    triangles.extend(prop_triangles.iter().map(|t| t.map(|i| base + i)));
+    let mut world = StaticWorld::new();
+    world.add_trimesh(&points, &triangles);
+    info!(
+        "map collision: {} triangles ({} from props)",
+        triangles.len(),
+        prop_triangles.len()
+    );
+    world
 }
 
 /// Anything the level or the map renderer spawned.

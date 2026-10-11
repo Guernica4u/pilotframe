@@ -165,3 +165,25 @@ Plain-language notes on what the game's movement code does. Our Rust is written 
 - **Fall off**: velocity += n × `wallrun_fallAwaySpeed` (100); the wall is marked as "same wall" for the next grab.
 - **Wall jump**: d = input direction (when hanging, topped up to length 1 with the view direction). Velocity += d × `wallrun_jumpInputDirSpeed` (100); then the outward part is raised to at least O = `wallrun_jumpOutwardSpeed` (150) × (1 + 0.8 × (d·n) if d·n < 0). Up: U = L × `wallrun_jumpUpSpeed` (250); if vertical < U: vertical = min(vertical + 1.5 × U, U).
 - **Hang** (aim down sights on the wall): speed and gravity scale by 1 − hang time / `wallrun_hangStopTime` (0.5), reaching 0.
+
+## Player fields (from the game's data tables)
+
+These offsets in the player object come from the field tables client.dll builds at startup (each entry 0x60 bytes: type at +0, name at +8, offset at +0x10). `datamaps.py` lists all of them. Movement-related:
+
+| Field | Offset | Type |
+|---|---|---|
+| `m_vecAbsVelocity` | 0x168 | vector |
+| `m_vecAbsOrigin` | 0x174 | vector |
+| `m_localAngles` | 0x18c | vector |
+| `m_vecBaseVelocity` | 0x1a8 | vector |
+| `m_fFlags` | 0x1e0 | int (bit 0 = on the ground) |
+| `m_vecVelocity` | 0x1f0 | vector |
+| `m_afButtonPressed` | 0x2cd4 | int |
+| `m_nButtons` | 0x2cdc | int |
+| `m_duckState` | 0x2d6c | int |
+| `m_wallRunTime` | 0x2d8c | float |
+| `m_wallRunCount` | 0x2d9c | int |
+| `m_wallRunWeak` | 0x2da0 | bool |
+| `m_wallHangTime` | 0x2db8 | float |
+
+Button bits are assumed to be Source's (jump 2, duck 4, forward 8, back 16, move left 512, move right 1024, attack2 2048, speed 1<<17) until checked in the running game (`telemetry.py keys`).
