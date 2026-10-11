@@ -6,7 +6,7 @@
 //! line break, as in Squirrel.
 //!
 //! Operator precedence, loosest first: assignment (`= <- += ...`), `?:`,
-//! `||`, `&&`, `|`, `^`, `&`, `== != <=>`, `< <= > >= in instanceof`,
+//! `||`, `&&`, `|`, `^`, `&`, `== !=`, `< <= > >= in instanceof`,
 //! `<< >> >>>`, `+ -`, `* / %`, prefix (`- ! ~ ++ -- typeof clone delete
 //! resume delegate thread waitthread delaythread`), postfix (`. [] () ++ --`).
 //! Functions may list Squirrel 2 free variables: `function(a) : (x, y) { }`.
@@ -637,7 +637,7 @@ impl Parser {
             &[("|", BinOp::BitOr)],
             &[("^", BinOp::BitXor)],
             &[("&", BinOp::BitAnd)],
-            &[("==", BinOp::Eq), ("!=", BinOp::Ne), ("<=>", BinOp::Cmp)],
+            &[("==", BinOp::Eq), ("!=", BinOp::Ne)],
             &[
                 ("<", BinOp::Lt),
                 ("<=", BinOp::Le),

@@ -88,7 +88,6 @@ pub enum BinOp {
     Le,
     Gt,
     Ge,
-    Cmp,
     In,
     InstanceOf,
 }

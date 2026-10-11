@@ -1,5 +1,5 @@
 //! Every oracle case (oracle/cases.txt, run in the real game for comparison)
-//! must parse: one compile error would stop the whole file in the game.
+//! must parse (except the X cases, which test what the game rejects).
 
 #[test]
 fn oracle_cases_parse() {
@@ -10,6 +10,11 @@ fn oracle_cases_parse() {
             continue;
         }
         let (id, code) = line.split_once(' ').unwrap_or((line, ""));
+        // X cases test forms the game's compiler rejects; checked separately
+        // once the game's answers are in.
+        if id.starts_with('X') {
+            continue;
+        }
         let wrapped = format!("try {{ (function() {{ {code} }})() }} catch ( e ) {{ print(e) }}");
         if let Err(e) = pf_squirrel::parse(&wrapped) {
             bad.push(format!("{id}: {e}"));

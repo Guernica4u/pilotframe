@@ -8,6 +8,7 @@
 //! and `delaythread`
 //! (docs/port/scripts.md). Squirrel 2's `delegate` keyword is in; `base` is
 //! not a keyword in the game's version (scripts use it as a variable name).
+//! There's no `<=>` operator (the game says "expression expected"; oracle Y011).
 
 use std::fmt;
 
@@ -119,10 +120,9 @@ fn keyword(s: &str) -> Option<Kw> {
 
 /// Operators, longest first so `<<=` wins over `<<` and `<`.
 const OPS: &[&str] = &[
-    ">>>=", "<=>", ">>>", "<<=", ">>=", "...", "<-", "::", "==", "!=", "<=", ">=", "&&", "||",
-    "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<", ">>", "+", "-", "*", "/",
-    "%", "<", ">", "=", "!", "~", "&", "|", "^", "?", ":", ".", ",", ";", "(", ")", "[", "]", "{",
-    "}", "@",
+    ">>>=", ">>>", "<<=", ">>=", "...", "<-", "::", "==", "!=", "<=", ">=", "&&", "||", "++", "--",
+    "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<", ">>", "+", "-", "*", "/", "%", "<", ">",
+    "=", "!", "~", "&", "|", "^", "?", ":", ".", ",", ";", "(", ")", "[", "]", "{", "}", "@",
 ];
 
 /// A token and the line it starts on (1-based).
@@ -238,6 +238,11 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
                 }
             }
             if i < b.len() && matches!(b[i], b'e' | b'E') {
+                // The game's reader only takes an exponent after a decimal
+                // point: `1e3` is "invalid numeric format" (oracle I019).
+                if !float {
+                    return Err(err(line, "invalid numeric format".into()));
+                }
                 let mut j = i + 1;
                 if j < b.len() && matches!(b[j], b'+' | b'-') {
                     j += 1;
