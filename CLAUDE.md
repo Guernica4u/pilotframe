@@ -1,33 +1,38 @@
 # Pilotframe: notes for Claude Code sessions
 
-Unofficial Rust + Bevy rebuild of Titanfall (2014), using assets from each player's own Xbox 360 disc. Not affiliated with EA or Respawn. Read [PLAN.md](PLAN.md) (decisions + milestones) and [docs/formats/](docs/formats/) before changing format code.
+Unofficial Rust + Bevy rebuild of Titanfall (2014, PC), a **1:1 copy** of the original, running from the player's own EA install. Not affiliated with EA or Respawn. Read [PLAN.md](PLAN.md) first (source, method, roadmap); tools are in [docs/tools.md](docs/tools.md).
 
 ## Non-negotiable rules
 
 - **All project code is ours, in Rust.** What goes into the repo and releases is written by us. Never paste, or translate line by line, code from anywhere (decompiled game code, open-source tools, mods). Normal crates.io dependencies are fine (license rule below).
-- **The owner's own copy of the game may be studied any way, including decompiling or disassembling its executables** (owner's decision, 2026-10-07). Work clean-room style: findings (values, formulas, struct layouts, behaviour) go into notes in `docs/`, and the Rust is written from those notes. No decompiled code, disassembly listings or pseudo-code are committed.
-- **Anything legal may be used as reference** (rules relaxed 2026-10-06): open-source projects (bsp_tool, Northstar, R1Delta, public Source SDK 2013, etc.), wikis, docs, videos, and the owner's own game files, including the Squirrel game scripts (read them to learn values and behaviour; never copy them into the repo or ship them). Credit what we learned from in `docs/RESEARCH.md`.
-- **Still banned (illegal whoever owns the game):** leaked source (Valve/Respawn leaks, and any files in other projects that come from them), leaked Xbox SDK (XDK) docs, and any DRM bypass (e.g. the Xbox One disc, or unpacking a copy-protected executable).
-- **No game data in git.** Nothing from `Resources/` (ISO, extracted packs, inventory JSON) is ever committed, pasted into issues, or used as a test fixture. Docs may describe struct layouts, but no hex dumps longer than a header.
+- **One source: the owner's EA install** (final patch v1.0.10.1, under gitignored `Resources/`). Its data files and scripts are read for values and behaviour. `client.dll` and the other plain DLLs may be decompiled (owner's decision, 2026-10-07), clean-room: findings (values, formulas, struct layouts, behaviour) go into `docs/port/`, the Rust is written from those notes, and no decompiled code, disassembly or pseudo-code is committed. Never touch `Titanfall.exe` (DRM) or `Core/` (EA activation), and never modify the install.
+- **Port, don't invent.** Every system comes from the game's code and data. Anything not found yet is a marked placeholder, and we say so. Label work "ported" or "ours".
+- **R1Delta** is for playing side by side and capturing reference shots and video only. Never modify the owner's R1Delta folders.
+- **Still banned (illegal whoever owns the game):** leaked source (Valve/Respawn leaks, and any files in other projects that come from them) and any DRM bypass.
+- **No game data in git.** Nothing from `Resources/` is ever committed, pasted into issues, or used as a test fixture. Docs may describe struct layouts, but no hex dumps longer than a header. Game scripts are never copied into the repo or shipped.
 - **Engine never assumes original assets exist.** Missing assets fall back to placeholders.
-- **Branding (name, logo, icon) is the owners' call.** Don't flag it. The project logo is a deliberate choice. Keep the "unofficial / not affiliated with EA or Respawn" notice in the README and title screen.
-- **License:** GPL-3.0-only. Only add dependencies with GPL-compatible licenses (MIT, Apache-2.0, BSD, ISC, zlib, MPL-2.0, LGPL, GPL-3.0). Check before adding.
+- **Branding (name, logo, icon) is the owners' call.** Keep the "unofficial / not affiliated with EA or Respawn" notice in the README and title screen.
+- **License:** GPL-3.0-only. Only add dependencies with GPL-compatible licenses (MIT, Apache-2.0, BSD, ISC, zlib, MPL-2.0, LGPL, GPL-3.0). Check before adding. Credit what we learned from in `docs/RESEARCH.md`.
 
 ## Layout
 
-- `crates/`: libraries. Layer 0 crates (`pf-vfs`, `pf-xdvdfs`, `pf-fmt-*`, later `pf-movement`, `pf-sim`) have **no Bevy dependency and no `std::fs`** outside native-only code, so they compile to wasm32.
-- `Tools/`: research CLIs (`pf-inventory`, `pf-probe`, `pf-bpk`).
-- Bevy crates: `pf-world` (draws a map, gives its collision), `pf-viewer` (fly-through tool), `pf-game` (the game: menus, map select, player). Bevy is pinned workspace-wide (0.19.1).
+- `crates/`: libraries.
+  - Layer 0 (`pf-vfs`, `pf-fmt-*`, `pf-lzham`, `pf-movement`) has **no Bevy dependency and no `std::fs`** outside native-only code, so it compiles to wasm32.
+  - Bevy crates: `pf-world` (draws a map, gives its collision), `pf-viewer` (fly-through tool) and `pf-game` (the game). Bevy is pinned workspace-wide (0.19.1).
+- `Tools/pf-vpk`: list and extract VPK contents.
+- `docs/port/`: one note per ported system (HUD, weapons, movement…).
+- `docs/formats/`: file format notes.
 
 ## Conventions
 
-- Rust 2024 edition, stable toolchain. Run `cargo fmt`, `cargo clippy --workspace --all-targets` (must be clean), `cargo test --workspace` before committing.
-- **Tests:** CI-safe tests use synthetic data built in the test. Real-data tests call `pf_testdata::dump()` and return early when `PF_GAME_DUMP` isn't set.
-- **Simulation:** fixed timestep. Movement is a pure function of (state, input, world queries), so it can be replayed and network-predicted later. Simulation uses original game units (~1 inch). Convert Z-up to Bevy's Y-up once, at the asset-conversion boundary.
-- **Gameplay values live in data files** (`.ron`), each with its source and confidence noted in `docs/movement/`.
+- Rust 2024 edition, stable toolchain. Run `cargo fmt`, `cargo clippy --workspace --all-targets` (must be clean) and `cargo test --workspace` before committing.
+- **Tests:** CI-safe tests use synthetic data built in the test. Tests on real game files return early when those files aren't present.
+- **Simulation:** fixed timestep. Movement is a pure function of (state, input, world queries). It uses the game's units (~1 inch). Convert Z-up to Bevy's Y-up once, at the asset boundary.
+- **Gameplay values live in data files** (`.ron`) or are read from the game's own files, each with its source noted in `docs/port/`.
 - Match the surrounding code's style and comment density. Explain Rust/Bevy-specific choices briefly; the owners are newer to Rust.
 
 ## Workflow
 
-- Two tracks: **Track A** (game files to maps, needs a disc dump) and **Track B** (movement sandbox, needs no game files). Work on a branch, merge through pull requests to `main`.
+- One roadmap step per branch, merged to `main` by pull request with the check result (compare report or video frames) attached.
+- Before building, check `pf-game` isn't running (the owner may be playing).
 - Commit messages end with a `Co-Authored-By` line for Claude.

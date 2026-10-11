@@ -1,5 +1,7 @@
 # Research notes: formats, tools, and sources
 
+> **Kept for credits and history.** This is the 2026-10-04 research snapshot, from when the Xbox 360 disc was the planned source. Since the 2026-10-10 reset the only source is the EA PC install (see [PLAN.md](../PLAN.md)); the 360 and retail-disc parts below no longer apply.
+
 Research snapshot: **2026-10-04**. Anything marked **(unverified)** has to be checked against the real disc in Milestone 0 before we rely on it.
 
 > Unofficial project. Not affiliated with, endorsed by, or connected to Electronic Arts or Respawn Entertainment. "Titanfall" is a trademark of Electronic Arts Inc. It's named here only to say what this project is compatible with.
@@ -76,7 +78,7 @@ Research snapshot: **2026-10-04**. Anything marked **(unverified)** has to be ch
 | [r-ex/LegionPlus](https://github.com/r-ex/LegionPlus) | Older TF2/Apex extractor, archived 2025 | GPL-3.0 | Mostly irrelevant (RPak) |
 | r-ex/rmdlconv | MDL version converter | check | v52 struct reference |
 | [pg9182/tf2vpk](https://pkg.go.dev/github.com/pg9182/tf2vpk) | Respawn VPK read/write (Go) | MIT | VPK reference. Says r1 should work |
-| [r1delta/r1delta](https://github.com/r1delta/r1delta) | TF1 PC dedicated-server/mod framework | GPL-3.0 + mixed (incl. Source SDK code) | **Behaviour reference only.** Needs the PC game. Contains Valve SDK-derived code. **Don't copy** |
+| [r1delta/r1delta](https://github.com/r1delta/r1delta) | TF1 PC dedicated-server/mod framework | GPL-3.0 + mixed (incl. Source SDK code) | **Behaviour reference only.** Needs the PC game. Contains Valve SDK-derived code. **Don't copy** Its `cfg/server/listenserver.cfg` and `cfg/autoexec_delta.cfg` gave us the multiplayer server movement values (captured from the real servers), which we confirmed live |
 | Northstar (R2Northstar) | TF2 PC server/mod framework + docs | mixed (check per repo) | TF2 docs on VPK, VTF, maps. Useful background |
 | Xenia | 360 emulator | BSD-3-Clause | Xenos texture tiling/format reference |
 | xdvdfs | XDVDFS tool in Rust | check (likely MIT/Apache) | Possible dependency for disc reading |

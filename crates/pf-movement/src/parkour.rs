@@ -3,7 +3,7 @@
 //! Each mode is a small function that takes this tick's state and returns the next.
 //! `try_start` runs at the end of every airborne free-move tick and decides whether
 //! one of them begins. How the wall moves work follows the game's own code, written
-//! up in plain words in docs/movement/r1-engine-values.md ("Behaviour"); the mantle
+//! up in plain words in docs/port/movement/r1-engine-values.md ("Behaviour"); the mantle
 //! still follows the engine's settings and is due the same treatment.
 
 use glam::Vec3;
@@ -13,8 +13,15 @@ use crate::{CollisionWorld, MovementTuning, SKIN};
 
 /// How far beyond the skin gap a wall-run or wall-hang stays attached. Units.
 const WALL_PROBE: f32 = 6.0;
-/// How far away a wall can be and still catch you; you're pulled onto it. Units.
-const WALL_CATCH: f32 = 20.0;
+/// How far beyond the skin gap counts as touching a wall, units. The game starts a
+/// wall-run only when you actually hit the wall: measured live, you keep moving
+/// towards it at full speed until contact, and are never pulled onto it.
+const WALL_CATCH: f32 = 1.0;
+/// The game feels for the wall with rays from the body's centre line at these
+/// heights above the feet before a wall-run may start (only walls you can't see
+/// over). Facing the wall as if to mantle, it must also reach the top of the head,
+/// so low walls are mantled rather than run on. Units.
+const HIGH_WALL_RAYS: [f32; 2] = [10.0, 36.0];
 /// How far ahead a mantle looks for the ledge's wall (`automantle_searchdist`).
 const MANTLE_SEARCH: f32 = 5.0;
 /// A surface counts as a wall if its normal's up component is within this of zero
@@ -26,8 +33,6 @@ const WALL_STICK: f32 = 20.0;
 /// On a wall, if the view's right vector is less aligned with the wall normal than
 /// this you're facing the wall (forward climbs); otherwise you're running along it.
 const FACING_WALL: f32 = 0.7;
-/// Without a jump, this long in the air before a wall can catch you, seconds.
-const MIN_AIR_TIME: f32 = 0.1;
 /// Slower than this into the wall doesn't count as hitting it, units/s.
 const INTO_WALL: f32 = 1.0;
 /// Same wall: normals at least this aligned (`wallrun_sameWallDot`).
@@ -40,9 +45,6 @@ const JUMP_UP_MULTIPLIER: f32 = 1.5;
 /// A mantle needs the input pushing within this angle of straight into the wall
 /// (`automantle_maxangle_push`, 50°), as a cosine.
 const MANTLE_PUSH_COS: f32 = 0.643;
-/// "Only high walls": the wall must still be there this far above the feet, so
-/// you can't wall-run something you could see over. Units.
-const HIGH_WALL_CHECK: f32 = 64.0;
 
 /// Facing direction on the ground plane for a yaw (0 faces -Z, positive turns left).
 pub(crate) fn facing(yaw: f32) -> Vec3 {
@@ -128,12 +130,6 @@ pub(crate) fn try_start(
     if try_mantle(s, input, tuning.mantle_max_view_angle, tuning, body, world) {
         return;
     }
-    // Not from just stepping off a kerb beside a wall: you must have jumped, or
-    // been in the air a moment. (Our stopgap: the game's own start check calls
-    // surface tests we haven't read yet.)
-    if s.since_jump > s.air_time + 1e-3 && s.air_time < MIN_AIR_TIME {
-        return;
-    }
     let face = facing(input.yaw);
     let Some((normal, dist)) = nearest_wall(s.position, s.velocity, face, body, world) else {
         return;
@@ -142,16 +138,16 @@ pub(crate) fn try_start(
     if approach.dot(normal) > -INTO_WALL {
         return;
     }
-    // Only walls you can't see over.
-    if wall_in(
-        s.position + Vec3::Y * HIGH_WALL_CHECK,
-        -normal,
-        WALL_CATCH,
-        body,
-        world,
-    )
-    .is_none()
-    {
+    // Only walls you can't see over; facing it to mantle, it must be head-high too.
+    let mantling = -normal.dot(face) >= tuning.mantle_max_view_angle.to_radians().cos();
+    let head = mantling.then_some(body.capsule.height);
+    let reach = body.capsule.radius + SKIN + WALL_CATCH + 1.0;
+    let solid = |h: f32| {
+        world
+            .cast_ray(s.position + Vec3::Y * h, -normal * reach)
+            .is_some()
+    };
+    if !HIGH_WALL_RAYS.into_iter().chain(head).all(solid) {
         return;
     }
     // The same wall again: only lower down than where you left it.

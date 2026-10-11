@@ -22,8 +22,8 @@ fn tuning() -> MovementTuning {
             gravity: 800.0, jump_height: 50.0, double_jump_height: 40.0, jump_grace_time: 0.2,
             wallrun_time_limit: 1.5, wallrun_slip_time: 0.5, wallrun_slip_speed: 70.0,
             wallrun_slip_slowdown: 0.5, wallrun_up_boost: 250.0, wallrun_gravity_ramp_time: 0.7,
-            wallrun_max_speed: 240.0, wallrun_max_speed_backward: 50.0,
-            wallrun_accelerate: 7.0, wallrun_friction: 4.0,
+            wallrun_max_speed: 450.0, wallrun_max_speed_backward: 50.0,
+            wallrun_accelerate: 1500.0, wallrun_friction: 4.0,
             wallrun_max_speed_vertical: 300.0, wallrun_accelerate_vertical: 450.0,
             wallrun_upward_push: 0.65, wallrun_fall_away_speed: 100.0,
             wallrun_strength_loss_start: 3.0, wallrun_strength_loss_end: 5.0,
@@ -657,16 +657,16 @@ fn looking_up_runs_higher_than_looking_down() {
 }
 
 #[test]
-fn wall_running_bleeds_speed() {
-    // The game's wall friction slows a run down; there's no speed gain on walls.
+fn wall_running_builds_speed_toward_its_cap() {
+    // Measured in the real game: a sprint onto a wall speeds up along it, settling
+    // where the wall friction (4/s) balances the push (1500 u/s²), about 375 u/s.
     let world = long_wall();
+    let flat = |s: &MovementState| Vec3::new(s.velocity.x, 0.0, s.velocity.z).length();
     let (early, _) = wallrun_from_jump(&world, HOLD_FORWARD, 0.05);
-    let (later, _) = wallrun_from_jump(&world, HOLD_FORWARD, 0.4);
+    let (later, _) = wallrun_from_jump(&world, HOLD_FORWARD, 0.8);
     assert!(matches!(later.mode, Mode::WallRun { .. }), "{later:?}");
-    assert!(
-        speed(&later) < speed(&early) - 50.0,
-        "{early:?} vs {later:?}"
-    );
+    assert!(flat(&later) > flat(&early) + 20.0, "{early:?} vs {later:?}");
+    assert!(flat(&later) < 380.0, "{later:?}");
 }
 
 #[test]

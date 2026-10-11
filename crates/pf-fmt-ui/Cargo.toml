@@ -1,0 +1,10 @@
+[package]
+name = "pf-fmt-ui"
+description = "Readers for the game's UI files: KeyValues text (.res, schemes), .vfont fonts, and VGUI panel layout"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

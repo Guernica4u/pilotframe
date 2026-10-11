@@ -1,6 +1,6 @@
-//! Pilotframe: the game app. Main menu → map select → walk the map with pilot
-//! movement (`pf-movement`). Maps: a built-in greybox test map (needs no game
-//! files) and Colony (from files unpacked from the player's own discs).
+//! Pilotframe: the game app. Starts straight into a map (the dev shell) and
+//! walks it with pilot movement (`pf-movement`). Maps: Colony (from the
+//! player's EA install) and a built-in greybox test map (needs no game files).
 //!
 //! Run with `cargo run -p pf-game --release`.
 //!
@@ -9,14 +9,26 @@
 //! Systems declare what data they need in their parameters, and Bevy hands it over.
 //! *States* (here [`Screen`]) switch whole groups of systems on and off.
 
+mod cockpit_sway;
+mod data;
 mod dev;
+mod hud;
+mod hudbar;
+mod hudwarp;
 mod input;
 mod level;
+mod loadout;
 mod map;
-mod menu;
+mod matproxy;
 mod player;
+mod recoil;
+mod self_illum;
 mod settings;
+mod shell;
+mod spread;
+mod sway;
 mod tuning;
+mod unlit_two;
 mod view;
 mod viewmodel;
 
@@ -29,11 +41,8 @@ const TICK_HZ: f64 = 60.0;
 /// Which screen the game is on.
 #[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Screen {
-    #[default]
-    MainMenu,
-    MapSelect,
-    Options,
     /// One frame: reads the chosen map and builds its collision.
+    #[default]
     Loading,
     InGame,
 }
@@ -43,6 +52,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Pilotframe (unofficial, not affiliated with EA or Respawn)".into(),
+                resolution: dev::window_size().into(),
                 ..default()
             }),
             ..default()
@@ -57,7 +67,8 @@ fn main() {
             level::LevelPlugin,
             player::PlayerPlugin,
             viewmodel::ViewmodelPlugin,
-            menu::MenuPlugin,
+            hud::HudPlugin,
+            shell::ShellPlugin,
             dev::DevPlugin,
         ))
         .run();

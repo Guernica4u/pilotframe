@@ -40,8 +40,69 @@ pub struct Model {
     pub meshes: Vec<ModelMesh>,
 }
 
-/// Read a model from its three files.
+/// Read a model from its three files, with every body group at its default
+/// (first) sub-model.
 pub fn load(mdl: &[u8], vvd: &[u8], vtx: &[u8]) -> io::Result<Model> {
+    load_with_body(mdl, vvd, vtx, |_| 0)
+}
+
+/// The model's body groups (body parts): name and number of sub-models.
+pub fn body_groups(mdl: &[u8]) -> io::Result<Vec<(String, usize)>> {
+    let m = Reader::new(mdl, "mdl");
+    let (num_parts, part_index) = (m.count(232)?, m.u32(236)? as usize);
+    (0..num_parts)
+        .map(|p| {
+            let part = part_index + p * 16; // mstudiobodyparts_t
+            let name_at = part as i64 + m.i32(part)? as i64;
+            Ok((m.cstr(name_at as usize, 64)?, m.count(part + 4)?))
+        })
+        .collect()
+}
+
+/// A named point on the model (`$attachment`), fixed to one bone.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attachment {
+    pub name: String,
+    /// The bone it moves with.
+    pub bone: usize,
+    /// Its placement in the bone's space: a 3×4 matrix, rows of
+    /// (rotation x, rotation y, rotation z, translation).
+    pub matrix: [[f32; 4]; 3],
+}
+
+/// The model's attachments (`mstudioattachment_t`, 92 bytes each: name
+/// offset, flags, bone, 3×4 matrix, padding).
+pub fn attachments(mdl: &[u8]) -> io::Result<Vec<Attachment>> {
+    let m = Reader::new(mdl, "mdl");
+    let (count, index) = (m.count(240)?, m.u32(244)? as usize);
+    (0..count)
+        .map(|i| {
+            let at = index + i * 92;
+            let name_at = at as i64 + m.i32(at)? as i64;
+            let mut matrix = [[0.0; 4]; 3];
+            for (r, row) in matrix.iter_mut().enumerate() {
+                for (c, v) in row.iter_mut().enumerate() {
+                    *v = m.f32(at + 12 + (r * 4 + c) * 4)?;
+                }
+            }
+            Ok(Attachment {
+                name: m.cstr(name_at as usize, 64)?,
+                bone: m.count(at + 8)?,
+                matrix,
+            })
+        })
+        .collect()
+}
+
+/// Read a model with `body(group name)` choosing each body group's sub-model
+/// (what a weapon script's `bodygroupN_set` does). Out-of-range picks use the last.
+pub fn load_with_body(
+    mdl: &[u8],
+    vvd: &[u8],
+    vtx: &[u8],
+    body: impl Fn(&str) -> usize,
+) -> io::Result<Model> {
+    let names = body_groups(mdl)?;
     let m = Reader::new(mdl, "mdl");
     if m.bytes(0, 4)? != b"IDST" {
         return Err(invalid("not an MDL file"));
@@ -93,20 +154,21 @@ pub fn load(mdl: &[u8], vvd: &[u8], vtx: &[u8]) -> io::Result<Model> {
     if num_parts != vtx_parts {
         return Err(invalid("MDL and VTX disagree on body part count"));
     }
-    for p in 0..num_parts {
+    for (p, (group, _)) in names.iter().enumerate() {
         let part = part_index + p * 16; // mstudiobodyparts_t
         let (num_models, model_index) = (m.count(part + 4)?, m.i32(part + 12)? as i64);
         let vpart = vtx_part_offset + p * 8;
         let (vtx_models, vtx_model_off) = (x.count(vpart)?, x.u32(vpart + 4)? as usize);
-        // Only the first model of each body part (the default "submodel").
         if num_models == 0 || vtx_models == 0 {
             continue;
         }
-        let model = (part as i64 + model_index) as usize; // mstudiomodel_t, 148 bytes
+        let sub = body(group).min(num_models.min(vtx_models) - 1);
+        // mstudiomodel_t is 148 bytes; the VTX ModelHeader 8.
+        let model = (part as i64 + model_index) as usize + sub * 148;
         let model_vertex_base = m.i32(model + 84)? as usize / VVD_VERTEX_LEN;
         let (num_meshes, mesh_index) = (m.count(model + 72)?, m.i32(model + 76)? as i64);
 
-        let vmodel = vpart + vtx_model_off;
+        let vmodel = vpart + vtx_model_off + sub * 8;
         let lod0 = vmodel + x.u32(vmodel + 4)? as usize; // ModelLODHeader of LOD 0
         let (vtx_meshes, vtx_mesh_off) = (x.count(lod0)?, x.u32(lod0 + 4)? as usize);
         if vtx_meshes != num_meshes {

@@ -1,6 +1,6 @@
 //! Loading and clearing the playable map.
 //!
-//! Map select stores a [`ChosenMap`]; the `Loading` screen reads it, builds the
+//! The shell stores a [`ChosenMap`]; the `Loading` screen reads it, builds the
 //! collision and spawn point, then switches to `InGame`, where the visuals spawn.
 //! Leaving `InGame` despawns everything the level made.
 
@@ -14,8 +14,7 @@ pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(ChosenMap::TestMap)
-            .add_systems(OnEnter(Screen::Loading), load_level)
+        app.add_systems(OnEnter(Screen::Loading), load_level)
             .add_systems(
                 OnEnter(Screen::InGame),
                 (
@@ -51,8 +50,8 @@ pub struct SpawnPoint {
 pub struct LevelEntity;
 
 /// Where Colony's unpacked map file is, if it's there. `PF_COLONY` overrides the
-/// default location that `pf-pc vpk-extract` writes to.
-// TODO: replace with the first-launch setup's `data/` folder.
+/// default location `pf-vpk extract` writes to.
+// TODO (R1): read the install's VPKs directly instead.
 pub fn colony_path() -> Option<PathBuf> {
     let path = std::env::var_os("PF_COLONY")
         .map(PathBuf::from)
@@ -79,7 +78,9 @@ fn load_level(mut commands: Commands, chosen: Res<ChosenMap>, mut next: ResMut<N
                 Ok(map) => map,
                 Err(e) => {
                     error!("can't load Colony: {e}");
-                    next.set(Screen::MapSelect);
+                    // Fall back to the test map.
+                    commands.insert_resource(ChosenMap::TestMap);
+                    next.set(Screen::Loading);
                     return;
                 }
             };

@@ -30,6 +30,7 @@ inventory*.json
 
 # --- Build output ---
 target/
+target-*/
 
 # --- Editors / OS ---
 .vs/

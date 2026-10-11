@@ -191,7 +191,7 @@ fn duck(s: &mut MovementState, want: bool, tuning: &MovementTuning, world: &impl
 /// Walking, jumping and falling, plus the checks that start wall-runs, wall-hangs
 /// and mantles.
 ///
-/// Ground and air control follow the game's own code (docs/movement/
+/// Ground and air control follow the game's own code (docs/port/movement/
 /// r1-engine-values.md, "Behaviour"): a linear slowdown of whatever you aren't
 /// pushing for, then accelerate towards the wished-for velocity.
 fn free_move(

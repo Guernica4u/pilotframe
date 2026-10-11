@@ -1,4 +1,8 @@
-//! The greybox test map, built in code.
+//! The greybox test map, built in code (ours, not from the game): a place to
+//! try every move and, later, every weapon. North of the spawn: crates, a
+//! speed lane and wall-run walls; east: ramps and stairs; west: ledges, a
+//! tower and a tall wall to hang on; south-west: jump gaps; south: a shooting
+//! range with boards at measured distances.
 //!
 //! Everything is a box, so one list of [`Piece`]s gives both the visible meshes
 //! and the collision world. Ramps are tilted slabs whose low end is sunk into the
@@ -17,8 +21,10 @@ use crate::level::LevelEntity;
 /// Where the player starts and resets to.
 pub const SPAWN: Vec3 = Vec3::new(0.0, 1.0, 0.0);
 
-/// Size of one checker square on every surface, units.
-const CHECKER: f32 = 64.0;
+/// One tile of the measuring grid, units: thick lines every 512, thin every 64.
+const GRID_TILE: f32 = 512.0;
+/// Grid texture size, pixels per tile.
+const GRID_PIXELS: u32 = 256;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Kind {
@@ -28,6 +34,7 @@ enum Kind {
     Step,
     Crate,
     Marker,
+    Target,
 }
 
 impl Kind {
@@ -39,6 +46,7 @@ impl Kind {
             Kind::Step => Color::srgb(0.42, 0.66, 0.42),
             Kind::Crate => Color::srgb(0.72, 0.66, 0.50),
             Kind::Marker => Color::srgb(0.92, 0.85, 0.20),
+            Kind::Target => Color::srgb(0.85, 0.30, 0.25),
         }
     }
 }
@@ -108,42 +116,19 @@ fn layout() -> Vec<Piece> {
 
     // Floor, top at y = 0.
     p.push(block(
-        Vec3::new(-3000.0, -16.0, -3000.0),
-        Vec3::new(3000.0, 0.0, 3000.0),
+        Vec3::new(-4000.0, -16.0, -4000.0),
+        Vec3::new(4000.0, 0.0, 4000.0),
         Kind::Floor,
     ));
+    // Spawn pad.
+    p.push(block(
+        Vec3::new(-96.0, 0.0, -96.0),
+        Vec3::new(96.0, 1.0, 96.0),
+        Kind::Marker,
+    ));
 
-    // Ramps on the right: walkable 15°, 30°, 40°; too steep 55°. Max slope is in movement.ron.
-    for (i, degrees) in [15.0, 30.0, 40.0, 55.0].into_iter().enumerate() {
-        ramp(
-            &mut p,
-            450.0 + 200.0 * i as f32,
-            -300.0,
-            400.0,
-            degrees,
-            160.0,
-        );
-    }
-
-    // Stairs on the left: 8, 12 and 16 unit steps (all under the 18-unit step height).
-    for (i, rise) in [8.0, 12.0, 16.0].into_iter().enumerate() {
-        stairs(&mut p, -450.0 - 200.0 * i as f32, -300.0, rise, 8, 160.0);
-    }
-
-    // Behind the spawn: single ledges from walk-up-able to jump-only.
-    for (i, height) in [12.0, 18.0, 20.0, 24.0, 32.0, 48.0, 64.0]
-        .into_iter()
-        .enumerate()
-    {
-        let x = -540.0 + 160.0 * i as f32;
-        p.push(block(
-            Vec3::new(x - 48.0, 0.0, 300.0),
-            Vec3::new(x + 48.0, height, 400.0),
-            Kind::Step,
-        ));
-    }
-
-    // Crates straight ahead.
+    // North (ahead of the spawn): crates to mantle, a speed lane, and walls to
+    // wall-run on.
     for (x, z, size) in [
         (-150.0, -650.0, 48.0),
         (60.0, -700.0, 64.0),
@@ -157,8 +142,7 @@ fn layout() -> Vec<Piece> {
             Kind::Crate,
         ));
     }
-
-    // Speed lane: a marker post every 100 units along x = 260, from the spawn line.
+    // Speed lane: a marker post every 100 units along x = 260.
     for k in 0..14 {
         let z = -100.0 * k as f32;
         p.push(block(
@@ -167,23 +151,120 @@ fn layout() -> Vec<Piece> {
             Kind::Marker,
         ));
     }
+    // A corridor 300 wide, a lone wall, and a staggered pair for chaining runs.
+    p.push(wall_z(-158.0, -1400.0, -2900.0, 320.0));
+    p.push(wall_z(158.0, -1400.0, -2900.0, 320.0));
+    p.push(wall_z(700.0, -1400.0, -2900.0, 400.0));
+    p.push(wall_z(-900.0, -1400.0, -2000.0, 320.0));
+    p.push(wall_z(-1300.0, -2100.0, -2700.0, 320.0));
+    // A zig-zag of short walls, alternating sides, for wall-run to wall-run.
+    for k in 0..5 {
+        let x = if k % 2 == 0 { -500.0 } else { -260.0 };
+        let z = -3100.0 - 420.0 * k as f32;
+        p.push(wall_z(x, z, z - 360.0, 320.0));
+    }
 
-    // Long walls for wall-running (M5): a corridor 300 wide, a lone wall, and a
-    // staggered pair for chaining runs.
-    let wall = |x: f32, z_from: f32, z_to: f32, height: f32| {
-        block(
-            Vec3::new(x - 8.0, 0.0, z_to),
-            Vec3::new(x + 8.0, height, z_from),
-            Kind::Wall,
-        )
-    };
-    p.push(wall(-158.0, -1400.0, -2900.0, 320.0));
-    p.push(wall(158.0, -1400.0, -2900.0, 320.0));
-    p.push(wall(700.0, -1400.0, -2900.0, 400.0));
-    p.push(wall(-900.0, -1400.0, -2000.0, 320.0));
-    p.push(wall(-1300.0, -2100.0, -2700.0, 320.0));
+    // East: ramps (walkable 15°, 30°, 40°; then around and past the 45° limit
+    // in movement.ron) and stairs.
+    for (i, degrees) in [15.0, 30.0, 40.0, 45.0, 50.0, 55.0].into_iter().enumerate() {
+        ramp(
+            &mut p,
+            450.0 + 200.0 * i as f32,
+            -300.0,
+            400.0,
+            degrees,
+            160.0,
+        );
+    }
+    for (i, rise) in [8.0, 12.0, 16.0, 18.0].into_iter().enumerate() {
+        stairs(&mut p, 1100.0 + 200.0 * i as f32, 700.0, rise, 8, 160.0);
+    }
+
+    // West: ledges from walk-up (step height 18) to jump, mantle and too high,
+    // a tower ringed by walls, and a very tall wall to hang on.
+    for (i, height) in [
+        12.0, 18.0, 20.0, 24.0, 32.0, 48.0, 64.0, 80.0, 96.0, 112.0, 128.0, 160.0,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let x = -500.0 - 128.0 * i as f32;
+        p.push(block(
+            Vec3::new(x - 48.0, 0.0, -200.0),
+            Vec3::new(x + 48.0, height, -100.0),
+            Kind::Step,
+        ));
+    }
+    p.push(block(
+        Vec3::new(-2000.0, 0.0, -1100.0),
+        Vec3::new(-1616.0, 512.0, -716.0),
+        Kind::Wall,
+    ));
+    p.push(wall_z(-1450.0, -500.0, -1400.0, 448.0));
+    p.push(wall_x(-1150.0, -1800.0, -2400.0, 448.0));
+    p.push(wall_z(-2700.0, -300.0, -1600.0, 1024.0));
+
+    // South-west: platforms 64 high with growing gaps (128 to 448), to measure
+    // how far a jump and a double jump carry.
+    let mut x = -400.0;
+    for gap in [0.0, 128.0, 192.0, 256.0, 320.0, 384.0, 448.0] {
+        x -= gap;
+        p.push(block(
+            Vec3::new(x - 128.0, 0.0, 600.0),
+            Vec3::new(x, 64.0, 728.0),
+            Kind::Step,
+        ));
+        x -= 128.0;
+    }
+
+    // South (behind the spawn): a shooting range. Firing line at z = 500,
+    // pilot-sized boards (32 × 72) at 256, 512, 1024, 2048 and 3072 units with a
+    // distance post beside each row, and a backstop.
+    p.push(block(
+        Vec3::new(-400.0, 0.0, 496.0),
+        Vec3::new(400.0, 2.0, 504.0),
+        Kind::Marker,
+    ));
+    for distance in [256.0, 512.0, 1024.0, 2048.0, 3072.0] {
+        let z = 500.0 + distance;
+        for x in [-200.0, 0.0, 200.0] {
+            p.push(block(
+                Vec3::new(x - 16.0, 0.0, z - 2.0),
+                Vec3::new(x + 16.0, 72.0, z + 2.0),
+                Kind::Target,
+            ));
+        }
+        p.push(block(
+            Vec3::new(-424.0, 0.0, z - 4.0),
+            Vec3::new(-416.0, 120.0, z + 4.0),
+            Kind::Marker,
+        ));
+    }
+    p.push(block(
+        Vec3::new(-800.0, 0.0, 3700.0),
+        Vec3::new(800.0, 400.0, 3732.0),
+        Kind::Wall,
+    ));
 
     p
+}
+
+/// A wall 16 thick along Z at `x`, from `z_from` to `z_to`.
+fn wall_z(x: f32, z_from: f32, z_to: f32, height: f32) -> Piece {
+    block(
+        Vec3::new(x - 8.0, 0.0, z_from.min(z_to)),
+        Vec3::new(x + 8.0, height, z_from.max(z_to)),
+        Kind::Wall,
+    )
+}
+
+/// A wall 16 thick along X at `z`, from `x_from` to `x_to`.
+fn wall_x(z: f32, x_from: f32, x_to: f32, height: f32) -> Piece {
+    block(
+        Vec3::new(x_from.min(x_to), 0.0, z - 8.0),
+        Vec3::new(x_from.max(x_to), height, z + 8.0),
+        Kind::Wall,
+    )
 }
 
 /// The test map's collision, read by the movement tick.
@@ -207,13 +288,7 @@ pub fn spawn_test_map(
         brightness: 2500.0,
         ..default()
     });
-    commands.insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)));
-    // Fill light so faces turned away from the sun aren't black.
-    commands.insert_resource(GlobalAmbientLight {
-        brightness: 2500.0,
-        ..default()
-    });
-    let checker = images.add(checker_image());
+    let grid = images.add(grid_image());
     let mut material_for = std::collections::HashMap::new();
 
     for piece in layout() {
@@ -222,7 +297,7 @@ pub fn spawn_test_map(
             .or_insert_with(|| {
                 materials.add(StandardMaterial {
                     base_color: piece.kind.color(),
-                    base_color_texture: Some(checker.clone()),
+                    base_color_texture: Some(grid.clone()),
                     perceptual_roughness: 0.9,
                     ..default()
                 })
@@ -256,8 +331,8 @@ pub fn spawn_test_map(
     ));
 }
 
-/// A box mesh whose UVs are in world units, so the checker pattern is the same
-/// size on every surface and shows how fast you're moving.
+/// A box mesh whose UVs are in world units, so the grid is the same size on
+/// every surface and shows distances and how fast you're moving.
 fn box_mesh(half: Vec3) -> Mesh {
     let mut mesh = Mesh::from(Cuboid::from_size(half * 2.0));
     let (
@@ -282,33 +357,74 @@ fn box_mesh(half: Vec3) -> Mesh {
             } else {
                 [p[0], p[1]]
             };
-            [uv[0] / (2.0 * CHECKER), uv[1] / (2.0 * CHECKER)]
+            [uv[0] / GRID_TILE, uv[1] / GRID_TILE]
         })
         .collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
     mesh
 }
 
-/// 2×2 light/dark checker, tiled. Multiplied by each material's colour.
-fn checker_image() -> Image {
-    const LIGHT: [u8; 4] = [255, 255, 255, 255];
-    const DARK: [u8; 4] = [214, 214, 214, 255];
-    let data = [LIGHT, DARK, DARK, LIGHT].concat();
+/// The measuring grid, tiled: a thin line every 64 units and a thick one every
+/// 512, multiplied by each material's colour. It carries its own smaller
+/// copies (mipmaps), so distant lines blend to grey instead of shimmering.
+fn grid_image() -> Image {
+    let n = GRID_PIXELS as usize;
+    let minor = n / (GRID_TILE / 64.0) as usize;
+    let shade = |x: usize, y: usize| -> u8 {
+        let edge = |v: usize| v < 2 || v >= n - 1;
+        let line = |v: usize| v.is_multiple_of(minor);
+        if edge(x) || edge(y) {
+            150
+        } else if line(x) || line(y) {
+            200
+        } else {
+            245
+        }
+    };
+    let mut level: Vec<u8> = (0..n * n).map(|i| shade(i % n, i / n)).collect();
+    let mut data = Vec::new();
+    let mut size = n;
+    let mut levels = 0;
+    loop {
+        data.extend(level.iter().flat_map(|&v| [v, v, v, 255]));
+        levels += 1;
+        if size == 1 {
+            break;
+        }
+        // Each pixel of the next level averages a 2×2 block of this one.
+        let half = size / 2;
+        level = (0..half * half)
+            .map(|i| {
+                let (x, y) = (i % half * 2, i / half * 2);
+                let sum: u32 = [(x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1)]
+                    .iter()
+                    .map(|&(a, b)| level[b * size + a] as u32)
+                    .sum();
+                (sum / 4) as u8
+            })
+            .collect();
+        size = half;
+    }
     let mut image = Image::new(
         Extent3d {
-            width: 2,
-            height: 2,
+            width: GRID_PIXELS,
+            height: GRID_PIXELS,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        data,
+        data[..n * n * 4].to_vec(),
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::RENDER_WORLD,
     );
+    // Bevy note: `Image::new` takes only the full-size level; the smaller ones
+    // are appended after it, with the level count set to match.
+    image.data = Some(data);
+    image.texture_descriptor.mip_level_count = levels;
     image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
         address_mode_u: ImageAddressMode::Repeat,
         address_mode_v: ImageAddressMode::Repeat,
-        ..ImageSamplerDescriptor::nearest()
+        anisotropy_clamp: 16,
+        ..ImageSamplerDescriptor::linear()
     });
     image
 }
@@ -369,7 +485,7 @@ mod tests {
         };
         let (state, _) = run(
             &world,
-            MovementState::new(Vec3::new(90.0, 1.0, -1300.0)),
+            MovementState::new(Vec3::new(115.0, 1.0, -1300.0)),
             sprint(0.0),
             0.6,
         );

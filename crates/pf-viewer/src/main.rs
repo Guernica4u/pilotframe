@@ -4,7 +4,7 @@
 //! Usage: `cargo run -p pf-viewer --release -- <path/to/mp_colony.bsp> [materials_dir...]`
 //!
 //! Materials default to the `materials` (and `common/materials`) folders above
-//! the map, the layout `pf-pc vpk-extract` / `materials-for` produce.
+//! the map, the layout `pf-vpk extract` produces.
 //!
 //! Controls: click to capture the mouse (Esc releases), WASD to fly, Space/Ctrl
 //! up/down, Shift for speed.
