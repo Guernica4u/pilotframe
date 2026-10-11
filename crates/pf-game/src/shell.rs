@@ -3,8 +3,7 @@
 //! It stands in for the menus until they're rebuilt from the game's own UI
 //! files (roadmap R9).
 //!
-//! `PF_MAP=colony` or `=test` picks the map (default Colony, or the greybox
-//! test map if Colony's files aren't found).
+//! The greybox test map is the default; `PF_MAP=colony` loads Colony instead.
 
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -17,9 +16,7 @@ pub struct ShellPlugin;
 impl Plugin for ShellPlugin {
     fn build(&self, app: &mut App) {
         let map = match std::env::var("PF_MAP").as_deref() {
-            Ok("test") => ChosenMap::TestMap,
             Ok("colony") => ChosenMap::Colony,
-            _ if crate::level::colony_path().is_some() => ChosenMap::Colony,
             _ => ChosenMap::TestMap,
         };
         app.insert_resource(map)

@@ -7,7 +7,7 @@
 
   | Variable | Does |
   |---|---|
-  | `PF_MAP=colony\|test` | which map to start on (default Colony, or the greybox test map if Colony isn't found) |
+  | `PF_MAP=colony` | start on Colony instead of the greybox test map (the default) |
   | `PF_WINDOW=1920x1080` | window size |
   | `PF_SANDBOX_SCREENSHOT=out.png` | save a screenshot after `PF_SCREENSHOT_DELAY` seconds (default 2), then quit |
   | `PF_DEV_ADS=1` | hold aim |
