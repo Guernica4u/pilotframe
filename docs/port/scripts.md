@@ -8,6 +8,18 @@ What we know about how Titanfall runs its Squirrel scripts, from the scripts in 
 - **The interpreter:** **Squirrel 2.2.3 stable** (its version string), built into `launcher.dll`. `dedicated.dll` carries a copy.
 - **No server code:** the PC game ships no `server.dll` (multiplayer ran on Respawn's servers), so the server VM's native functions aren't in the install. Where server scripts need one, its behaviour has to be worked out from the scripts and the client's matching code.
 
+## R1Delta as a reference
+
+- **Its interpreter is the original:** R1Delta's `launcher.dll` is byte-identical to the EA install's (same SHA-256), so script behaviour measured in R1Delta (the oracle, below) is the real game's.
+- **Its scripts are not:** R1Delta ships its own `scripts/vscripts/`, in its install folder under `r1delta/`. Of its 478 files:
+  - 47 match the originals;
+  - 131 are changed, including the HUD's own (`cl_main_hud.nut`, `_cl_misc_hud.nut`, `cl_titan_hud.nut`) and many weapons;
+  - 300 are new.
+- **What that means for reference shots:** R1Delta's HUD is not the original HUD. Its changes sit behind `delta_hud_*` console variables (level-up banner, XP bar, chat, Titan earnings, anti-Titan hint and so on). Reference shots need those set to the original behaviour. Even then, the code around them differs, so for the HUD the original scripts, run by our interpreter, are the reference.
+- **Running a test script in R1Delta:**
+  - R1Delta adds a `script_client` console command.
+  - Its loose `scripts/vscripts/` folder is searched for scripts, so a file placed there can be run with `script_client IncludeScript( "name" )` while in a map.
+
 ## The script VMs and how they start
 
 - `launcher.dll` creates each VM and runs `scripts/vscripts/init.nut`, `_consts.nut` and `_threads.nut` in it.
