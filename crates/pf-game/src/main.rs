@@ -48,6 +48,7 @@ pub enum Screen {
 }
 
 fn main() {
+    data::mount();
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {

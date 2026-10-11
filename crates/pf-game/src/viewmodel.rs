@@ -13,7 +13,6 @@
 //! there's simply no weapon on screen.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 
 use crate::loadout::{DEFAULT_PRESET, Loadout, WeaponScript};
 
@@ -102,16 +101,16 @@ struct WeaponData {
 impl WeaponData {
     /// The loadout's primary weapon's settings, with its attachment and the
     /// passives applied as mods ([`crate::loadout`]).
-    fn load(dir: &Path, loadout: &Loadout) -> Option<Self> {
+    fn load(loadout: &Loadout) -> Option<Self> {
         let mut mods: Vec<&str> = loadout
             .primary_attachment
             .iter()
             .map(String::as_str)
             .collect();
         mods.extend(loadout.passives.iter().map(String::as_str));
-        let script = WeaponScript::load(dir, &loadout.primary, &mods)?;
+        let script = WeaponScript::load(&loadout.primary, &mods)?;
         let sway = sway::Settings::from_script(&script);
-        let recoil = RecoilData::from_script(dir, &script);
+        let recoil = RecoilData::from_script(&script);
         let kv = script.values;
         let num = |k: &str, default: f32| {
             kv.get(k)
@@ -274,13 +273,9 @@ fn to_view(p: Vec3) -> Vec3 {
     Vec3::new(-p.x, p.y, -p.z)
 }
 
-fn read_model(
-    dir: &Path,
-    rel: &str,
-    bodygroups: &[(String, usize)],
-) -> Option<(Vec<u8>, pf_fmt_mdl::Model)> {
-    let path = dir.join(rel);
-    let read = |ext: &str| std::fs::read(path.with_extension(ext)).ok();
+fn read_model(rel: &str, bodygroups: &[(String, usize)]) -> Option<(Vec<u8>, pf_fmt_mdl::Model)> {
+    let stem = rel.strip_suffix(".mdl").unwrap_or(rel);
+    let read = |ext: &str| crate::data::read(&format!("{stem}.{ext}"));
     let mdl = read("mdl")?;
     let body = |name: &str| {
         bodygroups
@@ -299,7 +294,6 @@ fn build_rig(
     parent: Entity,
     mdl: &[u8],
     model: &pf_fmt_mdl::Model,
-    material_dirs: &[PathBuf],
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     reticles: &mut Assets<UnlitTwoTexture>,
@@ -322,9 +316,9 @@ fn build_rig(
         let name = m
             .materials
             .iter()
-            .find(|name| pf_world::read_first(material_dirs, &format!("{name}.vmt")).is_some());
+            .find(|name| pf_world::read_material_file(&format!("{name}.vmt")).is_some());
         let vmt = name
-            .and_then(|n| pf_world::read_first(material_dirs, &format!("{n}.vmt")))
+            .and_then(|n| pf_world::read_material_file(&format!("{n}.vmt")))
             .map(|t| String::from_utf8_lossy(&t).into_owned())
             .unwrap_or_default();
         let shader = vmt
@@ -334,7 +328,7 @@ fn build_rig(
             .trim_matches('"')
             .to_ascii_lowercase();
         let proxies = ProxyMaterial::parse(&vmt);
-        let loaded = name.and_then(|n| pf_world::load_material(material_dirs, n));
+        let loaded = name.and_then(|n| pf_world::load_material(n));
         // Attachments like the HCOG's reticle are unlit, see-through or glowing,
         // and tinted by the material's `$color2`.
         let (additive, unlit, tint, blend) = loaded
@@ -351,7 +345,7 @@ fn build_rig(
             // The reticles: base × scrolling noise.
             // A missing texture would keep the material from ever drawing, so
             // fall back to plain white.
-            let second = texture2(material_dirs, &vmt).map(|i| images.add(i));
+            let second = texture2(&vmt).map(|i| images.add(i));
             let texture = texture.or_else(|| Some(images.add(Image::default())));
             let second = second.or_else(|| Some(images.add(Image::default())));
             let material = reticles.add(crate::unlit_two::material(
@@ -397,10 +391,8 @@ fn build_rig(
         };
         // `$selfillum` materials (the sight's glass) glow through their mask.
         let glow = crate::self_illum::settings(&vmt).and_then(|(mask, tint)| {
-            let image = pf_world::vtf_to_image(&pf_world::read_first(
-                material_dirs,
-                &format!("{mask}.vtf"),
-            )?)?;
+            let image =
+                pf_world::vtf_to_image(&pf_world::read_material_file(&format!("{mask}.vtf"))?)?;
             Some((images.add(image), tint))
         });
         let mut entity = commands.spawn((
@@ -456,7 +448,7 @@ struct DrivenMaterial {
 
 /// The `$texture2` of an `UnlitTwoTexture` material. Read raw: material paths
 /// use backslashes, which our KeyValues parser takes as escapes.
-fn texture2(material_dirs: &[PathBuf], vmt: &str) -> Option<Image> {
+fn texture2(vmt: &str) -> Option<Image> {
     let line = vmt.lines().find(|l| {
         l.trim_start()
             .to_ascii_lowercase()
@@ -468,10 +460,7 @@ fn texture2(material_dirs: &[PathBuf], vmt: &str) -> Option<Image> {
         .replace('\\', "/")
         .to_ascii_lowercase();
     let path = path.trim_end_matches(".vtf");
-    pf_world::vtf_to_image(&pf_world::read_first(
-        material_dirs,
-        &format!("{path}.vtf"),
-    )?)
+    pf_world::vtf_to_image(&pf_world::read_material_file(&format!("{path}.vtf"))?)
 }
 
 /// A driven mesh and whichever material it has.
@@ -530,20 +519,15 @@ pub fn spawn(
     glows: &mut Assets<SelfIllumMaterial>,
     images: &mut Assets<Image>,
 ) {
-    let dir = crate::data::common_dir();
-    let loadout = Loadout::preset(&dir, DEFAULT_PRESET).unwrap_or_default();
-    let Some(data) = WeaponData::load(&dir, &loadout) else {
-        info!(
-            "no viewmodel: the loadout's primary weapon script isn't under {}",
-            dir.display()
-        );
+    let loadout = Loadout::preset(DEFAULT_PRESET).unwrap_or_default();
+    let Some(data) = WeaponData::load(&loadout) else {
+        info!("no viewmodel: the loadout's primary weapon script isn't in the game files");
         return;
     };
-    let Some((mdl, model)) = read_model(&dir, &data.viewmodel, &data.bodygroups) else {
+    let Some((mdl, model)) = read_model(&data.viewmodel, &data.bodygroups) else {
         info!("no viewmodel: {} not found", data.viewmodel);
         return;
     };
-    let material_dirs = vec![dir.join("materials")];
 
     let view_camera = commands
         .spawn((
@@ -580,7 +564,6 @@ pub fn spawn(
         view_camera,
         &mdl,
         &model,
-        &material_dirs,
         meshes,
         materials,
         reticles,
@@ -589,13 +572,12 @@ pub fn spawn(
     ) else {
         return;
     };
-    let arms = read_model(&dir, ARMS, &[]).and_then(|(arms_mdl, arms_model)| {
+    let arms = read_model(ARMS, &[]).and_then(|(arms_mdl, arms_model)| {
         let rig = build_rig(
             commands,
             view_camera,
             &arms_mdl,
             &arms_model,
-            &material_dirs,
             meshes,
             materials,
             reticles,

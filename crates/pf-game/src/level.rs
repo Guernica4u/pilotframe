@@ -6,7 +6,6 @@
 
 use bevy::prelude::*;
 use pf_movement::StaticWorld;
-use std::path::PathBuf;
 
 use crate::Screen;
 
@@ -49,18 +48,6 @@ pub struct SpawnPoint {
 #[derive(Component)]
 pub struct LevelEntity;
 
-/// Where Colony's unpacked map file is, if it's there. `PF_COLONY` overrides the
-/// default location `pf-vpk extract` writes to.
-// TODO (R1): read the install's VPKs directly instead.
-pub fn colony_path() -> Option<PathBuf> {
-    let path = std::env::var_os("PF_COLONY")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from("Resources/pc_extracted/colony/depot/r1dev/game/r1/maps/mp_colony.bsp")
-        });
-    path.is_file().then_some(path)
-}
-
 fn load_level(mut commands: Commands, chosen: Res<ChosenMap>, mut next: ResMut<NextState<Screen>>) {
     match *chosen {
         ChosenMap::TestMap => {
@@ -71,9 +58,7 @@ fn load_level(mut commands: Commands, chosen: Res<ChosenMap>, mut next: ResMut<N
             });
         }
         ChosenMap::Colony => {
-            let loaded = colony_path().ok_or_else(|| "Colony's files weren't found".to_string());
-            let loaded =
-                loaded.and_then(|p| pf_world::load(&p, Vec::new()).map_err(|e| e.to_string()));
+            let loaded = pf_world::load("mp_colony").map_err(|e| e.to_string());
             let map = match loaded {
                 Ok(map) => map,
                 Err(e) => {
@@ -87,8 +72,7 @@ fn load_level(mut commands: Commands, chosen: Res<ChosenMap>, mut next: ResMut<N
             // World and props go into one triangle mesh, so every movement
             // query searches a single tree.
             let (mut points, mut triangles) = pf_world::collision_triangles(&map.geometry);
-            let (prop_points, prop_triangles) =
-                pf_world::props::prop_collision(&map.props, &map.materials.0);
+            let (prop_points, prop_triangles) = pf_world::props::prop_collision(&map.props);
             let base = points.len() as u32;
             points.extend(prop_points);
             triangles.extend(prop_triangles.iter().map(|t| t.map(|i| base + i)));
@@ -122,6 +106,5 @@ fn clear_level(mut commands: Commands, level: Query<Entity, LevelOrMap>) {
     commands.remove_resource::<MapCollision>();
     commands.remove_resource::<SpawnPoint>();
     commands.remove_resource::<pf_world::MapGeometry>();
-    commands.remove_resource::<pf_world::MaterialsDirs>();
     commands.remove_resource::<pf_world::props::StaticProps>();
 }

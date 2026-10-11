@@ -11,6 +11,9 @@ bevy.workspace = true
 pf-fmt-bsp = { path = "../pf-fmt-bsp" }
 pf-fmt-vtf = { path = "../pf-fmt-vtf" }
 pf-fmt-mdl = { path = "../pf-fmt-mdl" }
+pf-fmt-vpk = { path = "../pf-fmt-vpk" }
+pf-lzham = { path = "../pf-lzham" }
+pf-vfs.workspace = true
 
 [lints]
 workspace = true

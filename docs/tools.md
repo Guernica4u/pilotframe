@@ -8,6 +8,7 @@
   | Variable | Does |
   |---|---|
   | `PF_MAP=colony` | start on Colony instead of the greybox test map (the default) |
+  | `PF_GAME_DIR=<folder>` | the EA install (the folder holding `vpk/`); otherwise it's searched for under `Resources/` |
   | `PF_WINDOW=1920x1080` | window size |
   | `PF_SANDBOX_SCREENSHOT=out.png` | save a screenshot after `PF_SCREENSHOT_DELAY` seconds (default 2), then quit |
   | `PF_DEV_ADS=1` | hold aim |
@@ -16,8 +17,9 @@
   | `PF_DEV_PITCH=<deg>` | hold the view at a pitch (up is positive) |
 
   Running the exe directly needs `BEVY_ASSET_ROOT=crates/pf-game`.
-- **`pf-viewer <map.bsp> [materials...]`**: fly through a map with no collision.
-- **`pf-vpk list|extract`**: VPK contents (`Tools/pf-vpk`).
+- **Game files** are read straight from the install's VPKs (`pf_world::gamefs`): the shared `mp_common` pack at start, a map's pack when it loads. Loose files in `mods/` (in the working folder, gitignored) override them, using the game's own paths, e.g. `mods/scripts/weapons/mp_weapon_rspn101.txt`.
+- **`pf-viewer <map>`** (e.g. `mp_colony`): fly through a map with no collision.
+- **`pf-vpk list|extract`**: VPK contents (`Tools/pf-vpk`), for reading files by hand; the game doesn't need anything extracted.
 
 ## Local only (never committed)
 
