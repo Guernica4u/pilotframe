@@ -1,10 +1,10 @@
 //! Map viewer: fly around a Titanfall map (drawn by `pf-world`) with no
 //! collision. Handy for checking how a map looks.
 //!
-//! Usage: `cargo run -p pf-viewer --release -- <path/to/mp_colony.bsp> [materials_dir...]`
+//! Usage: `cargo run -p pf-viewer --release -- <map>` (e.g. `mp_colony`).
 //!
-//! Materials default to the `materials` (and `common/materials`) folders above
-//! the map, the layout `pf-vpk extract` produces.
+//! Reads the map from the EA install, found under `Resources/` (or set
+//! `PF_GAME_DIR` to the folder holding `vpk/`).
 //!
 //! Controls: click to capture the mouse (Esc releases), WASD to fly, Space/Ctrl
 //! up/down, Shift for speed.
@@ -13,7 +13,7 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use pf_world::{EYE_HEIGHT, MapGeometry, WorldPlugin};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Flying speed in game units (~inches) per second.
 const SPEED: f32 = 800.0;
@@ -22,22 +22,28 @@ const MOUSE_SENSITIVITY: f32 = 0.002;
 
 fn main() {
     let path = std::env::args().nth(1).unwrap_or_else(|| {
-        eprintln!("usage: pf-viewer <map.bsp> [materials_dir...]");
+        eprintln!("usage: pf-viewer <map, e.g. mp_colony>");
         std::process::exit(2);
     });
-    let dirs: Vec<PathBuf> = std::env::args().skip(2).map(PathBuf::from).collect();
-    let map = pf_world::load(Path::new(&path), dirs).unwrap_or_else(|e| {
+    let install = pf_world::gamefs::find_install(Path::new("Resources")).unwrap_or_else(|| {
+        eprintln!("error: no EA install found under Resources/ (set PF_GAME_DIR)");
+        std::process::exit(1);
+    });
+    if let Err(e) = pf_world::gamefs::mount_install(&install, None) {
+        eprintln!("error: {}: {e}", install.display());
+        std::process::exit(1);
+    }
+    let map = pf_world::load(&path).unwrap_or_else(|e| {
         eprintln!("error: {path}: {e}");
         std::process::exit(1);
     });
     let g = &map.geometry.0;
     println!(
-        "{path}: {} meshes, {} triangles, {} materials, {} props; materials from {:?}",
+        "{path}: {} meshes, {} triangles, {} materials, {} props",
         g.meshes.len(),
         g.triangle_count(),
         g.materials.len(),
         map.props.props.len(),
-        map.materials.0,
     );
 
     App::new()
@@ -53,7 +59,6 @@ fn main() {
         .insert_resource(ClearColor(Color::srgb_u8(170, 172, 176)))
         .add_plugins(WorldPlugin)
         .insert_resource(map.geometry)
-        .insert_resource(map.materials)
         .insert_resource(map.props)
         .add_systems(
             Startup,

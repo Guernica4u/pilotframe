@@ -13,7 +13,6 @@
 //! is simply no HUD.
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -116,8 +115,8 @@ const ENEMY_TEAM_NAME: &str = "#TEAM_IMC";
 const FRIENDLY_TEAM_ICON: &str = "../ui/scoreboard_mcorp_logo";
 
 /// A value from the first playlist's `vars` (`playlists.txt`).
-fn playlist_var(dir: &Path, key: &str) -> Option<f32> {
-    let text = read_text(&dir.join("playlists.txt"))?;
+fn playlist_var(key: &str) -> Option<f32> {
+    let text = crate::data::read_text("playlists.txt")?;
     let root = kv::parse(&text).nodes.into_iter().next()?;
     let vars = root.get("rotation")?.get("vars")?;
     vars.text(key)?.trim().parse().ok()
@@ -125,8 +124,8 @@ fn playlist_var(dir: &Path, key: &str) -> Option<f32> {
 
 /// The playlist's `titan_build_time` (`playlists.txt`, the first playlist's
 /// `vars`); the script's own default is 340.
-fn titan_build_time(dir: &Path) -> f32 {
-    playlist_var(dir, "titan_build_time").unwrap_or(340.0)
+fn titan_build_time() -> f32 {
+    playlist_var("titan_build_time").unwrap_or(340.0)
 }
 
 /// Seconds as the localisation's countdown format (`HudAutoText_CountdownTime`,
@@ -182,7 +181,7 @@ const TITAN_READY_ICON: &str = "HUD/titan_stance_ready";
 ///   and either a count or a ready bar (see [`shows_bar`]).
 /// - The anti-Titan weapon in the d-pad's left slot (`MainHud_UpdateWeapons`):
 ///   its `hud_icon` and key. Its title and description are drawn at alpha 0.
-fn elements(dir: &Path, loadout: &Loadout) -> Vec<(String, Fill)> {
+fn elements(loadout: &Loadout) -> Vec<(String, Fill)> {
     let mut out: Vec<(String, Fill)> = [
         ("dpadIconBG", Fill::Layout),
         ("dpadIcon", Fill::Layout),
@@ -207,7 +206,7 @@ fn elements(dir: &Path, loadout: &Loadout) -> Vec<(String, Fill)> {
     .collect();
     let passives: Vec<&str> = loadout.passives.iter().map(String::as_str).collect();
     for (slot, name) in [(0, &loadout.ordnance), (1, &loadout.special)] {
-        let Some(weapon) = WeaponScript::load(dir, name, &passives) else {
+        let Some(weapon) = WeaponScript::load(name, &passives) else {
             continue;
         };
         let element = |part: &str| format!("Offhand{slot}{part}");
@@ -220,13 +219,13 @@ fn elements(dir: &Path, loadout: &Loadout) -> Vec<(String, Fill)> {
             // Full while ready; abilities can't be used yet, so always ready.
             out.push((element("Bar"), Fill::Layout));
         } else {
-            let format = localise(dir, &format!("#HudAutoText_PilotOffhandWeaponAmmo{slot}"));
+            let format = localise(&format!("#HudAutoText_PilotOffhandWeaponAmmo{slot}"));
             let count = weapon.num("ammo_clip_size").unwrap_or(0.0) as u32;
             let text = format.replace("%s1", &count.to_string());
             out.push((element("Count"), Fill::Text(text)));
         }
     }
-    if let Some(icon) = WeaponScript::load(dir, &loadout.secondary, &passives)
+    if let Some(icon) = WeaponScript::load(&loadout.secondary, &passives)
         .and_then(|w| w.text("hud_icon").map(str::to_string))
     {
         out.push(("dpadLeftIcon".into(), Fill::Image(icon)));
@@ -267,7 +266,7 @@ fn elements(dir: &Path, loadout: &Loadout) -> Vec<(String, Fill)> {
         ]
         .map(|(n, f)| (n.to_string(), f)),
     );
-    out.extend(score_panel(dir));
+    out.extend(score_panel());
     out
 }
 
@@ -278,21 +277,20 @@ fn elements(dir: &Path, loadout: &Loadout) -> Vec<(String, Fill)> {
 ///   0.011..0.96 of the strip), its score and its name.
 /// - The 8-player status background; the Titan counts draw nothing with no
 ///   Titans out.
-fn score_panel(dir: &Path) -> Vec<(String, Fill)> {
-    let limit = playlist_var(dir, &format!("{GAME_MODE}_scorelimit")).unwrap_or(1.0);
+fn score_panel() -> Vec<(String, Fill)> {
+    let limit = playlist_var(&format!("{GAME_MODE}_scorelimit")).unwrap_or(1.0);
     let score = 0.0;
     let fraction = 0.011 + (score / limit.max(1.0)).clamp(0.0, 1.0) * (0.96 - 0.011);
-    let team = |token: &str| {
-        localise(dir, "#HudAutoText_FriendlyTeamName").replace("%s1", &localise(dir, token))
-    };
-    let score_text = localise(dir, "#HudAutoText_FriendlyTeamScore").replace("%s1", "0");
+    let team =
+        |token: &str| localise("#HudAutoText_FriendlyTeamName").replace("%s1", &localise(token));
+    let score_text = localise("#HudAutoText_FriendlyTeamScore").replace("%s1", "0");
     [
         ("GameInfoBG", Fill::Layout),
         ("GameInfoFG", Fill::Layout),
         ("ScoresBG", Fill::Layout),
         ("ScoresFG", Fill::Layout),
         ("Player_Status_BG", Fill::Layout),
-        ("GameModeLabel", Fill::Text(localise(dir, GAME_MODE_NAME))),
+        ("GameModeLabel", Fill::Text(localise(GAME_MODE_NAME))),
         ("ScoresFriendly", Fill::Fraction(fraction)),
         ("ScoresLabelFriendly", Fill::Text(score_text.clone())),
         (
@@ -325,8 +323,8 @@ fn shows_bar(weapon: &WeaponScript) -> bool {
 /// The key bound to each command in the game's default PC key binds
 /// (`cfg/config_default_pc.cfg`), e.g. `+offhand1` -> `F`. The first key wins
 /// when a command has more than one.
-fn default_binds(dir: &Path) -> HashMap<String, String> {
-    let text = std::fs::read_to_string(dir.join("cfg/config_default_pc.cfg")).unwrap_or_default();
+fn default_binds() -> HashMap<String, String> {
+    let text = crate::data::read_text("cfg/config_default_pc.cfg").unwrap_or_default();
     parse_binds(&text)
 }
 
@@ -376,7 +374,7 @@ fn bind_text(text: &str, binds: &HashMap<String, String>) -> String {
 /// (keys of one or two letters, and `;` `'` `,` `.`) or `icon_key_wide`, with
 /// the key's name on top. Returns the sprite's file, its rectangle in pixels,
 /// and whether the key's name is drawn on it.
-fn key_icon(dir: &Path, key: &str) -> Option<(String, Rect, bool)> {
+fn key_icon(key: &str) -> Option<(String, Rect, bool)> {
     let upper = key.to_ascii_uppercase();
     let (sprite, text) = match upper.as_str() {
         "MOUSE1" => ("icon_mouseLeft", false),
@@ -392,7 +390,7 @@ fn key_icon(dir: &Path, key: &str) -> Option<(String, Rect, bool)> {
         k if k.chars().count() >= 3 => ("icon_key_wide", true),
         _ => ("icon_key_generic", true),
     };
-    let text_file = std::fs::read_to_string(dir.join("scripts/hud_textures.txt")).ok()?;
+    let text_file = crate::data::read_text("scripts/hud_textures.txt")?;
     let file = kv::parse(&text_file);
     let data = file.nodes.first()?.get("TextureData")?;
     let entry = data
@@ -437,12 +435,13 @@ struct Crosshair {
 }
 
 /// Read a `.res` file and lay its `#base` files underneath it.
-fn load_res(path: &Path) -> Option<kv::Node> {
-    let text = std::fs::read_to_string(path).ok()?;
+fn load_res(path: &str) -> Option<kv::Node> {
+    let text = crate::data::read_text(path)?;
     let file = kv::parse(&text);
     let mut root = file.nodes.into_iter().next()?;
+    let folder = path.rsplit_once('/').map_or("", |(d, _)| d);
     for base in file.bases.iter().rev() {
-        if let Some(mut merged) = load_res(&path.with_file_name(base)) {
+        if let Some(mut merged) = load_res(&format!("{folder}/{base}")) {
             merged.merge(&root);
             root = merged;
         }
@@ -450,34 +449,34 @@ fn load_res(path: &Path) -> Option<kv::Node> {
     Some(root)
 }
 
-/// A text file that may be UTF-16 (little-endian, with a byte-order mark),
-/// as the localisation and playlists are, or plain UTF-8.
-fn read_text(path: &Path) -> Option<String> {
-    let bytes = std::fs::read(path).ok()?;
-    match bytes.strip_prefix(&[0xFF, 0xFE]) {
-        Some(utf16) => {
-            let units: Vec<u16> = utf16
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .map(|&c| u16::from_le_bytes(c))
-                .collect();
-            Some(String::from_utf16_lossy(&units))
-        }
-        None => Some(String::from_utf8_lossy(&bytes).into_owned()),
-    }
-}
-
 /// The English text for a `#TOKEN`, from `resource/r1_english.txt` (UTF-16).
-fn localise(dir: &Path, token: &str) -> String {
+/// The file is read once and kept.
+fn localise(token: &str) -> String {
+    // Bevy note: not Bevy at all; `OnceLock` is a static filled on first use.
+    static TOKENS: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
+    let tokens = TOKENS.get_or_init(|| {
+        let text = crate::data::read_text("resource/r1_english.txt").unwrap_or_default();
+        kv::parse(&text)
+            .nodes
+            .first()
+            .and_then(|lang| lang.get("Tokens"))
+            .map(|t| {
+                // Reversed, so the first of any repeated key wins.
+                t.children()
+                    .iter()
+                    .rev()
+                    .filter_map(|n| match &n.value {
+                        kv::Value::Text(v) => Some((n.key.to_ascii_lowercase(), v.clone())),
+                        kv::Value::Block(_) => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    });
     let key = token.trim_start_matches('#');
-    let text = read_text(&dir.join("resource/r1_english.txt")).unwrap_or_default();
-    kv::parse(&text)
-        .nodes
-        .first()
-        .and_then(|lang| lang.get("Tokens"))
-        .and_then(|t| t.text(key))
-        .map(str::to_string)
+    tokens
+        .get(&key.to_ascii_lowercase())
+        .cloned()
         .unwrap_or_else(|| key.to_string())
 }
 
@@ -488,11 +487,10 @@ struct SchemeFont {
 }
 
 /// The HUD fonts named in `hudscriptedscheme.res`, loaded from their `.vfont`s.
-fn load_fonts(dir: &Path, fonts: &mut Assets<Font>) -> HashMap<String, SchemeFont> {
+fn load_fonts(fonts: &mut Assets<Font>) -> HashMap<String, SchemeFont> {
     let mut by_file: HashMap<String, Handle<Font>> = HashMap::new();
     let mut out = HashMap::new();
-    let Some(scheme) = std::fs::read_to_string(dir.join("resource/hudscriptedscheme.res"))
-        .ok()
+    let Some(scheme) = crate::data::read_text("resource/hudscriptedscheme.res")
         .and_then(|t| kv::parse(&t).nodes.into_iter().next())
     else {
         return out;
@@ -511,8 +509,7 @@ fn load_fonts(dir: &Path, fonts: &mut Assets<Font>) -> HashMap<String, SchemeFon
         let handle = match by_file.get(&file) {
             Some(h) => h.clone(),
             None => {
-                let Some(font) = std::fs::read(dir.join(format!("resource/{file}.vfont")))
-                    .ok()
+                let Some(font) = crate::data::read(&format!("resource/{file}.vfont"))
                     .and_then(|b| vfont::decode(&b))
                     .map(Font::from_bytes)
                 else {
@@ -546,9 +543,9 @@ fn color(v: Option<&str>) -> Color {
 }
 
 /// A HUD texture, and whether its material is `$additive`.
-fn hud_image(dir: &Path, images: &mut Assets<Image>, name: &str) -> Option<(Handle<Image>, bool)> {
+fn hud_image(images: &mut Assets<Image>, name: &str) -> Option<(Handle<Image>, bool)> {
     let material = format!("vgui/{}", name.replace('\\', "/").to_ascii_lowercase());
-    let loaded = pf_world::load_material(&[dir.join("materials")], &material)?;
+    let loaded = pf_world::load_material(&material)?;
     let additive = loaded.additive;
     loaded.texture.map(|i| (images.add(i), additive))
 }
@@ -599,28 +596,27 @@ fn spawn(
     weapon: Option<Single<&Viewmodel>>,
     window: Option<Single<&Window, With<PrimaryWindow>>>,
 ) {
-    let dir = crate::data::common_dir();
-    let Some(mut root) = load_res(&dir.join("scripts/screens/vgui_fullscreen_pilot.res")) else {
-        info!("no HUD: the pilot HUD layout isn't under {}", dir.display());
+    let Some(mut root) = load_res("scripts/screens/vgui_fullscreen_pilot.res") else {
+        info!("no HUD: the pilot HUD layout isn't in the game files");
         return;
     };
     let aspect = window.map_or(16.0 / 9.0, |w| w.width() / w.height().max(1.0));
     resize_safe_area(&mut root, aspect);
-    let fonts = load_fonts(&dir, &mut fonts);
-    let binds = default_binds(&dir);
-    let loadout = Loadout::preset(&dir, DEFAULT_PRESET).unwrap_or_default();
+    let fonts = load_fonts(&mut fonts);
+    let binds = default_binds();
+    let loadout = Loadout::preset(DEFAULT_PRESET).unwrap_or_default();
     commands.insert_resource(CockpitSway {
-        settings: crate::cockpit_sway::Settings::load(&dir).sway(),
+        settings: crate::cockpit_sway::Settings::load().sway(),
         sway: default(),
     });
     commands.insert_resource(TitanBuild {
-        total: titan_build_time(&dir).max(1.0),
+        total: titan_build_time().max(1.0),
         start: time.elapsed_secs(),
-        match_length: playlist_var(&dir, &format!("{GAME_MODE}_timelimit")).unwrap_or(0.0) * 60.0,
+        match_length: playlist_var(&format!("{GAME_MODE}_timelimit")).unwrap_or(0.0) * 60.0,
     });
     let weapon_name = weapon
         .as_ref()
-        .map(|w| localise(&dir, w.short_name()))
+        .map(|w| localise(w.short_name()))
         .unwrap_or_default();
     // Text boxes that size to their text get a rough width from the font size;
     // only the ammo counts do, and they're right-aligned against their pin.
@@ -660,7 +656,7 @@ fn spawn(
         }
     };
 
-    for (name, fill) in elements(&dir, &loadout) {
+    for (name, fill) in elements(&loadout) {
         let (Some(node), Some(rect)) = (root.get(&name), rects.get(&name.to_ascii_lowercase()))
         else {
             continue;
@@ -677,15 +673,14 @@ fn spawn(
                     Fill::TitanImages(now, _) => Some(*now),
                     _ => node.text("image"),
                 };
-                if let Some((image, additive)) = image.and_then(|i| hud_image(&dir, &mut images, i))
-                {
+                if let Some((image, additive)) = image.and_then(|i| hud_image(&mut images, i)) {
                     let mut panel = commands.spawn((
                         base,
                         ImageNode::new(image).with_color(color(node.text("drawColor"))),
                         ChildOf(layer(additive)),
                     ));
                     if let Fill::TitanImages(_, ready) = fill
-                        && let Some((ready, _)) = hud_image(&dir, &mut images, ready)
+                        && let Some((ready, _)) = hud_image(&mut images, ready)
                     {
                         panel.insert((Live::TitanIcon, ReadyImage(ready)));
                     }
@@ -746,8 +741,8 @@ fn spawn(
                 // it, shrunk if it's wider than the cap less one character's
                 // share of padding.
                 if matches!(fill, Fill::KeyHint)
-                    && let Some((file, sprite, with_text)) = key_icon(&dir, &start)
-                    && let Some((cap, _)) = hud_image(&dir, &mut images, &file)
+                    && let Some((file, sprite, with_text)) = key_icon(&start)
+                    && let Some((cap, _)) = hud_image(&mut images, &file)
                 {
                     let height = 1.5 * tall * PIXELS_PER_UNIT;
                     let width = sprite.width() / sprite.height() * height;
@@ -809,7 +804,7 @@ fn spawn(
                 if let Fill::Live(live, format) = fill {
                     text.insert(live);
                     if let Some(token) = format {
-                        text.insert(AutoText(localise(&dir, token)));
+                        text.insert(AutoText(localise(token)));
                     }
                 }
                 if let Some(f) = font {
@@ -839,10 +834,10 @@ fn spawn(
                 let bg_color = bg_color.unwrap_or_else(|| color(node.text("bgcolor_override")));
                 let bg = node
                     .text("bg_image")
-                    .and_then(|i| hud_image(&dir, &mut images, i));
+                    .and_then(|i| hud_image(&mut images, i));
                 let fg = node
                     .text("fg_image")
-                    .and_then(|i| hud_image(&dir, &mut images, i));
+                    .and_then(|i| hud_image(&mut images, i));
                 let setting = |key: &str| node.text(key).is_some_and(|v| v.trim() == "1");
                 // Background and fill may blend differently, so each goes on
                 // its own layer.
@@ -889,8 +884,7 @@ fn spawn(
 
     // The crosshair: shadow arms under the line arms.
     for (layer, name) in ["standard_plus_shadow", "standard_plus"].iter().enumerate() {
-        let Some((image, _)) = hud_image(&dir, &mut images, &format!("hud/crosshairs/{name}"))
-        else {
+        let Some((image, _)) = hud_image(&mut images, &format!("hud/crosshairs/{name}")) else {
             continue;
         };
         for arm in 0..CROSSHAIR_ARMS {
@@ -935,9 +929,7 @@ fn update(
             // a full one (seen in the game; the code computing it isn't read yet).
             Live::MagCount => text.0 = auto(format, w.reserve() / w.clip_size().max(1)),
             // The gun may arrive after the HUD; look its name up once.
-            Live::WeaponName if text.0.is_empty() => {
-                text.0 = localise(&crate::data::common_dir(), w.short_name())
-            }
+            Live::WeaponName if text.0.is_empty() => text.0 = localise(w.short_name()),
             _ => {}
         }
     }

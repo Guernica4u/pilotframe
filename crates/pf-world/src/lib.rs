@@ -1,12 +1,14 @@
 //! Drawing a Titanfall map in Bevy, shared by the map viewer and the game:
 //! world geometry with the original textures and baked lighting, static props,
-//! fog, and the map's collision triangles. Everything here works from files
-//! unpacked from the player's EA install (`pf-vpk`); nothing is bundled.
+//! fog, and the map's collision triangles. Everything is read from the
+//! player's EA install through [`gamefs`]; nothing is bundled.
 //!
-//! Use: add [`WorldPlugin`], call [`load`] and insert the result with
+//! Use: mount the install ([`gamefs::mount_install`]), add [`WorldPlugin`],
+//! call [`load`] and insert the result with
 //! [`LoadedMap::insert`], then run [`spawn_map`] and [`props::spawn_props`].
 //! Everything they spawn carries [`MapEntity`] so a game can clear the map.
 
+pub mod gamefs;
 pub mod props;
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
@@ -19,7 +21,6 @@ use bevy::shader::ShaderRef;
 use pf_fmt_vtf::{Format, Vtf, vmt::Vmt};
 use std::collections::HashMap;
 use std::io;
-use std::path::{Path, PathBuf};
 
 /// Marks everything a map spawns, so it can be despawned in one go.
 #[derive(Component)]
@@ -40,27 +41,22 @@ impl Plugin for WorldPlugin {
 /// A parsed map, ready to insert as resources.
 pub struct LoadedMap {
     pub geometry: MapGeometry,
-    pub materials: MaterialsDirs,
     pub props: props::StaticProps,
 }
 
 impl LoadedMap {
     pub fn insert(self, commands: &mut Commands) {
         commands.insert_resource(self.geometry);
-        commands.insert_resource(self.materials);
         commands.insert_resource(self.props);
     }
 }
 
-/// Read a `.bsp` and everything found next to it (spawn points, props).
-/// `materials`: folders to search for materials; empty means "find them".
-pub fn load(path: &Path, materials: Vec<PathBuf>) -> io::Result<LoadedMap> {
-    let materials = if materials.is_empty() {
-        find_materials_dirs(path)
-    } else {
-        materials
-    };
-    let data = std::fs::read(path)?;
+/// Mount a map's pack and read its `.bsp` and spawn points (`name` like
+/// `mp_colony`).
+pub fn load(name: &str) -> io::Result<LoadedMap> {
+    gamefs::mount_map(name)?;
+    let data = gamefs::read(&format!("maps/{name}.bsp"))
+        .ok_or_else(|| io::Error::other(format!("maps/{name}.bsp isn't in the install")))?;
     let bsp = pf_fmt_bsp::Bsp::parse(&data)?;
     let geometry = bsp.geometry()?;
     let (names, props) = bsp.static_props().unwrap_or_default();
@@ -68,8 +64,7 @@ pub fn load(path: &Path, materials: Vec<PathBuf>) -> io::Result<LoadedMap> {
     // include far-away sky geometry.
     let (min, max) = world_box(&bsp).unwrap_or_else(|| geometry.bounds());
     Ok(LoadedMap {
-        geometry: MapGeometry(geometry, min, max, find_spawn(path)),
-        materials: MaterialsDirs(materials),
+        geometry: MapGeometry(geometry, min, max, find_spawn(name)),
         props: props::StaticProps { names, props },
     })
 }
@@ -136,15 +131,10 @@ pub struct Spawn {
     pub yaw_degrees: f32,
 }
 
-/// The first pilot spawn point from `<map>_spawn.ent` (entity data, KeyValues
-/// blocks), found in a `maps` folder above the map file.
-pub fn find_spawn(map: &Path) -> Option<Spawn> {
-    let stem = map.file_stem()?.to_str()?;
-    let file = map
-        .ancestors()
-        .map(|dir| dir.join("maps").join(format!("{stem}_spawn.ent")))
-        .find(|f| f.is_file())?;
-    let text = std::fs::read_to_string(file).ok()?;
+/// The first pilot spawn point from `maps/<map>_spawn.ent` (entity data,
+/// KeyValues blocks).
+pub fn find_spawn(name: &str) -> Option<Spawn> {
+    let text = gamefs::read_text(&format!("maps/{name}_spawn.ent"))?;
     for block in text.split('{').skip(1) {
         let block = block.split('}').next().unwrap_or_default();
         let value = |key: &str| {
@@ -172,10 +162,6 @@ pub fn find_spawn(map: &Path) -> Option<Spawn> {
     }
     None
 }
-
-/// Folders to look for `.vmt`/`.vtf` files in, in order.
-#[derive(Resource)]
-pub struct MaterialsDirs(pub Vec<PathBuf>);
 
 /// Standard PBR inputs plus the original's lighting data; see `world.wgsl`.
 pub type WorldMaterial = ExtendedMaterial<StandardMaterial, WorldExtension>;
@@ -279,24 +265,9 @@ pub fn world_box(bsp: &pf_fmt_bsp::Bsp) -> Option<([f32; 3], [f32; 3])> {
     Some((read("world_mins")?, read("world_maxs")?))
 }
 
-/// Walk up from the map file looking for `materials` folders: the map's own
-/// (nearest), then a shared `common/materials` (as `pf-vpk extract` lays them out).
-pub fn find_materials_dirs(map: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    for dir in map.ancestors() {
-        for candidate in [dir.join("materials"), dir.join("common").join("materials")] {
-            if candidate.is_dir() && !found.contains(&candidate) {
-                found.push(candidate);
-            }
-        }
-    }
-    found
-}
-
-/// Read the first copy of `relative` found in `dirs`.
-pub fn read_first(dirs: &[PathBuf], relative: &str) -> Option<Vec<u8>> {
-    dirs.iter()
-        .find_map(|d| std::fs::read(d.join(relative)).ok())
+/// A file under `materials/` (e.g. `dev/noise_post.vtf`).
+pub fn read_material_file(relative: &str) -> Option<Vec<u8>> {
+    gamefs::read(&format!("materials/{relative}"))
 }
 
 /// A material's textures once they're on the GPU.
@@ -326,8 +297,8 @@ pub struct LoadedMaterial {
 
 /// Read `<name>.vmt` and its textures. Any failure just means "no texture";
 /// the caller falls back to a flat colour.
-pub fn load_material(dirs: &[PathBuf], name: &str) -> Option<LoadedMaterial> {
-    let text = read_first(dirs, &format!("{name}.vmt"))?;
+pub fn load_material(name: &str) -> Option<LoadedMaterial> {
+    let text = read_material_file(&format!("{name}.vmt"))?;
     let vmt = Vmt::parse(&String::from_utf8_lossy(&text));
     let flag = |k: &str| vmt.params.get(k).is_some_and(|v| v.trim() == "1");
     let alpha = if flag("$translucent") {
@@ -341,7 +312,7 @@ pub fn load_material(dirs: &[PathBuf], name: &str) -> Option<LoadedMaterial> {
         let raw = vmt.params.get(key)?;
         let path = raw.replace('\\', "/").to_ascii_lowercase();
         let path = path.trim_end_matches(".vtf");
-        vtf_to_image(&read_first(dirs, &format!("{path}.vtf"))?)
+        vtf_to_image(&read_material_file(&format!("{path}.vtf"))?)
     };
     Some(LoadedMaterial {
         texture: load("$basetexture"),
@@ -438,7 +409,6 @@ pub fn sun_uniforms(g: &pf_fmt_bsp::Geometry) -> (Vec4, Vec4) {
 pub fn spawn_map(
     mut commands: Commands,
     geometry: Res<MapGeometry>,
-    materials_dirs: Res<MaterialsDirs>,
     scale: Res<LightingScale>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<WorldMaterial>>,
@@ -486,7 +456,7 @@ pub fn spawn_map(
         let loaded = loaded_materials
             .entry(material)
             .or_insert_with(|| {
-                load_material(&materials_dirs.0, &name).map(|m| LoadedTextures {
+                load_material(&name).map(|m| LoadedTextures {
                     texture: m.texture.map(|i| images.add(i)),
                     texture2: m.texture2.map(|i| images.add(i)),
                     alpha: m.alpha,

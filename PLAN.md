@@ -25,8 +25,8 @@ The **EA install, final patch v1.0.10.1** (locally `Resources/titan fall/.../tit
 
 | Step | What | Port from | Status |
 |---|---|---|---|
-| R0 | Reset: one source, cleanup, new plan and docs | — | in progress |
-| R1 | Read the install directly: install path config, VPK mounting (no extraction step), mod-override folder | file formats | |
+| R0 | Reset: one source, cleanup, new plan and docs | — | done |
+| R1 | Read the install directly: install path config, VPK mounting (no extraction step), mod-override folder | file formats | done |
 | R2 | Colony from the EA files: geometry, textures, lightmaps, props, collision, sky | BSP + materials | mostly exists (from older files), re-check |
 | R3 | Pilot movement: ground, air, double jump, wall-run, wall-hang, mantle, crouch, view punches. Values are nearly all from the game already; check the behaviour code against the decompile (`max_slope_deg` is still a guess). | client.dll movement prediction | partly ported |
 | R4 | Viewmodel: animations, sway, recoil, ADS, sight proxies, gun position (ours sits lower and further right than the reference) | client.dll + weapon scripts | partly ported |

@@ -3,14 +3,13 @@
 //! can batch the draws.
 
 use crate::{
-    LightingScale, MapGeometry, MaterialsDirs, WorldExtension, WorldMaterial, color_for,
-    load_material, to_bevy,
+    LightingScale, MapGeometry, WorldExtension, WorldMaterial, color_for, gamefs, load_material,
+    to_bevy,
 };
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 #[derive(Resource)]
 pub struct StaticProps {
@@ -21,24 +20,11 @@ pub struct StaticProps {
 /// One loaded model: its meshes and their materials, ready to spawn.
 type Parts = Vec<(Handle<Mesh>, Handle<WorldMaterial>)>;
 
-/// `models` folders next to each `materials` folder.
-fn models_dirs(materials: &[PathBuf]) -> Vec<PathBuf> {
-    materials
-        .iter()
-        .filter_map(|m| m.parent().map(|p| p.join("models")))
-        .filter(|m| m.is_dir())
-        .collect()
-}
-
-/// Read `<name>` (a path under `models/`) and its `.vvd`/`.dx11.vtx` from the
-/// first folder that has all three.
-fn read_model(dirs: &[PathBuf], name: &str) -> Option<pf_fmt_mdl::Model> {
-    let rel = name.trim_start_matches("models/");
-    dirs.iter().find_map(|dir| {
-        let mdl = dir.join(rel);
-        let read = |ext: &str| std::fs::read(mdl.with_extension(ext)).ok();
-        pf_fmt_mdl::load(&read("mdl")?, &read("vvd")?, &read("dx11.vtx")?).ok()
-    })
+/// Read model `<name>` (`models/....mdl`) with its `.vvd` and `.dx11.vtx`.
+fn read_model(name: &str) -> Option<pf_fmt_mdl::Model> {
+    let stem = name.strip_suffix(".mdl").unwrap_or(name);
+    let read = |ext: &str| gamefs::read(&format!("{stem}.{ext}"));
+    pf_fmt_mdl::load(&read("mdl")?, &read("vvd")?, &read("dx11.vtx")?).ok()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -46,13 +32,11 @@ pub fn spawn_props(
     mut commands: Commands,
     props: Res<StaticProps>,
     geometry: Res<MapGeometry>,
-    materials_dirs: Res<MaterialsDirs>,
     scale: Res<LightingScale>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<WorldMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    let dirs = models_dirs(&materials_dirs.0);
     let (sun_direction, sun_color) = crate::sun_uniforms(&geometry.0);
     let mut loaded: HashMap<u16, Option<Parts>> = HashMap::new();
     let mut material_cache: HashMap<String, Handle<WorldMaterial>> = HashMap::new();
@@ -61,7 +45,7 @@ pub fn spawn_props(
     for prop in &props.props {
         let parts = loaded.entry(prop.model).or_insert_with(|| {
             let name = props.names.get(prop.model as usize)?.to_ascii_lowercase();
-            let model = read_model(&dirs, &name)?;
+            let model = read_model(&name)?;
             let parts = model
                 .meshes
                 .iter()
@@ -85,10 +69,7 @@ pub fn spawn_props(
                         .entry(key)
                         .or_insert_with(|| {
                             // The first $cdmaterials folder that has the .vmt wins.
-                            let loaded = m
-                                .materials
-                                .iter()
-                                .find_map(|name| load_material(&materials_dirs.0, name));
+                            let loaded = m.materials.iter().find_map(|name| load_material(name));
                             let (texture, alpha) = match loaded {
                                 Some(l) => (l.texture.map(|i| images.add(i)), l.alpha),
                                 None => (None, AlphaMode::Opaque),
@@ -145,14 +126,13 @@ pub fn spawn_props(
 /// Collision triangles (Bevy space) for every prop whose model has a `.phy`
 /// collision model. Props without one (grass, wires, decals) don't block movement,
 /// as in the original.
-pub fn prop_collision(props: &StaticProps, materials: &[PathBuf]) -> (Vec<Vec3>, Vec<[u32; 3]>) {
-    let dirs = models_dirs(materials);
+pub fn prop_collision(props: &StaticProps) -> (Vec<Vec3>, Vec<[u32; 3]>) {
     let mut shapes: HashMap<u16, Option<pf_fmt_mdl::Collision>> = HashMap::new();
     let (mut points, mut triangles) = (Vec::new(), Vec::new());
     for prop in &props.props {
         let shape = shapes.entry(prop.model).or_insert_with(|| {
             let name = props.names.get(prop.model as usize)?.to_ascii_lowercase();
-            read_phy(&dirs, &name)
+            read_phy(&name)
         });
         let Some(shape) = shape else {
             continue;
@@ -171,11 +151,9 @@ pub fn prop_collision(props: &StaticProps, materials: &[PathBuf]) -> (Vec<Vec3>,
 }
 
 /// The `.phy` next to model `<name>`, if it's a single solid (not a ragdoll).
-fn read_phy(dirs: &[PathBuf], name: &str) -> Option<pf_fmt_mdl::Collision> {
-    let rel = name.trim_start_matches("models/");
-    let data = dirs
-        .iter()
-        .find_map(|dir| std::fs::read(dir.join(rel).with_extension("phy")).ok())?;
+fn read_phy(name: &str) -> Option<pf_fmt_mdl::Collision> {
+    let stem = name.strip_suffix(".mdl").unwrap_or(name);
+    let data = gamefs::read(&format!("{stem}.phy"))?;
     pf_fmt_mdl::load_phy(&data)
         .ok()
         .filter(|c| c.solids == 1 && !c.triangles.is_empty())

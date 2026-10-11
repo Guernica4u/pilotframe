@@ -10,8 +10,6 @@
 //!
 //! Angles are the game's: degrees, pitch down, yaw left, roll right.
 
-use std::path::Path;
-
 use bevy::math::{Vec2, Vec3};
 use pf_fmt_ui::kv;
 
@@ -49,8 +47,8 @@ pub struct SpringSet {
 
 impl SpringSet {
     /// The set `name` from `scripts/weapons/springs.txt`.
-    pub fn load(dir: &Path, name: &str) -> Option<Self> {
-        let text = std::fs::read_to_string(dir.join("scripts/weapons/springs.txt")).ok()?;
+    pub fn load(name: &str) -> Option<Self> {
+        let text = crate::data::read_text("scripts/weapons/springs.txt")?;
         let root = kv::parse(&text).nodes.into_iter().next()?;
         let set = root.get(name)?;
         let num = |key: &str| set.text(key).and_then(|v| v.trim().parse::<f32>().ok());
@@ -130,7 +128,7 @@ pub struct RecoilData {
 impl RecoilData {
     /// From the weapon script; missing values take the settings table's
     /// defaults (scales and `duck_scale` 1, the rest 0).
-    pub fn from_script(dir: &Path, w: &WeaponScript) -> Self {
+    pub fn from_script(w: &WeaponScript) -> Self {
         let num = |key: &str, default: f32| w.num(key).unwrap_or(default);
         let axis = |name: &str| KickAxis {
             base: num(&format!("viewkick_{name}_base"), 0.0),
@@ -142,7 +140,7 @@ impl RecoilData {
         Self {
             spring: w
                 .text("viewkick_spring")
-                .and_then(|name| SpringSet::load(dir, name.trim())),
+                .and_then(|name| SpringSet::load(name.trim())),
             pitch: axis("pitch"),
             yaw: axis("yaw"),
             roll_base: num("viewkick_roll_base", 0.0),

@@ -9,8 +9,6 @@
 //! Axes and units are the game's: offsets in inches along (forward, left, up),
 //! angles in degrees (pitch down, yaw left, roll right).
 
-use std::path::Path;
-
 use pf_fmt_ui::kv;
 
 use crate::sway::{self, Dir};
@@ -59,10 +57,9 @@ impl Default for Settings {
 
 impl Settings {
     /// The pilot class's values over the table defaults.
-    pub fn load(dir: &Path) -> Self {
+    pub fn load() -> Self {
         let mut s = Self::default();
-        let Some(global) = std::fs::read_to_string(dir.join(PILOT_CLASS))
-            .ok()
+        let Some(global) = crate::data::read_text(PILOT_CLASS)
             .and_then(|t| kv::parse(&t).nodes.into_iter().next())
             .and_then(|root| root.get("global").cloned())
         else {

@@ -4471,7 +4471,10 @@ dependencies = [
  "bevy",
  "pf-fmt-bsp",
  "pf-fmt-mdl",
+ "pf-fmt-vpk",
  "pf-fmt-vtf",
+ "pf-lzham",
+ "pf-vfs",
 ]
 
 [[package]]

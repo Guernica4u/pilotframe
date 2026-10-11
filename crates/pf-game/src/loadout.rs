@@ -13,7 +13,6 @@
 //! Notes: docs/port/weapons.md ("Loadout").
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use pf_fmt_ui::kv;
 
@@ -34,8 +33,8 @@ pub struct Loadout {
 
 impl Loadout {
     /// The preset `name` from the game's loadout script, if it's there.
-    pub fn preset(dir: &Path, name: &str) -> Option<Self> {
-        let text = std::fs::read_to_string(dir.join("scripts/vscripts/_loadouts.nut")).ok()?;
+    pub fn preset(name: &str) -> Option<Self> {
+        let text = crate::data::read_text("scripts/vscripts/_loadouts.nut")?;
         parse_preset(&text, name)
     }
 }
@@ -83,8 +82,8 @@ pub struct WeaponScript {
 impl WeaponScript {
     /// `scripts/weapons/<name>.txt` with each of `mods` that it defines applied,
     /// in order.
-    pub fn load(dir: &Path, name: &str, mods: &[&str]) -> Option<Self> {
-        let text = std::fs::read_to_string(dir.join(format!("scripts/weapons/{name}.txt"))).ok()?;
+    pub fn load(name: &str, mods: &[&str]) -> Option<Self> {
+        let text = crate::data::read_text(&format!("scripts/weapons/{name}.txt"))?;
         Some(Self::parse(&text, mods))
     }
 
