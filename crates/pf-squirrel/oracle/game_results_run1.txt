@@ -1,0 +1,148 @@
+# What the real game printed for oracle/cases.txt (run 1, 2026-10-11):
+# R1Delta (original launcher.dll), client VM, via script_client. Each case
+# was compiled on its own with compilestring. Cases that failed only because
+# of the `}; ...` grammar quirk are re-run in run 2.
+I001|integer|3
+I002|integer|-3
+I003|integer|1
+I004|integer|-1
+I005|integer|-2147483648
+I006|integer|2147483647
+I007|integer|-2
+I008|integer|-2147483648
+I009|integer|1
+I010|integer|2
+I011|integer|-1
+I012|integer|2147483647
+I013|integer|-1
+I014|integer|4
+I015|integer|17
+I016|integer|5
+I017|integer|-1294967296
+I018|integer|97
+I019|float|1000
+I020|float|1.#INF
+I021|ERR|division by zero
+F001|float|0.333333
+F002|float|0.666667
+F003|float|0.3
+F004|float|1
+F005|float|100
+F006|float|1e+010
+F007|float|1e-005
+F008|float|1.23457e+008
+F009|float|-0
+F010|float|3.14159
+F011|float|1.67772e+007
+F012|float|2
+F013|float|-1.5
+F014|float|2.5
+F015|string|0.1
+F016|integer|0
+F017|integer|-2
+F018|float|7
+F019|float|-3
+F020|float|-2
+F021|float|3
+F022|float|1.41421
+F023|float|1024
+F024|float|0.841471
+F025|float|0.463648
+F026|integer|5
+F027|bool|true
+F028|bool|true
+F029|bool|true
+F030|42|1.500000|2.35|s|  3.1|ff|7
+F031|0.0001|1.234568e+004
+F032|float|7.5
+F033|null|(null : 0x0000000000000000)
+S001|string|abc1
+S002|string|abc1.5
+S003|string|abc(null : 0x0000000000000000)
+S004|string|abctrue
+S005|integer|5
+S006|string|el
+S007|string|llo
+S008|integer|2
+S009|null|(null : 0x0000000000000000)
+S010|string|helloHELLO
+S011|bool|true
+S012|bool|true
+S013|bool|true
+S014|integer|120
+S015|string|A	|
+S016|3|c
+S017|string|a b|
+S018|string|a | a|
+S019|string|abc
+S020|string|string
+Y001|integerfloatstringnullboolarraytablenative function
+Y002|function|class|instance
+Y003|bool|false
+Y004|bool|false
+Y005|bool|true
+Y006|bool|false
+Y007|bool|false
+Y008|integer|2
+Y009|integer|2
+Y010|string|11.5true
+O001|ERR|end of statement expected (; or lf)
+O002|ERR|end of statement expected (; or lf)
+O003|ERR|end of statement expected (; or lf)
+O004|ERR|end of statement expected (; or lf)
+O005|ERR|end of statement expected (; or lf)
+O006|ERR|end of statement expected (; or lf)
+O007|ERR|end of statement expected (; or lf)
+O008|ERR|end of statement expected (; or lf)
+O009|ERR|end of statement expected (; or lf)
+O010|ERR|end of statement expected (; or lf)
+O011|ERR|end of statement expected (; or lf)
+O012|ERR|end of statement expected (; or lf)
+O013|ERR|end of statement expected (; or lf)
+A001|123
+A002|3,2,1.5,1,-1,
+A003|0=9,1=1,2=3,3=4,
+A004|integer|8
+A005|null3
+A006|31
+A007|3|3
+A008|ERR|the index '5' does not exist
+A009|Babc
+A010|integer|4
+A011|ERR|the index 'find' does not exist
+A012|integer|10
+C001|ERR|function with default parameters cannot have variable number of parameters
+C002|ERR|end of statement expected (; or lf)
+C003|ERR|end of statement expected (; or lf)
+C004|ERR|end of statement expected (; or lf)
+C005|ERR|end of statement expected (; or lf)
+C006|ERR|end of statement expected (; or lf)
+C007|ERR|end of statement expected (; or lf)
+C008|ERR|end of statement expected (; or lf)
+C009|ERR|end of statement expected (; or lf)
+C010|ERR|end of statement expected (; or lf)
+C011|ERR|end of statement expected (; or lf)
+C012|ERR|end of statement expected (; or lf)
+C013|ERR|end of statement expected (; or lf)
+C014|ERR|end of statement expected (; or lf)
+E001|ERR|cannot index null with 'x'
+E002|ERR|arith op + between 'integer' and 'array' (cannot index null with 'x')
+E003|ERR|arith op - between 'string' and 'integer' (arith op + between 'integer' and 'array' (cannot index null with 'x'))
+E004|ERR|custom
+E005|ERR|the index 'undefined_name_xyz' does not exist
+E006|ERR|end of statement expected (; or lf)
+E007|ERR|attempt to call 'integer'
+E008|integer|3
+X001|ERR|invalid numeric format
+X002|ERR|expression expected
+X003|ERR|string expected
+X004|string|verbatim
+X005|ERR|end of statement expected (; or lf)
+X006|ERR|end of statement expected (; or lf)
+X007|ERR|end of statement expected (; or lf)
+M001|bool|true
+M002|string|table
+M003|32767|3.14159
+M004|string|
+M005|integer|1
+M006|string|integer

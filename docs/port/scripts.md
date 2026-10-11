@@ -48,6 +48,32 @@ Squirrel 2.2 (its public reference manual), with these additions and quirks, all
   - Metamethods: `_get`, `_set`, `_newslot`, `_nexti`, `_tostring`, `_typeof`.
   - Built-in methods: `.weakref()`, `.bindenv()`, `.call()`, `.acall()`, `.getinfos()`.
 
+**Measured in the real game** (the script oracle, `crates/pf-squirrel/oracle/`; run 1 results in `game_results_run1.txt`):
+
+- **Grammar:**
+  - An exponent needs a decimal point: `1e3` is "invalid numeric format", `1.0e3` is fine.
+  - There's no `<=>`: "expression expected".
+  - `@` only starts a verbatim string (`@"..."`); `@(...)` is "string expected".
+  - Default parameters can't be combined with `...`: "function with default parameters cannot have variable number of parameters".
+  - **A statement ending in `}` takes no `;`.** A `;` after it is an empty statement of its own, which then needs `;` or a line break, so `local t = {}; f()` on one line fails with "end of statement expected (; or lf)".
+- **Integers are 32-bit:**
+  - `2147483647 + 1` = −2147483648, and `3000000000` reads as −1294967296.
+  - Shifts use the low 5 bits of the count (`1 << 32` = 1, `1 << 33` = 2); `>>>` exists.
+  - Division truncates (`-7 / 2` = −3), and `%` takes the dividend's sign (`7 % -3` = 1, `-7 % 3` = −1).
+  - Integer `1 / 0` throws "division by zero"; `10 / 0.0` = `1.#INF`.
+- **Floats are 32-bit:**
+  - `16777217.0` prints `1.67772e+007`.
+  - Printed like C's `%g` with 6 significant digits and Microsoft's three-digit exponents: `0.333333`, `1e+010`, `1e-005`, `1.23457e+008`, `-0`, `1.#INF`.
+  - `format` follows C's `printf` (`%5.1f` → `  3.1`, `%e` → `1.234568e+004`).
+- **Strings and types:**
+  - Adding to a string converts the other side; null becomes `(null : 0x0000000000000000)`.
+  - `typeof print` is `native function`.
+  - `"abc".tointeger()` gives null; `"x"[0]` is the integer 120.
+  - `null == false` and `0 == false` are both false.
+  - Arrays have no `find`.
+- **Error messages** carry the previous error in brackets: after "cannot index null with 'x'", an arithmetic error reads "arith op + between 'integer' and 'array' (cannot index null with 'x')". Scripts can catch and read this text, so it's reproduced.
+- **Constants:** `RAND_MAX` is 32767, `PI` 3.14159.
+
 **Parser check:** all 481 scripts parse (`crates/pf-squirrel/tests/game_scripts.rs`, which runs when the install is present).
 
 ## Native functions (what scripts can call in the engine)

@@ -2,7 +2,9 @@
 # client VM) and in our interpreter; the outputs must match exactly.
 # Our own test code, written for this project (no game script text here).
 #
-# One case per line: ID<space>code. `code` is one line of Squirrel. `T(id, v)`
+# One case per line: ID<space>code. `}; ` is turned into `}` + a line break
+# when the case is compiled (the game rejects `};` followed by more code on
+# the same line). `code` is one line of Squirrel. `T(id, v)`
 # prints "id|<typeof v>|<v>"; `P(id, s)` prints "id|<s>". Errors are caught
 # and printed as "id|ERR|<message>". Lines starting with # are comments.
 #
@@ -122,7 +124,9 @@ A010 local a = [1, 2]; a.extend([3, 4]); T("A010", a.len())
 A011 local a = [5, 1, 4]; T("A011", a.find(4))
 A012 local a = array(3, 7); T("A012", a[1] + a.len())
 # --- functions, closures, classes ---
-C001 local f = function(a, b = 10, ...) { return a + b + vargc }; T("C001", f(1) + f(1, 2) + f(1, 2, 3, 4))
+C001 local f = function(a, b = 10) { return a + b }; T("C001", f(1) + f(1, 2))
+C015 local f = function(a, ...) { return a + vargc }; T("C015", f(1) + f(1, 2, 3))
+C016 T("C016", (function(a, b = 10, ...) { return 1 })())
 C002 local x = 5; local f = function() : (x) { return x }; x = 6; T("C002", f())
 C003 local f = function(...) { local s = 0; for (local i = 0; i < vargc; i++) s += vargv[i]; return s }; T("C003", f(1, 2, 3))
 C004 local C = class { v = 1; constructor(a) { v = a } function get() { return v } }; T("C004", C(7).get())

@@ -136,11 +136,26 @@ impl Parser {
     }
 
     /// The end of a statement: `;`, or `}`/end of file/a new line next.
+    /// The end of a statement. As in the game's compiler, a statement whose
+    /// last token is `}` takes no `;`: a `;` after it is an empty statement of
+    /// its own, which then needs `;` or a line break after it, so
+    /// `local t = {}; f()` on one line is an error (oracle O001).
     fn end_statement(&mut self) -> Result<()> {
-        if self.eat_op(";") || self.is_op("}") || self.at_eof() || self.line() > self.prev_line() {
+        if matches!(self.toks[self.pos.saturating_sub(1)].tok, Tok::Op("}")) {
             return Ok(());
         }
-        self.err("expected the end of the statement")
+        if self.eat_op(";") {
+            return Ok(());
+        }
+        self.end_without_semicolon()
+    }
+
+    /// `}`, the end of the file or a line break must come next.
+    fn end_without_semicolon(&mut self) -> Result<()> {
+        if self.is_op(";") || self.is_op("}") || self.at_eof() || self.line() > self.prev_line() {
+            return Ok(());
+        }
+        self.err("end of statement expected (; or lf)")
     }
 
     // ---- Statements ----
@@ -155,6 +170,7 @@ impl Parser {
         Ok(match self.peek().clone() {
             Tok::Op(";") => {
                 self.next();
+                self.end_without_semicolon()?;
                 StmtKind::Empty
             }
             Tok::Op("{") => StmtKind::Block(self.block()?),
@@ -470,6 +486,11 @@ impl Parser {
         let mut varargs = false;
         while !self.eat_op(")") {
             if self.eat_op("...") {
+                if params.iter().any(|p: &Param| p.default.is_some()) {
+                    return self.err(
+                        "function with default parameters cannot have variable number of parameters",
+                    );
+                }
                 varargs = true;
                 self.expect_op(")")?;
                 break;
@@ -886,37 +907,14 @@ impl Parser {
                 Expr::Function(self.function_rest(name)?)
             }
             Tok::Kw(Kw::Class) => Expr::Class(self.class_rest()?),
-            Tok::Op("@") if matches!(self.peek(), Tok::Op("(")) => {
-                // `@(params) expr` lambda.
-                let line = self.line();
-                let def = self.function_rest_lambda(line)?;
-                Expr::Function(def)
-            }
+            // `@` only starts a verbatim string (`@(...)` lambdas don't exist
+            // in the game's version: "string expected", oracle X003).
+            Tok::Op("@") => return self.err("string expected"),
             _ => {
                 self.pos -= 1;
-                return self.err("expected an expression");
+                return self.err("expression expected");
             }
         })
-    }
-
-    fn function_rest_lambda(&mut self, line: u32) -> Result<Rc<FuncDef>> {
-        let f = self.function_rest("".into())?;
-        let mut def = (*f).clone();
-        def.line = line;
-        // A lambda's body is one expression whose value is returned.
-        if let [
-            Stmt {
-                kind: StmtKind::Expr(e),
-                line,
-            },
-        ] = def.body.as_slice()
-        {
-            def.body = vec![Stmt {
-                line: *line,
-                kind: StmtKind::Return(Some(e.clone())),
-            }];
-        }
-        Ok(Rc::new(def))
     }
 
     #[allow(dead_code)]
@@ -934,7 +932,8 @@ mod tests {
         let src = r#"
             const FOO = -2
             enum E { A, B = 5, C }
-            function A::B( x, y = null, ... ) { return x }
+            function A::B( x, y = null ) { return x }
+            function V( a, ... ) { return vargc }
             class C { constructor( a ) { this.a <- a } a = 0 }
             function Go()
             {
@@ -950,7 +949,7 @@ mod tests {
             }
         "#;
         let stmts = parse(src).unwrap();
-        assert_eq!(stmts.len(), 5);
+        assert_eq!(stmts.len(), 6);
         assert!(matches!(stmts[1].kind, StmtKind::Enum(_, ref v) if v[2].1 == Expr::Int(6)));
     }
 
@@ -959,5 +958,23 @@ mod tests {
         // `(` on a new line still calls (as in Squirrel); `[` starts anew.
         let stmts = parse("local a = b\n(c).d()\nx = y\n[1].len()").unwrap();
         assert_eq!(stmts.len(), 3);
+    }
+}
+
+#[cfg(test)]
+mod game_rules {
+    use super::*;
+
+    /// Grammar rules measured in the real game (oracle run 1).
+    #[test]
+    fn matches_the_game() {
+        let fails = |src: &str| parse(src).unwrap_err().message;
+        assert!(fails("local t = {}; f()").starts_with("end of statement expected (; or lf)"));
+        assert!(parse("local t = {}\nf()").is_ok());
+        assert!(parse("local a = [1]; f()").is_ok());
+        assert!(fails("local f = @(a) a").starts_with("string expected"));
+        assert!(parse("local s = @\"v\"").is_ok());
+        assert!(fails("local f = function(a = 1, ...) {}").starts_with("function with default"));
+        assert!(fails("local x = 10 <=> 3").starts_with("expression expected"));
     }
 }
