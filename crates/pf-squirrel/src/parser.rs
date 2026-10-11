@@ -340,7 +340,7 @@ impl Parser {
                 self.end_statement()?;
                 StmtKind::Continue
             }
-            Tok::Kw(k @ (Kw::Return | Kw::Yield)) => {
+            Tok::Kw(Kw::Return) => {
                 let line = self.line();
                 self.next();
                 let value =
@@ -350,11 +350,7 @@ impl Parser {
                         Some(self.expr()?)
                     };
                 self.end_statement()?;
-                if k == Kw::Return {
-                    StmtKind::Return(value)
-                } else {
-                    StmtKind::Yield(value)
-                }
+                StmtKind::Return(value)
             }
             Tok::Kw(Kw::Function) => {
                 self.next();
@@ -976,5 +972,7 @@ mod game_rules {
         assert!(parse("local s = @\"v\"").is_ok());
         assert!(fails("local f = function(a = 1, ...) {}").starts_with("function with default"));
         assert!(fails("local x = 10 <=> 3").starts_with("expression expected"));
+        // `yield` is a plain name: `yield 1` is two expressions on one line.
+        assert!(fails("function g() { yield 1 }").starts_with("end of statement expected"));
     }
 }

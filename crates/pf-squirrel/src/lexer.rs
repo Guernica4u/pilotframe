@@ -8,7 +8,7 @@
 //! and `delaythread`
 //! (docs/port/scripts.md). Squirrel 2's `delegate` keyword is in; `base` is
 //! not a keyword in the game's version (scripts use it as a variable name).
-//! There's no `<=>` operator (the game says "expression expected"; oracle Y011).
+//! `yield` isn't a keyword (oracle X005). There's no `<=>` operator (the game says "expression expected"; oracle Y011).
 
 use std::fmt;
 
@@ -66,7 +66,6 @@ pub enum Kw {
     Waitthread,
     Waitthreadsolo,
     While,
-    Yield,
 }
 
 fn keyword(s: &str) -> Option<Kw> {
@@ -113,7 +112,6 @@ fn keyword(s: &str) -> Option<Kw> {
         "waitthread" => Waitthread,
         "waitthreadsolo" => Waitthreadsolo,
         "while" => While,
-        "yield" => Yield,
         _ => return None,
     })
 }

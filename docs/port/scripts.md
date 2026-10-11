@@ -73,6 +73,21 @@ Squirrel 2.2 (its public reference manual), with these additions and quirks, all
   - Arrays have no `find`.
 - **Error messages** carry the previous error in brackets: after "cannot index null with 'x'", an arithmetic error reads "arith op + between 'integer' and 'array' (cannot index null with 'x')". Scripts can catch and read this text, so it's reproduced.
 - **Constants:** `RAND_MAX` is 32767, `PI` 3.14159.
+- **Run 2** (`game_results_run2.txt`):
+  - **Table iteration order is the hash order,** and scripts see it. Examples:
+    - inserting `a`..`h` iterates as `acbedgfh`;
+    - keys `key0`..`key19` come out as 1,0,3,2,5,4,7,6,9,8,10,11,15,14,13,12,19,18,17,16;
+    - the integer keys 0, 7, 14…273 come out as 0, 259, 196, 133, 70, 7, 266…;
+    - a table literal `{ zebra, apple, mango, kiwi, banana }` iterates banana, apple, kiwi, zebra, mango.
+
+    Our tables must reproduce these exactly (the string hash and the table layout are to be read from launcher.dll).
+  - **Arity is strict:** calling with too few or too many arguments throws "wrong number of parameters (calling (unnamed_function)): found 1, expected 2". The counts include `this`.
+  - **Class defaults are shared:** a class member's default array is the same array in every instance.
+  - **Assignment needs an existing slot:** `t.b = 1` on a missing slot throws "the index 'b' does not exist"; `<-` creates it or overwrites it.
+  - `clone` is shallow.
+  - `null` can't be a key ("null cannot be used as index").
+  - `yield` isn't a keyword; `static` and `extends` work.
+- **Parser check against the game:** `crates/pf-squirrel/tests/oracle_cases.rs` makes our parser accept every case the game compiled and reject every case it refused, with the same message. All 146 agree.
 
 **Parser check:** all 481 scripts parse (`crates/pf-squirrel/tests/game_scripts.rs`, which runs when the install is present).
 

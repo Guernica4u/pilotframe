@@ -122,7 +122,6 @@ pub enum StmtKind {
     Break,
     Continue,
     Return(Option<Expr>),
-    Yield(Option<Expr>),
     Block(Vec<Stmt>),
     /// `function a::b::c(...)`: a new slot `c` in `a.b` (or `c` in the
     /// current table for a plain name).
