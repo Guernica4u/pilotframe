@@ -172,6 +172,14 @@ fn aim(
 
     player.yaw = (player.yaw + turn.x).rem_euclid(TAU);
     player.pitch = (player.pitch + turn.y).clamp(-FRAC_PI_2 + 0.01, FRAC_PI_2 - 0.01);
+    // Dev: `PF_DEV_PITCH=<degrees>` holds the view at that pitch (up is
+    // positive), e.g. at the sky for clean HUD comparison screenshots.
+    if let Some(pitch) = std::env::var("PF_DEV_PITCH")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+    {
+        player.pitch = pitch.to_radians();
+    }
 }
 
 /// One simulation tick.
