@@ -1,0 +1,15 @@
+[package]
+name = "pf-gamefs"
+description = "Reads the game's files straight from the player's install (VPK packs + a mod folder)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pf-fmt-vpk = { path = "../pf-fmt-vpk" }
+pf-lzham = { path = "../pf-lzham" }
+pf-vfs.workspace = true
+
+[lints]
+workspace = true

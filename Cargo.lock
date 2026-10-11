@@ -4426,6 +4426,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-gamefs"
+version = "0.0.1"
+dependencies = [
+ "pf-fmt-vpk",
+ "pf-lzham",
+ "pf-vfs",
+]
+
+[[package]]
 name = "pf-lzham"
 version = "0.0.1"
 dependencies = [
@@ -4441,6 +4450,13 @@ dependencies = [
  "pf-fmt-bsp",
  "ron",
  "serde",
+]
+
+[[package]]
+name = "pf-squirrel"
+version = "0.0.1"
+dependencies = [
+ "pf-gamefs",
 ]
 
 [[package]]
@@ -4471,10 +4487,8 @@ dependencies = [
  "bevy",
  "pf-fmt-bsp",
  "pf-fmt-mdl",
- "pf-fmt-vpk",
  "pf-fmt-vtf",
- "pf-lzham",
- "pf-vfs",
+ "pf-gamefs",
 ]
 
 [[package]]

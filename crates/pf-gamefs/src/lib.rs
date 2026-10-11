@@ -7,8 +7,8 @@
 //! case, either slash. Files the packs keep under `depot/r1dev/game/r1/` (the
 //! maps) are found without that prefix too.
 //!
-//! Bevy note: this is a global (behind a lock) rather than a Bevy resource, so
-//! plain loading functions can read files without being handed it.
+//! It's a global (behind a lock), so plain loading functions anywhere can read
+//! files without being handed it. No Bevy here: tools and tests use it too.
 
 use std::collections::HashMap;
 use std::io;
@@ -184,6 +184,23 @@ pub fn read_text(path: &str) -> Option<String> {
     }
     let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
     Some(String::from_utf8_lossy(bytes).into_owned())
+}
+
+/// Every file in the mounted packs whose path starts with `prefix`, sorted
+/// (mod-folder files aren't listed).
+pub fn list(prefix: &str) -> Vec<String> {
+    let prefix = normalise(prefix);
+    let fs = FS.read().unwrap_or_else(|e| e.into_inner());
+    let mut out: Vec<String> = fs
+        .packs
+        .iter()
+        .flat_map(|p| p.files.keys())
+        .filter(|k| k.starts_with(&prefix) && !k.starts_with(DEPOT_PREFIX))
+        .cloned()
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// Whether a file exists (in the mod folder or a mounted pack).

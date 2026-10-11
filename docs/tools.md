@@ -36,4 +36,13 @@ These read decompiled code or game data, so they live in gitignored `Resources/r
   - a sheet of reference-vs-ours crops per HUD region;
   - a report of each region's offset in pixels, with a match score.
 
+- **Script research** (see docs/port/scripts.md):
+  - `natives.py`: every native function the scripts can call, from all three DLLs.
+  - `sqreg.py`: launcher.dll's static Squirrel tables.
+  - `script_calls.py`: calls the scripts make that aren't found yet, per VM.
+  - `include_graph.py`: which scripts each VM loads, in order.
+  - `lang_survey.py`: which language features the scripts use.
+- **The script corpus:** `Resources/re/corpus/` (extracted with `PF_READ_SCRIPTS=1 pf-vpk extract … scripts/`), for these tools only.
+- **Full decompiles:** client.dll, engine.dll (33,277 functions) and launcher.dll (3,377), each under `Resources/re/full/<dll>/`.
+
 **Reference shots** (taken once in R1Delta): 1920×1080, FOV 70, default pilot loadout, looking at the sky or a plain wall. Poses: `hip`, `ads`, `fired` (after 5 shots).

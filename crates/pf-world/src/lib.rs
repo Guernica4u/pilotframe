@@ -8,7 +8,8 @@
 //! [`LoadedMap::insert`], then run [`spawn_map`] and [`props::spawn_props`].
 //! Everything they spawn carries [`MapEntity`] so a game can clear the map.
 
-pub mod gamefs;
+/// The game's files (re-exported so callers can write `pf_world::gamefs`).
+pub use pf_gamefs as gamefs;
 pub mod props;
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};

@@ -11,6 +11,7 @@ publish = false
 [workspace.dependencies]
 pf-vfs = { path = "crates/pf-vfs" }
 pf-movement = { path = "crates/pf-movement" }
+pf-gamefs = { path = "crates/pf-gamefs" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Bevy breaks its API every few months, so the whole workspace pins one version (PLAN §2).
