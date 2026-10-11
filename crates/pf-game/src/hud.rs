@@ -165,6 +165,9 @@ enum Fill {
     TitanImages(&'static str, &'static str),
     /// A straight bar filled to this fraction.
     Fraction(f32),
+    /// A key hint with key-binding icons on (`EnableKeyBindingIcons`): the
+    /// bound key drawn on a key-cap image.
+    KeyHint,
 }
 
 /// The hex's Titan icons (`cl_replacement_titan_hud.nut` constants).
@@ -212,7 +215,7 @@ fn elements(dir: &Path, loadout: &Loadout) -> Vec<(String, Fill)> {
         if let Some(icon) = weapon.text("hud_icon") {
             out.push((element("Icon"), Fill::Image(icon.to_string())));
         }
-        out.push((element("Hint"), Fill::Layout));
+        out.push((element("Hint"), Fill::KeyHint));
         if shows_bar(&weapon) {
             // Full while ready; abilities can't be used yet, so always ready.
             out.push((element("Bar"), Fill::Layout));
@@ -227,7 +230,7 @@ fn elements(dir: &Path, loadout: &Loadout) -> Vec<(String, Fill)> {
         .and_then(|w| w.text("hud_icon").map(str::to_string))
     {
         out.push(("dpadLeftIcon".into(), Fill::Image(icon)));
-        out.push(("dpadLeftIconHint".into(), Fill::Layout));
+        out.push(("dpadLeftIconHint".into(), Fill::KeyHint));
     }
     // The hex's down slot while the Titan builds (`UpdateTitanModeHUD`): the
     // building icon, the call-in key, a countdown, a dark cover over the part
@@ -256,7 +259,7 @@ fn elements(dir: &Path, loadout: &Loadout) -> Vec<(String, Fill)> {
                 "dpadDownIcon",
                 Fill::TitanImages(TITAN_BUILDING_ICON, TITAN_READY_ICON),
             ),
-            ("dpadDownIconHint", Fill::Layout),
+            ("dpadDownIconHint", Fill::KeyHint),
             (
                 "dpadDownDesc",
                 Fill::Live(Live::TitanTimer, Some("#HudAutoText_CountdownTime")),
@@ -365,6 +368,48 @@ fn bind_text(text: &str, binds: &HashMap<String, String>) -> String {
         }
     }
     out
+}
+
+/// The key-cap image for a key (`client.dll`, `0x18043a300`): a named sprite
+/// from `scripts/hud_textures.txt`. Mouse buttons, the wheel and the arrow keys
+/// have their own pictures and no text; other keys get `icon_key_generic`
+/// (keys of one or two letters, and `;` `'` `,` `.`) or `icon_key_wide`, with
+/// the key's name on top. Returns the sprite's file, its rectangle in pixels,
+/// and whether the key's name is drawn on it.
+fn key_icon(dir: &Path, key: &str) -> Option<(String, Rect, bool)> {
+    let upper = key.to_ascii_uppercase();
+    let (sprite, text) = match upper.as_str() {
+        "MOUSE1" => ("icon_mouseLeft", false),
+        "MOUSE2" => ("icon_mouseRight", false),
+        "MOUSE3" => ("icon_mouseThree", false),
+        "MWHEELUP" => ("icon_mouseWheel_up", false),
+        "MWHEELDOWN" => ("icon_mouseWheel_down", false),
+        "UPARROW" => ("icon_key_up", false),
+        "LEFTARROW" => ("icon_key_left", false),
+        "DOWNARROW" => ("icon_key_down", false),
+        "RIGHTARROW" => ("icon_key_right", false),
+        "SEMICOLON" | "'" | "," | "." => ("icon_key_generic", true),
+        k if k.chars().count() >= 3 => ("icon_key_wide", true),
+        _ => ("icon_key_generic", true),
+    };
+    let text_file = std::fs::read_to_string(dir.join("scripts/hud_textures.txt")).ok()?;
+    let file = kv::parse(&text_file);
+    let data = file.nodes.first()?.get("TextureData")?;
+    let entry = data
+        .children()
+        .iter()
+        .find(|n| n.key.eq_ignore_ascii_case(sprite))?;
+    let num = |k: &str| entry.text(k).and_then(|v| v.trim().parse::<f32>().ok());
+    let (x, y) = (num("x")?, num("y")?);
+    let rect = Rect::new(x, y, x + num("width")?, y + num("height")?);
+    // The file is a material path from `materials/`; ours adds the `vgui/`.
+    let file = entry.text("file")?.replace('\\', "/");
+    let file = file
+        .strip_prefix("vgui/")
+        .or_else(|| file.strip_prefix("VGUI/"))
+        .unwrap_or(&file)
+        .to_string();
+    Some((file, rect, text))
 }
 
 /// Where a VGUI label puts its text in its box (`textAlignment`; labels
@@ -508,6 +553,28 @@ fn hud_image(dir: &Path, images: &mut Assets<Image>, name: &str) -> Option<(Hand
     loaded.texture.map(|i| (images.add(i), additive))
 }
 
+/// `MainHud_InitAspectRatio` for the pilot HUD: with the safe-area setting off
+/// (`cl_safearea` defaults to 0 on PC), `SafeArea` grows to 90% × 90% of the
+/// screen and `SafeAreaCenter` to 90% × 95%. Both are then narrowed by
+/// `aspectRatioScale` (the window's aspect ÷ 16:9, at most 1) so the HUD stays
+/// on narrower screens. Most HUD elements are pinned to one of the two.
+fn resize_safe_area(root: &mut kv::Node, aspect: f32) {
+    const NOSAFE_X: f32 = 0.10;
+    const NOSAFE_Y: f32 = 0.10;
+    let scale_x = (aspect / (16.0 / 9.0)).min(1.0);
+    let (w, h) = SCREEN;
+    // VGUI sizes are whole pixels.
+    let wide = (w - w * NOSAFE_X).trunc() * scale_x;
+    let text = format!(
+        "x {{ SafeArea {{ wide {wide} tall {} }} SafeAreaCenter {{ wide {wide} tall {} }} }}",
+        (h - h * NOSAFE_Y).trunc(),
+        (h - h * NOSAFE_Y * 0.5).trunc(),
+    );
+    if let Some(overlay) = kv::parse(&text).nodes.first() {
+        root.merge(overlay);
+    }
+}
+
 /// A node at `rect` (helmet-screen units) in the flat HUD image.
 fn hud_node(rect: &layout::Rect) -> Node {
     Node {
@@ -530,12 +597,15 @@ fn spawn(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     weapon: Option<Single<&Viewmodel>>,
+    window: Option<Single<&Window, With<PrimaryWindow>>>,
 ) {
     let dir = crate::data::common_dir();
-    let Some(root) = load_res(&dir.join("scripts/screens/vgui_fullscreen_pilot.res")) else {
+    let Some(mut root) = load_res(&dir.join("scripts/screens/vgui_fullscreen_pilot.res")) else {
         info!("no HUD: the pilot HUD layout isn't under {}", dir.display());
         return;
     };
+    let aspect = window.map_or(16.0 / 9.0, |w| w.width() / w.height().max(1.0));
+    resize_safe_area(&mut root, aspect);
     let fonts = load_fonts(&dir, &mut fonts);
     let binds = default_binds(&dir);
     let loadout = Loadout::preset(&dir, DEFAULT_PRESET).unwrap_or_default();
@@ -670,6 +740,60 @@ fn spawn(
                     JustifyContent::FlexEnd => -inset("textinsetx"),
                     _ => 0.0,
                 };
+                // Key-binding icons (the text image's paint, `0x180726870`): the
+                // key-cap is 1.5 × the font's height, centred on the text line,
+                // as wide as its sprite's shape. The key's name is centred on
+                // it, shrunk if it's wider than the cap less one character's
+                // share of padding.
+                if matches!(fill, Fill::KeyHint)
+                    && let Some((file, sprite, with_text)) = key_icon(&dir, &start)
+                    && let Some((cap, _)) = hud_image(&dir, &mut images, &file)
+                {
+                    let height = 1.5 * tall * PIXELS_PER_UNIT;
+                    let width = sprite.width() / sprite.height() * height;
+                    let icon = commands
+                        .spawn((
+                            Node {
+                                left: Val::Px(inset_x),
+                                top: Val::Px(inset("textinsety")),
+                                width: Val::Px(width),
+                                height: Val::Px(height),
+                                flex_shrink: 0.0,
+                                display: Display::Flex,
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                ..default()
+                            },
+                            ImageNode {
+                                rect: Some(sprite),
+                                ..ImageNode::new(cap)
+                            },
+                            ChildOf(holder),
+                        ))
+                        .id();
+                    if with_text {
+                        // Glyph widths aren't measured here: about 0.6 of
+                        // the font's height each.
+                        let chars = start.chars().count().max(1) as f32;
+                        let text_width = chars * 0.6 * tall * PIXELS_PER_UNIT;
+                        let needed = text_width / chars + text_width;
+                        let fit = (width / needed).min(1.0);
+                        let mut text = commands.spawn((
+                            Text::new(start),
+                            TextColor(Color::WHITE),
+                            TextLayout::justify(Justify::Center).with_no_wrap(),
+                            ChildOf(icon),
+                        ));
+                        if let Some(f) = font {
+                            text.insert(TextFont {
+                                font: FontSource::Handle(f.handle.clone()),
+                                font_size: FontSize::Px(tall * PIXELS_PER_UNIT * fit),
+                                ..default()
+                            });
+                        }
+                    }
+                    continue;
+                }
                 let mut text = commands.spawn((
                     Node {
                         left: Val::Px(inset_x),

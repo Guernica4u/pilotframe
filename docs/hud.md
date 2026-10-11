@@ -59,15 +59,20 @@ What the HUD script shows for the default loadout (see [weapons.md](weapons.md),
 - **Count or bar** (`GetOffhandProgressSource`): `offhand` and `offhand_hybrid` weapons show a bar only if they have a `charge_time`; any other fire mode (the cloak is `offhand_instant`) always shows a bar.
 - **Count format:** `HudAutoText_PilotOffhandWeaponAmmo0` is "x %s1", `...Ammo1` is "%s1". The frag's 2 grenades plus `pas_ordnance_pack` make 3, as in the R1Delta screenshot.
 - **Key hints:** labels like `%offhand1%` show the key bound to `+offhand1` (else `offhand1`). Defaults come from `cfg/config_default_pc.cfg`: F `+offhand1`, Q `+offhand2`, 3 `weaponSelectOrdnance`, V `+ability 1` (Titan call-in, shown by the hex).
-- **Not yet:** the box drawn around the key name. It's code (`EnableKeyBindingIcons`), not a texture, so it needs reading from the DLLs. We show the bare key name.
+- **Key caps** (`EnableKeyBindingIcons`, on both offhand hints and all four d-pad hints):
+  - The native (`0x180420030`) installs a text callback on the label (`0x18041f8b0`). For each `%command%` token, the callback finds the bound key and adds a region to the label's text image (up to 4, 0x90 bytes each). A region holds the key's display name upper-cased, the font, white text at the label's alpha, a scale, and a sprite.
+  - **The sprite** (`0x18043a300`) is a name in `scripts/hud_textures.txt`, all on `vgui/hud/pc_input_icons`:
+    - mouse buttons and the wheel get `icon_mouseLeft`/`Right`/`Three`/`Wheel_up`/`Wheel_down`, and the arrow keys `icon_key_up`/`left`/`down`/`right`, with no text;
+    - keys of three or more characters get `icon_key_wide` (98 × 52), others `icon_key_generic` (50 × 50), with the key's name on top.
+  - **Drawing** (the text image's paint, `0x180726870`): the sprite is 1.5 × the font's height times the region's scale, keeping its shape, and is vertically centred on the text line. The name is centred on it. If the name's width plus one character's share is wider than the cap, the name is scaled down to fit.
+  - **Ours:** an image node with the sprite's rectangle, the name centred on it. Glyph widths aren't measured; we estimate 0.6 × the font height per character for the fit. The region's scale (from the HUD element) is taken as 1.
 - **Label alignment:** a VGUI label places its text by `textAlignment` (default `west`): `west`/`east`/`center` are vertically centred; `north*` top, `south*` bottom.
 
-**Open: the safe area** (measured against R1Delta, so possibly R1Delta's curve rather than the layout). Offhand icons are pinned to `SafeAreaCenter` (730 × 420 in the file). `MainHud_InitAspectRatio` resizes it to 90% of the screen width and 95% of the height when the safe-area setting is off (`level.safeAreaScale != 1`). Against the R1Delta screenshot, with our 70° panel view:
-- the file's 730 puts the icons about 13 px (at 1280 wide) too close to the centre;
-- 766.8 puts them about 18 px too far out, and too low;
-- the screenshot fits about 745, at the file's height.
-
-So either the setting's value on PC or the panel's view angle (measured, see "Hudwarp") is off. We keep the file's size until `SafeareaSettingIsEnabled` is read from code.
+**The safe area** (`MainHud_InitAspectRatio`, `Init_ClientScripts`). Most HUD pieces pin to `SafeArea` (730 × 400 in the file, centred) or `SafeAreaCenter` (730 × 420).
+- **Setting off:** when `SafeareaSettingIsEnabled()` is false, the script resizes both. That native reads `cl_safearea`, which defaults to **"0"** in `client.dll`, so on PC it's always off. `SafeArea` becomes the screen less `VGUI_PILOT_NOSAFE_X`/`_Y` (0.10 each): 766 × 432. `SafeAreaCenter` becomes 766 × 456, half the Y margin.
+- **Aspect:** both are then scaled across by `aspectRatioScale` = min(screen aspect ÷ 16:9, 1), so on screens narrower than 16:9 the HUD pulls in.
+- **Ours:** `resize_safe_area` in `hud.rs` overlays these sizes before layout, using the window's aspect at spawn. VGUI sizes are whole pixels, so 852 × 0.9 = 766.8 is truncated to 766.
+- **Check:** with this and the 75° view (below), the corner hexes, clock, scores and key hints land within about 1% of the R1Delta screenshot (2000 × 1125).
 
 ## The hex: Titan meter (`UpdateTitanModeHUD`, `cl_replacement_titan_hud.nut`)
 
@@ -196,8 +201,9 @@ Ported from `vguimatsurface.dll` (December 2014 build); `pf-game/src/hudwarp.rs`
 
 **The cockpit and its FOV.** Every pilot class (`scripts/players/mp/pilot_*.set`) has a cockpit model, `models/weapons/arms/human_pov_cockpit.mdl`, with its own sway settings (`cockpitSway*`, below). The HUD screen is parented to it. The cockpit is a `C_Titan_Cockpit` (client.dll):
 - Its constructor (`0x1803f58f0`) sets its FOV (+0x2364) from `cockpit_default_fov`, default **75**. No script calls `SetCockpitFOV`, and `cockpit_forced_fov` defaults to 0.
-- Its per-frame cockpit-screen code (`0x1803f7930`) overwrites the FOV with **70.0** in its normal path (when a player float at +0x2a3c is 0; the field isn't identified yet).
-- So we view the screen at FOV 70, which covers about 1.1× the screen width. The R1Delta screenshot measured the same, though it can't be trusted for this (see below). Still to read: the code that renders the cockpit with this FOV, to confirm it's the Source 4:3 horizontal convention like the other FOVs.
+- Its per-frame cockpit-screen code (`0x1803f7930`) writes **70.0** to that field when a player float at +0x2a3c is 0 (the field isn't identified). It's not known yet whether the HUD is drawn with that field.
+- **We use 75** (Source's 4:3 horizontal convention). The screen's own numbers fit it: 852 × 480 is 16:9, and 426 units wide at 208 away is a half-angle of atan(213/208). A 75° 4:3 view at 16:9 has a horizontal half-angle tangent of tan 37.5° × 4/3 = 1.023, against 213/208 = 1.024. So at 16:9 the screen exactly fills the window.
+- At 70 it overflowed: the panel was about 1.1× the window, and the corner hexes and bottom row went off screen.
 
 ## Cockpit sway (the HUD drifting)
 

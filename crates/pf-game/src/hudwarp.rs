@@ -34,10 +34,11 @@ const CHOP: f32 = 60.0;
 /// 426 units wide (852 screen units, so 2 per world unit).
 pub const PANEL_DISTANCE: f32 = 208.0;
 pub const UNITS_PER_WORLD_UNIT: f32 = 2.0;
-/// The field of view the helmet screen is seen with: the pilot cockpit's FOV,
-/// which the cockpit's code sets to 70 (`C_Titan_Cockpit`, docs/hud.md).
-/// Assumed to be the Source convention (4:3 horizontal) like the other FOVs.
-const PANEL_FOV_DEG: f32 = 70.0;
+/// The field of view the helmet screen is seen with: the cockpit's
+/// `cockpit_default_fov` (75), in the Source convention (4:3 horizontal).
+/// At 16:9 it shows exactly the 426 × 240 screen at 208 units, so the 852 × 480
+/// layout fills the window (docs/hud.md, "The cockpit and its FOV").
+const PANEL_FOV_DEG: f32 = 75.0;
 
 /// The warp's settings (`WarpGlobalSettings`).
 #[derive(Clone, Copy, Debug)]

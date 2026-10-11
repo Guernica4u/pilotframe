@@ -55,6 +55,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Pilotframe (unofficial, not affiliated with EA or Respawn)".into(),
+                resolution: dev::window_size().into(),
                 ..default()
             }),
             ..default()

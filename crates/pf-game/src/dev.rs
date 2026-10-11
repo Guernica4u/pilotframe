@@ -3,6 +3,7 @@
 //! `PF_SANDBOX_SCREENSHOT=path.png cargo run -p pf-sandbox` saves a screenshot
 //! after two seconds and quits: a quick check that the app starts and renders.
 //! `PF_AUTOSTART=test` or `=colony` skips the menus and loads that map.
+//! `PF_WINDOW=1920x1080` sets the window's size (default 1280 × 720).
 
 use std::path::PathBuf;
 
@@ -64,4 +65,15 @@ fn delay() -> f32 {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(2.0)
+}
+
+/// The window's size: `PF_WINDOW` ("1920x1080"), else Bevy's default 1280 × 720.
+pub fn window_size() -> (u32, u32) {
+    std::env::var("PF_WINDOW")
+        .ok()
+        .and_then(|v| {
+            let (w, h) = v.split_once('x')?;
+            Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+        })
+        .unwrap_or((1280, 720))
 }

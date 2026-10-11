@@ -12,6 +12,7 @@
 //! Without them
 //! there's simply no weapon on screen.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::loadout::{DEFAULT_PRESET, Loadout, WeaponScript};
@@ -218,6 +219,10 @@ pub struct Viewmodel {
     pivot_blend: f32,
     /// The holo-sight value the reticles' `HoloSight` proxy shows, 0..1.
     holo: f32,
+    /// The model's attachments, and where each is from the eye along its own
+    /// right and up axes this frame (lowercase names; `HoloSightOffset`).
+    attachments: Vec<pf_fmt_mdl::Attachment>,
+    sights: HashMap<String, Vec2>,
 }
 
 /// What the HUD shows about the gun.
@@ -493,6 +498,7 @@ fn drive_proxies(
         reserve: vm.reserve,
         max_carry: vm.data.max_carry,
         holo: vm.holo,
+        sights: Some(&vm.sights),
     };
     for (mut d, std_handle, two_handle) in &mut driven {
         d.proxies.update(&cx);
@@ -690,6 +696,8 @@ pub fn spawn(
         pivots,
         pivot_blend: 0.0,
         holo: 0.0,
+        attachments,
+        sights: HashMap::new(),
     });
 }
 
@@ -926,6 +934,23 @@ pub fn animate(
     };
     let swayed = sway::transform(&vm.sway, pivot);
     let to_camera = world[vm.camera_bone].inverse() * swayed;
+    // The eye is the camera bone, so in camera space it's the origin. Each
+    // attachment's offset from it along the attachment's right (−Y) and up (Z)
+    // axes, for the reticles' `HoloSightOffset` proxy.
+    let sights = vm
+        .attachments
+        .iter()
+        .map(|a| {
+            let m = to_camera * attachment(&Some(a.clone()));
+            let p = Vec3::from(m.translation);
+            let (right, up) = (-Vec3::from(m.matrix3.y_axis), Vec3::from(m.matrix3.z_axis));
+            (
+                a.name.to_ascii_lowercase(),
+                Vec2::new(right.dot(p), up.dot(p)),
+            )
+        })
+        .collect();
+    vm.sights = sights;
     skin(
         &mut meshes,
         &vm.weapon,

@@ -16,7 +16,7 @@ use pf_fmt_ui::kv;
 
 /// What the proxies can read about the gun.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Context {
+pub struct Context<'a> {
     pub clip: u32,
     pub clip_size: u32,
     pub reserve: u32,
@@ -24,6 +24,9 @@ pub struct Context {
     pub max_carry: u32,
     /// The viewmodel's holo-sight value, 0..1 (`HoloSight`).
     pub holo: f32,
+    /// Each attachment's offset from the eye along its own right and up axes,
+    /// by lowercase name (`HoloSightOffset`).
+    pub sights: Option<&'a HashMap<String, Vec2>>,
 }
 
 /// A reference to a variable (or one of its numbers), or a literal number.
@@ -58,6 +61,12 @@ enum Proxy {
     RemainingAmmoColor(Value),
     BackgroundAmmoColor(Value),
     HoloSight(Value),
+    HoloSightOffset {
+        attachment: String,
+        horizontal: f32,
+        vertical: f32,
+        result: Value,
+    },
     Divide {
         a: Value,
         b: Value,
@@ -120,6 +129,11 @@ pub struct ProxyMaterial {
 }
 
 /// Up to four numbers from a VMT value: `"1"`, `"[1 0.5 0]"`, `"{255 0 0}"`.
+/// A proxy's number setting, or `default` if it's missing.
+fn number(text: Option<&str>, default: f32) -> f32 {
+    text.and_then(|t| t.trim().parse().ok()).unwrap_or(default)
+}
+
 fn numbers(text: &str) -> [f32; 4] {
     numbers_and_width(text).0
 }
@@ -171,6 +185,13 @@ impl ProxyMaterial {
                 "remainingammocolor" => Proxy::RemainingAmmoColor(r()),
                 "backgroundammocolor" => Proxy::BackgroundAmmoColor(r()),
                 "holosight" => Proxy::HoloSight(r()),
+                // Defaults from client.dll.
+                "holosightoffset" => Proxy::HoloSightOffset {
+                    attachment: name("attachmentName"),
+                    horizontal: number(p.text("horizontalScalar"), 0.5),
+                    vertical: number(p.text("verticalScalar"), -0.5),
+                    result: r(),
+                },
                 "divide" => Proxy::Divide {
                     a: v("srcVar1")?,
                     b: v("srcVar2")?,
@@ -252,6 +273,12 @@ impl ProxyMaterial {
         }
     }
 
+    fn set_vector(&mut self, v: &Value, x: [f32; 4]) {
+        if let Value::Var(name, _) = v {
+            self.vars.insert(name.clone(), x);
+        }
+    }
+
     fn set_color(&mut self, v: &Value, c: [f32; 3]) {
         if let Value::Var(name, _) = v {
             self.vars.insert(name.clone(), [c[0], c[1], c[2], 0.0]);
@@ -259,7 +286,7 @@ impl ProxyMaterial {
     }
 
     /// Run the proxies for this frame.
-    pub fn update(&mut self, cx: &Context) {
+    pub fn update(&mut self, cx: &Context<'_>) {
         let proxies = std::mem::take(&mut self.proxies);
         let clip_size = cx.clip_size.max(1);
         for p in &proxies {
@@ -294,6 +321,16 @@ impl ProxyMaterial {
                     self.set_color(r, if warn { BACKGROUND_WARNING } else { [1.0; 3] });
                 }
                 Proxy::HoloSight(r) => self.set(r, cx.holo),
+                Proxy::HoloSightOffset {
+                    attachment,
+                    horizontal,
+                    vertical,
+                    result,
+                } => {
+                    if let Some(at) = cx.sights.and_then(|s| s.get(attachment)) {
+                        self.set_vector(result, [at.x * horizontal, at.y * vertical, 0.0, 0.0]);
+                    }
+                }
                 Proxy::Divide { a, b, result } => {
                     let (a, b) = (self.get(a), self.get(b));
                     self.set(result, if b == 0.0 { 0.0 } else { a / b });
@@ -430,13 +467,14 @@ mod tests {
 	}
 }"#;
 
-    fn cx(clip: u32, reserve: u32) -> Context {
+    fn cx(clip: u32, reserve: u32) -> Context<'static> {
         Context {
             clip,
             clip_size: 24,
             reserve,
             max_carry: 240,
             holo: 0.0,
+            sights: None,
         }
     }
 

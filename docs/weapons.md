@@ -39,6 +39,12 @@ The reticle meshes use `hcog_reticle_front`, `hcog_reticle_rear` and `hcog_retic
   - `HoloSight` runs last, so it overwrites the front chevron's random-alpha `UniformNoise`.
 - **`UniformNoise`**: a random value in [min, max] each frame. The front reticle's `$scroll` gets one per axis, so its noise texture jumps around every frame (shimmer). The field emitter's `$color` flickers 0.8–1.
 - **`TextureTransform`** (Source's): uv′ = T(center + translate)·R(rotate)·S(scale)·T(−center)·uv, center 0.5. Used for `$texture2transform` (the noise) and the front reticle's `$holoOffset`.
+- **`HoloSightOffset`** (bind `0x18022e0e0`, init `0x18022baf0`): keeps the reticle on the aim point as the gun moves. Settings: `attachmentName` (`HCOG_REAR`), `horizontalScalar` (default 0.5; front 0.55, rear 0.5) and `verticalScalar` (default −0.5; front −0.72, rear −0.65).
+  - Each frame it takes the viewmodel's attachment matrix, splits it into forward, right (the negated Y column) and up (Z), and takes d = attachment position − the main view origin.
+  - It writes (right·d × horizontal, up·d × vertical, 0, 0) to `$holoOffset`. The `TextureTransform` after it turns that into `$basetexturetransform`.
+  - Without it, the file's [0.1 0] shifts the reticle a tenth of its texture sideways.
+  - **Ours:** the eye is the camera bone, so d is the attachment's position in camera space. The viewmodel computes it for every attachment after sway, and the proxy reads it by name.
+  - **Check:** aimed at 1440p, the chevron's tip is centred across and about 12 px above the screen centre. Before the port it was 23 px left and 40 px above.
 - **`UnlitTwoTexture`**: the base texture × the second texture (`dev/noise_post`) × `$color` × `$color2`, alpha × `$alpha`.
 
 **Sight body:** `hcog.vmt` is `VertexLitGeneric` with `$selfillum` and mask `hcog_ilm` at `$selfillumtint` [10 10 10]. That's the glowing blue glass.
