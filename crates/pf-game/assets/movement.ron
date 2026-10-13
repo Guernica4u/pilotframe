@@ -20,9 +20,12 @@
     crouch_eye_height: 38.0,   // [set] crouch viewheight
 
     // Ground
-    walk_speed: 180.6,         // [set] speed
-    sprint_speed: 269.85,      // [set] sprintspeed
-    crouch_speed: 89.25,       // [set] crouch speed
+    // The game moves at 180.5 and 270.0, not the files' 180.6 and 269.85: the live
+    // max speed (m_flMaxspeed) reads 180.5, and recorded steady speeds are exactly
+    // 180.5 and 270.0 times the gun's move_speed_modifier (docs/port/movement/values.md).
+    walk_speed: 180.5,         // [live] ([set] speed 180.6)
+    sprint_speed: 270.0,       // [live] ([set] sprintspeed 269.85)
+    crouch_speed: 89.25,       // [set] crouch speed (live value still to record)
     acceleration: 2500.0,      // [engine] stand acceleration
     deceleration: 1500.0,      // [engine] stand deceleration is unset (-1): the game uses 0.6 × acceleration
 

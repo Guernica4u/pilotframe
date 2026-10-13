@@ -7,10 +7,10 @@
 //! `telemetry.py record` (docs/tools.md): per game frame, the pilot's position
 //! and velocity (Source axes, Z up), flags, buttons and view angles.
 //!
-//! Button bits are Source's usual ones (IN_JUMP 2, IN_DUCK 4, IN_FORWARD 8,
-//! IN_BACK 16, IN_MOVELEFT 512, IN_MOVERIGHT 1024, IN_ATTACK2 2048,
-//! IN_SPEED 1 << 17). Still to confirm against the game with
-//! `telemetry.py keys`.
+//! Button bits, measured in the game with `telemetry.py keys` (2026-10-12):
+//! attack 1, jump 2, forward 8, back 16, left 512, right 1024, sprint 1 << 17,
+//! aim (zoom) 1 << 19, crouch 1 << 27. Crouch and aim are not Source's usual
+//! IN_DUCK 4 and IN_ATTACK2 2048.
 
 use std::path::{Path, PathBuf};
 
@@ -18,12 +18,12 @@ use bevy::math::{Vec2, Vec3};
 use pf_movement::{Mode, MoveInput, MovementState, MovementTuning, StaticWorld, step};
 
 const IN_JUMP: i64 = 1 << 1;
-const IN_DUCK: i64 = 1 << 2;
+const IN_DUCK: i64 = 1 << 27;
 const IN_FORWARD: i64 = 1 << 3;
 const IN_BACK: i64 = 1 << 4;
 const IN_MOVELEFT: i64 = 1 << 9;
 const IN_MOVERIGHT: i64 = 1 << 10;
-const IN_ATTACK2: i64 = 1 << 11;
+const IN_ZOOM: i64 = 1 << 19;
 const IN_SPEED: i64 = 1 << 17;
 
 /// One recorded game frame.
@@ -141,6 +141,9 @@ fn replay(path: &Path) -> Result<PathBuf, String> {
     let tuning = load_tuning()?;
     let world = world()?;
     let dt = 1.0 / crate::TICK_HZ as f32;
+    // The recording doesn't say which gun was held; assume our default
+    // loadout's (record with the same weapon, or the speeds won't match).
+    let weapon_speed = crate::viewmodel::default_move_speed();
 
     let first = &frames[0];
     let mut state = MovementState::new(to_ours(first.origin));
@@ -175,7 +178,8 @@ fn replay(path: &Path) -> Result<PathBuf, String> {
             jump: f.buttons & IN_JUMP != 0 && last_buttons & IN_JUMP == 0,
             sprint: held(IN_SPEED),
             crouch: held(IN_DUCK),
-            zoom: held(IN_ATTACK2),
+            zoom: held(IN_ZOOM),
+            weapon_speed,
         };
         last_buttons = f.buttons;
         state = step(&state, &input, &tuning, &world, dt);
