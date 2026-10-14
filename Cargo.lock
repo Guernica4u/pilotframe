@@ -4388,6 +4388,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-clientvm"
+version = "0.0.1"
+dependencies = [
+ "pf-gamefs",
+ "pf-squirrel",
+]
+
+[[package]]
 name = "pf-fmt-bsp"
 version = "0.0.1"
 

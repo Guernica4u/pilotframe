@@ -1,0 +1,16 @@
+[package]
+name = "pf-clientvm"
+description = "The game's client script VM: our Squirrel interpreter plus client.dll's script functions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pf-squirrel = { path = "../pf-squirrel" }
+
+[dev-dependencies]
+pf-gamefs.workspace = true
+
+[lints]
+workspace = true
