@@ -177,6 +177,48 @@ launcher.dll's thread system, which `_threads.nut` builds on (our `threads.rs`):
 
   These need entities first.
 
+### Startup and the compiler's extras
+
+- **The VM's own scripts:**
+  - launcher.dll creates a VM and runs `init.nut`, `_consts.nut` and `_threads.nut` from the VPK;
+  - it registers its natives (base library, threads, `Vector`, plus `developer`, `GetFunctionSignature`, `IsValid`).
+  - launcher.dll also carries an embedded copy of an older `init.nut` (with a script `Assert`), but nothing references it: it's dead data. The VPK's copy says "Reference script only" yet is the one that runs.
+- **The client VM** (client.dll):
+  1. creates the VM;
+  2. registers its native groups and constants (`COCKPIT_PANEL_*`);
+  3. runs `vscript_client.nut`;
+  4. includes `_cl_mapspawn`.
+- **`Assert` is a compiler keyword:** an `Assert( ... )` statement compiles to nothing (the compiler skips to the matching `)`), so the shipped game never evaluates asserts.
+- **`IncludeFile( name )`** (in `_threads.nut`):
+  - runs the file in a new scope table that delegates to the root table;
+  - then runs its `main()` as a thread with that scope as `this`, through `SpinOff.bindenv( scope )`.
+
+  So `bindenv` works on native functions too.
+- **`developer()`** returns the developer console variable (0 in the shipped game).
+- **`IsValid( x )`:** null is false; an instance is true only if it's a live engine entity; anything else is true.
+
+### Vector
+
+A class whose instances hold three 32-bit floats (our `vector.rs`).
+- **Construction and fields:** missing or non-number constructor arguments are 0. `_get`/`_set` serve `x`, `y`, `z`; any other key is "the index 'K' does not exist".
+- **Type and printing:** `typeof` is `"Vector"`; it prints as `(vector : (%f, %f, %f))`; `foreach` gives x, y, z.
+- **Arithmetic:** `+` and `-` take Vectors; `*` takes a number ("Tried to scale vector by something other than a number"). `==` compares identity.
+- **Methods:**
+  - `Length`, `LengthSqr`, `Length2D`, `Length2DSqr`, `Dot`, `Cross`;
+  - `Norm` and `Normalize` (in place, dividing by length + FLT_MIN, returning the old length);
+  - `GetAngles` (direction to pitch/yaw in [0, 360));
+  - `AnglesToForward`, `AnglesToRight`, `AnglesToUp`;
+  - `AnglesCompose`, `AnglesInverse`, `AnglesLerp` (through quaternions: multiply with alignment, conjugate over the squared norm, slerp);
+  - `RotateAngles` (this vector times the argument's rotation matrix);
+  - `ToKVString`.
+- **The game's sine/cosine:** most angle math uses its own SSE approximation, not the C library's:
+  - the angle in turns, folded into a quarter turn;
+  - then an odd degree-9 polynomial, with coefficients 39.536705, −76.549782, 81.601006, −41.341656, 6.283185 (just below 2π) from launcher.dll's data;
+  - cosine is the sine of angle + π/2.
+
+  `AnglesToForward` and the slerp use the C library's instead.
+- **Checked against the game:** pending (oracle V001–V018, printed to 9 digits to catch rounding).
+
 ## Our interpreter (`crates/pf-squirrel`)
 
 - **Pipeline:** our parser, then our own compiler to a simple stack bytecode, then our VM. The bytecode is ours; what matches the game is the behaviour.
@@ -187,7 +229,8 @@ launcher.dll's thread system, which `_threads.nut` builds on (our `threads.rs`):
   - all 481 game scripts compile (`tests/game_scripts.rs`, when the install is present).
 - **One compiler quirk ported:** Squirrel 2's compiler only checks that the last operand of an assignment's left side is assignable, so `local x = 0 + y -= w` compiles (one game script, `cl_burncards_lobby.nut`, has it). We give `(0 + y) - w` with `y` unchanged, from how that compiler works; oracle Q001/Q002 will confirm.
 - **Not yet checked against the game** (oracle run 3 cases are written): rounding of exact ties in `format` (assumed away from zero, the old Microsoft library), not-a-number printing, `%s` with numbers, the error texts for natives called with the wrong argument count, and the thread and signal rules (oracle T001–T011).
-- **Next:** the native functions (`Vector`, then what `init.nut`, `_consts.nut`, `_threads.nut` and the client VM's scripts call), then running the client VM's startup.
+- **Survey tool:** `cargo run -p pf-squirrel --example client_vm` runs the client VM's startup from the install. Each engine function the scripts call that we don't have yet gets a stand-in returning null; the tool lists them in order of first use.
+- **Next:** the client.dll natives the survey lists (`IsClient`, `IsMultiplayer`, `GetMapName`, the `Remote` object…), each ported from client.dll.
 
 ## Native functions (what scripts can call in the engine)
 
