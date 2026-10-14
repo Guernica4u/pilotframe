@@ -15,8 +15,11 @@ use std::rc::Rc;
 
 use pf_squirrel::{Value, Vm};
 
+pub mod consts;
+pub mod engine;
 pub mod gamerules;
 pub mod globals;
+pub mod progression;
 pub mod remote;
 
 /// What the client VM needs from the game.
@@ -53,6 +56,39 @@ pub trait Host {
         let _ = index;
         TeamInfo::default()
     }
+    /// Connected to a server (in our game: a match is running).
+    fn is_connected(&self) -> bool {
+        true
+    }
+    /// A variable of the current playlist (from the install's playlist
+    /// file), or None.
+    fn playlist_var(&self, name: &str) -> Option<String> {
+        let _ = name;
+        None
+    }
+    /// Load a material (any path). False if it couldn't be loaded.
+    fn precache_material(&self, name: &str) -> bool {
+        let _ = name;
+        true
+    }
+    /// Load a particle system; its index.
+    fn precache_particle_system(&self, name: &str) -> i32 {
+        let _ = name;
+        0
+    }
+    /// Load an impact effect table; its index.
+    fn precache_impact_table(&self, name: &str) -> i32 {
+        let _ = name;
+        0
+    }
+    /// Create a colour-correction layer; its index.
+    fn color_correction_register(&self, name: &str) -> i32 {
+        let _ = name;
+        0
+    }
+    fn color_correction_set_exclusive(&self, index: i32, exclusive: bool) {
+        let _ = (index, exclusive);
+    }
 }
 
 /// What the game rules report about a team.
@@ -85,9 +121,23 @@ impl ClientVm {
         for f in ["init", "_consts", "_threads"] {
             self.run_file(f)?;
         }
+        for &(name, value) in consts::ROOT {
+            self.vm
+                .root
+                .borrow_mut()
+                .insert(Value::str(name), Value::Int(value));
+        }
+        for &(name, value) in consts::CONST {
+            self.vm
+                .consts
+                .borrow_mut()
+                .insert(Value::str(name), Value::Int(value));
+        }
         globals::install(self);
         remote::install(self);
         gamerules::install(self);
+        engine::install(self);
+        progression::install(self);
         self.run_file("vscript_client")?;
         // client.dll includes `_cl_mapspawn` with no scope: the root table.
         let root = Value::Table(self.vm.root.clone());

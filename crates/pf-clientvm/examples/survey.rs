@@ -34,6 +34,13 @@ impl Host for FileHost {
     fn frame_time(&self) -> f32 {
         1.0 / 60.0
     }
+    fn convar(&self, name: &str) -> String {
+        match name {
+            // Attrition.
+            "mp_gamemode" => "tdm".into(),
+            _ => String::new(),
+        }
+    }
 }
 
 fn main() {
