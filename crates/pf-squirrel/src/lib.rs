@@ -13,9 +13,10 @@ pub mod lexer;
 pub mod parser;
 mod stdlib;
 pub mod table;
+mod threads;
 pub mod value;
 pub mod vm;
 
 pub use parser::{ParseError, parse};
 pub use value::Value;
-pub use vm::{NativeError, NativeResult, Vm, Wake, native, throw};
+pub use vm::{NativeError, NativeResult, Vm, native, throw};

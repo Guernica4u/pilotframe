@@ -2,13 +2,11 @@
 //! and fail, and the error messages) follows launcher.dll's interpreter as
 //! written up in docs/port/scripts.md and checked by the oracle cases.
 //!
-//! Script threads (`thread`, `wait`, `waitthread`, `delaythread`) each have
-//! their own stack, so one can stop in the middle of a function and carry
-//! on later. A call made from Rust (an engine callback, a native function
-//! calling back into script) gets a fresh stack and must finish without
-//! waiting.
+//! Script threads (`threads.rs`) each have their own stack, so one can stop
+//! in the middle of a function and carry on later. A call made from Rust (an
+//! engine callback, a native function calling back into script) gets a
+//! fresh stack and must finish without waiting.
 
-use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use crate::ast::BinOp;
@@ -23,9 +21,9 @@ pub type NativeResult = Result<Value, NativeError>;
 pub enum NativeError {
     /// A script error (usually a message string).
     Throw(Value),
-    /// Pause the calling script thread until `Wake`; the call then returns
-    /// null.
-    Suspend(Wake),
+    /// Stop the calling script thread for now (the native has queued it to
+    /// carry on later). The call then returns the thread's resume value.
+    Suspend,
 }
 
 impl From<Value> for NativeError {
@@ -39,30 +37,21 @@ pub fn throw(msg: impl AsRef<str>) -> NativeError {
     NativeError::Throw(Value::str(msg.as_ref()))
 }
 
-/// When a waiting script thread carries on.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Wake {
-    /// At this game time (seconds).
-    Time(f64),
-    /// When this thread has finished.
-    Thread(u32),
-}
-
 /// How a run of a stack stopped.
-enum Outcome {
+pub(crate) enum Outcome {
     Returned(Value),
-    /// The thread is waiting; on resume push null if `push_null`.
-    Suspended(Wake, bool),
+    /// The thread stopped for now.
+    Suspended,
 }
 
 /// How a call started.
-enum Start {
+pub(crate) enum Start {
     /// Finished at once (a native function, a class without constructor).
     Done(Value),
     /// A script frame was pushed.
     Frame,
-    /// A native function asked to wait.
-    Suspend(Wake),
+    /// A native function stopped the thread.
+    Suspend,
 }
 
 struct Trap {
@@ -81,15 +70,15 @@ struct Frame {
     ctor: Option<Value>,
 }
 
-struct Exec {
-    stack: Vec<Value>,
+pub(crate) struct Exec {
+    pub(crate) stack: Vec<Value>,
     frames: Vec<Frame>,
     /// A script thread (may wait), not a call from Rust.
     is_thread: bool,
 }
 
 impl Exec {
-    fn new(is_thread: bool) -> Exec {
+    pub(crate) fn new(is_thread: bool) -> Exec {
         Exec {
             stack: Vec::new(),
             frames: Vec::new(),
@@ -104,15 +93,6 @@ impl Exec {
     fn top(&self) -> &Value {
         self.stack.last().expect("empty script stack")
     }
-}
-
-struct ScriptThread {
-    ex: Exec,
-    wake: Wake,
-    /// Push null when it carries on (it waited inside an expression).
-    push_null: bool,
-    /// Made by `delaythread` and not started yet.
-    unstarted: bool,
 }
 
 /// Names of metamethods and the per-type method tables.
@@ -136,11 +116,8 @@ pub struct Vm {
     pub last_error: Value,
     /// Where `print` goes.
     pub out: Box<dyn FnMut(&str)>,
-    /// Game time in seconds, for `wait`.
-    pub time: f64,
     pub(crate) builtins: Builtins,
-    threads: BTreeMap<u32, ScriptThread>,
-    next_thread: u32,
+    pub(crate) threads: crate::threads::Threads,
     /// Nested runs (calls from Rust into script), to stop runaway recursion.
     depth: usize,
 }
@@ -163,7 +140,6 @@ impl Vm {
             consts: new_ref(Table::new()),
             last_error: Value::Null,
             out: Box::new(|s| print!("{s}")),
-            time: 0.0,
             builtins: Builtins {
                 table: Table::new(),
                 array: Table::new(),
@@ -174,11 +150,11 @@ impl Vm {
                 instance: Table::new(),
                 weakref: Table::new(),
             },
-            threads: BTreeMap::new(),
-            next_thread: 1,
+            threads: Default::default(),
             depth: 0,
         };
         crate::stdlib::install(&mut vm);
+        crate::threads::install(&mut vm);
         vm
     }
 
@@ -232,7 +208,7 @@ impl Vm {
     fn call_in(&mut self, ex: &mut Exec, at: usize, argc: usize) -> Result<Value, Value> {
         match self.begin_call(ex, at, argc) {
             Ok(Start::Done(v)) => Ok(v),
-            Ok(Start::Suspend(_)) => {
+            Ok(Start::Suspend) => {
                 Err(self.raise_str("cannot suspend through native calls/metamethods"))
             }
             Ok(Start::Frame) => {
@@ -242,7 +218,7 @@ impl Vm {
                         ex.stack.truncate(at);
                         Ok(v)
                     }
-                    Outcome::Suspended(..) => {
+                    Outcome::Suspended => {
                         Err(self.raise_str("cannot suspend through native calls/metamethods"))
                     }
                 }
@@ -254,108 +230,16 @@ impl Vm {
         }
     }
 
-    // ---- Script threads ----
-
-    /// Start `f` as a script thread (`thread f()`). It runs at once until it
-    /// first waits. Returns its id if it's still running.
-    pub fn spawn(&mut self, f: &Value, this: Value, args: &[Value]) -> Option<u32> {
-        let mut ex = Exec::new(true);
-        ex.stack.push(f.clone());
-        ex.stack.push(this);
-        ex.stack.extend_from_slice(args);
-        self.start_thread(ex, args.len())
-    }
-
-    fn start_thread(&mut self, mut ex: Exec, argc: usize) -> Option<u32> {
-        let outcome = match self.begin_call(&mut ex, 0, argc) {
-            Ok(Start::Done(_)) => return None,
-            Ok(Start::Suspend(w)) => Ok(Outcome::Suspended(w, true)),
-            Ok(Start::Frame) => self.run(&mut ex, 0),
-            Err(e) => Err(e),
-        };
-        self.after_run(ex, outcome, None)
-    }
-
-    /// File a thread that stopped: keep it if it's waiting, report an error.
-    fn after_run(
-        &mut self,
-        ex: Exec,
-        outcome: Result<Outcome, Value>,
-        id: Option<u32>,
-    ) -> Option<u32> {
-        match outcome {
-            Ok(Outcome::Returned(_)) => None,
-            Ok(Outcome::Suspended(wake, push_null)) => {
-                let id = id.unwrap_or_else(|| {
-                    self.next_thread += 1;
-                    self.next_thread - 1
-                });
-                self.threads.insert(
-                    id,
-                    ScriptThread {
-                        ex,
-                        wake,
-                        push_null,
-                        unstarted: false,
-                    },
-                );
-                Some(id)
-            }
-            Err(e) => {
-                // An error ends the thread; the game prints it and carries on.
-                let msg = self.to_display(&e);
-                (self.out)(&format!("SCRIPT ERROR: {msg}\n"));
-                None
-            }
-        }
-    }
-
-    pub fn thread_alive(&self, id: u32) -> bool {
-        self.threads.contains_key(&id)
-    }
-
-    /// Advance game time and carry on every thread whose wait is over. A
-    /// thread that waits again during this update carries on next update at
-    /// the earliest (so `wait 0` waits a frame).
-    pub fn update(&mut self, now: f64) {
-        self.time = now;
-        let ready: Vec<u32> = self
-            .threads
-            .iter()
-            .filter(|(_, t)| match t.wake {
-                Wake::Time(at) => at <= now,
-                Wake::Thread(other) => !self.threads.contains_key(&other),
-            })
-            .map(|(&id, _)| id)
-            .collect();
-        for id in ready {
-            let Some(t) = self.threads.remove(&id) else {
-                continue;
-            };
-            let mut ex = t.ex;
-            let outcome = if t.unstarted {
-                let argc = ex.stack.len() - 2;
-                match self.begin_call(&mut ex, 0, argc) {
-                    Ok(Start::Done(_)) => continue,
-                    Ok(Start::Suspend(w)) => Ok(Outcome::Suspended(w, true)),
-                    Ok(Start::Frame) => self.run(&mut ex, 0),
-                    Err(e) => Err(e),
-                }
-            } else {
-                if t.push_null {
-                    ex.stack.push(Value::Null);
-                }
-                self.run(&mut ex, 0)
-            };
-            self.after_run(ex, outcome, Some(id));
-        }
-    }
-
     // ---- Running frames ----
 
     /// Set up a call to the value at `stack[at]` (`this` and `argc`
     /// arguments follow it).
-    fn begin_call(&mut self, ex: &mut Exec, at: usize, argc: usize) -> Result<Start, Value> {
+    pub(crate) fn begin_call(
+        &mut self,
+        ex: &mut Exec,
+        at: usize,
+        argc: usize,
+    ) -> Result<Start, Value> {
         let callee = ex.stack[at].clone();
         match callee {
             Value::Closure(c) => {
@@ -375,7 +259,7 @@ impl Vm {
                 match (n.f)(self, &args) {
                     Ok(v) => Ok(Start::Done(v)),
                     Err(NativeError::Throw(e)) => Err(e),
-                    Err(NativeError::Suspend(w)) => Ok(Start::Suspend(w)),
+                    Err(NativeError::Suspend) => Ok(Start::Suspend),
                 }
             }
             Value::Class(cls) => {
@@ -398,7 +282,7 @@ impl Vm {
                         match (n.f)(self, &args) {
                             Ok(_) => Ok(Start::Done(inst)),
                             Err(NativeError::Throw(e)) => Err(e),
-                            Err(NativeError::Suspend(_)) => {
+                            Err(NativeError::Suspend) => {
                                 Err(self
                                     .raise_str("cannot suspend through native calls/metamethods"))
                             }
@@ -484,7 +368,7 @@ impl Vm {
 
     /// Run until the frame count drops to `stop` (that frame returned) or
     /// the thread waits. Errors unwind to the nearest `try`, or out.
-    fn run(&mut self, ex: &mut Exec, stop: usize) -> Result<Outcome, Value> {
+    pub(crate) fn run(&mut self, ex: &mut Exec, stop: usize) -> Result<Outcome, Value> {
         loop {
             match self.exec(ex, stop) {
                 Ok(o) => return Ok(o),
@@ -698,50 +582,15 @@ impl Vm {
                     match self.begin_call(ex, at, n as usize)? {
                         Start::Done(v) => ex.stack.push(v),
                         Start::Frame => {}
-                        Start::Suspend(w) => {
+                        Start::Suspend => {
                             if !ex.is_thread {
                                 return Err(self.raise_str(
                                     "Cannot suspend thread from within code function calls",
                                 ));
                             }
-                            return Ok(Outcome::Suspended(w, true));
+                            return Ok(Outcome::Suspended);
                         }
                     }
-                }
-                Op::Thread(n) => {
-                    let child = self.take_call(ex, n as usize);
-                    self.start_thread(child, n as usize);
-                    ex.stack.push(Value::Null);
-                }
-                Op::WaitThread(n) | Op::WaitThreadSolo(n) => {
-                    let child = self.take_call(ex, n as usize);
-                    match self.start_thread(child, n as usize) {
-                        None => ex.stack.push(Value::Null),
-                        Some(id) => {
-                            if !ex.is_thread {
-                                return Err(self.raise_str(
-                                    "Cannot suspend thread from within code function calls",
-                                ));
-                            }
-                            return Ok(Outcome::Suspended(Wake::Thread(id), true));
-                        }
-                    }
-                }
-                Op::DelayThread(n) => {
-                    let child = self.take_call(ex, n as usize);
-                    let delay = self.to_number(&ex.pop())?;
-                    let id = self.next_thread;
-                    self.next_thread += 1;
-                    self.threads.insert(
-                        id,
-                        ScriptThread {
-                            ex: child,
-                            wake: Wake::Time(self.time + delay as f64),
-                            push_null: false,
-                            unstarted: true,
-                        },
-                    );
-                    ex.stack.push(Value::Null);
                 }
                 Op::NewTable(n) => {
                     ex.stack
@@ -891,27 +740,9 @@ impl Vm {
                     }
                     ex.stack.push(v);
                 }
-                Op::Wait => {
-                    let t = self.to_number(&ex.pop())?;
-                    if !ex.is_thread {
-                        return Err(
-                            self.raise_str("Cannot suspend thread from within code function calls")
-                        );
-                    }
-                    return Ok(Outcome::Suspended(Wake::Time(self.time + t as f64), false));
-                }
                 Op::SetTop(n) => ex.stack.truncate(base + n as usize),
             }
         }
-    }
-
-    /// Pop a call (`callee this args..`) off the stack into a new thread
-    /// stack.
-    fn take_call(&mut self, ex: &mut Exec, argc: usize) -> Exec {
-        let at = ex.stack.len() - argc - 2;
-        let mut child = Exec::new(true);
-        child.stack = ex.stack.split_off(at);
-        child
     }
 
     // ---- Errors ----

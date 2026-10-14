@@ -72,12 +72,6 @@ pub enum Op {
     OrJump(u32),
     /// `[callee this args..] -> [result]`; the count excludes `this`.
     Call(u16),
-    /// `thread f(..)`: same stack shape as `Call`, leaves null.
-    Thread(u16),
-    WaitThread(u16),
-    WaitThreadSolo(u16),
-    /// `[delay callee this args..] -> [null]`.
-    DelayThread(u16),
     /// A table sized for this many entries.
     NewTable(u32),
     NewArray(u32),
@@ -109,8 +103,6 @@ pub enum Op {
     Throw,
     Return,
     ReturnNull,
-    /// `wait t`: pops `t`.
-    Wait,
     /// Drop locals down to this many.
     SetTop(u16),
 }
@@ -569,9 +561,16 @@ impl Compiler<'_> {
                 self.expr(f, e)?;
                 f.emit(Op::Throw);
             }
+            // `wait t` calls the root table's `Wait( t )`, as the game's
+            // compiler does.
             StmtKind::Wait(e) => {
+                f.emit(Op::Root);
+                let k = f.name("Wait");
+                f.emit(Op::GetK(k));
+                f.emit(Op::Local(0));
                 self.expr(f, e)?;
-                f.emit(Op::Wait);
+                f.emit(Op::Call(1));
+                f.emit(Op::Pop);
             }
             StmtKind::Empty => {}
         }
@@ -783,22 +782,13 @@ impl Compiler<'_> {
                 self.expr(f, table)?;
                 f.emit(Op::Delegate);
             }
-            Expr::Thread(call) => {
-                let n = self.thread_call(f, call)?;
-                f.emit(Op::Thread(n));
-            }
-            Expr::WaitThread(call) => {
-                let n = self.thread_call(f, call)?;
-                f.emit(Op::WaitThread(n));
-            }
+            Expr::Thread(call) => self.thread_call(f, "SpinOff", None, call)?,
+            Expr::WaitThread(call) => self.thread_call(f, "SpinOffAndWaitFor", None, call)?,
             Expr::WaitThreadSolo(call) => {
-                let n = self.thread_call(f, call)?;
-                f.emit(Op::WaitThreadSolo(n));
+                self.thread_call(f, "SpinOffAndWaitForSolo", None, call)?
             }
             Expr::DelayThread(delay, call) => {
-                self.expr(f, delay)?;
-                let n = self.thread_call(f, call)?;
-                f.emit(Op::DelayThread(n));
+                self.thread_call(f, "SpinOffDelayed", Some(delay), call)?
             }
             Expr::Comma(items) => {
                 for (i, e) in items.iter().enumerate() {
@@ -979,13 +969,58 @@ impl Compiler<'_> {
         Ok(())
     }
 
-    /// The call after `thread`/`waitthread`/`delaythread(t)`.
-    fn thread_call(&mut self, f: &mut Func, call: &Expr) -> Result<u16> {
+    /// `thread f(a)` and friends: as in the game's compiler, a call of the
+    /// root table's `SpinOff` (`SpinOffAndWaitFor`, `SpinOffAndWaitForSolo`,
+    /// `SpinOffDelayed`) with the function and its arguments; `a.f()` passes
+    /// `a` as `this` (the new thread's `this`). `delaythread(d)` passes the
+    /// delay first.
+    fn thread_call(
+        &mut self,
+        f: &mut Func,
+        native: &str,
+        delay: Option<&Expr>,
+        call: &Expr,
+    ) -> Result<()> {
         let Expr::Call(callee, args) = call else {
             return self.err(f, "expected a function call after thread");
         };
-        self.call_setup(f, callee, args)?;
-        Ok(args.len() as u16)
+        f.emit(Op::Root);
+        let k = f.name(native);
+        f.emit(Op::GetK(k));
+        match &**callee {
+            Expr::Field(obj, name) => {
+                self.expr(f, obj)?;
+                f.emit(Op::Dup);
+                let k = f.name(name);
+                f.emit(Op::GetK(k));
+            }
+            Expr::Index(obj, key) => {
+                self.expr(f, obj)?;
+                f.emit(Op::Dup);
+                self.expr(f, key)?;
+                f.emit(Op::Get);
+            }
+            Expr::Root(name) => {
+                f.emit(Op::Root);
+                f.emit(Op::Dup);
+                let k = f.name(name);
+                f.emit(Op::GetK(k));
+            }
+            other => {
+                f.emit(Op::Local(0));
+                self.expr(f, other)?;
+            }
+        }
+        if let Some(d) = delay {
+            self.expr(f, d)?;
+            f.emit(Op::Swap);
+        }
+        for a in args {
+            self.expr(f, a)?;
+        }
+        let n = args.len() + 1 + delay.is_some() as usize;
+        f.emit(Op::Call(n as u16));
+        Ok(())
     }
 
     fn closure(&mut self, f: &mut Func, def: &FuncDef) -> Result<()> {

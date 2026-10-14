@@ -183,3 +183,14 @@ E017 (5).foo
 E018 local f = function(a, b = 1) { return a }; f(1, 2, 3)
 A013 local a = [3, 1, 3, 2, 3]; a.sort(function(x, y) { return 0 }); local s = ""; foreach (v in a) s += v; P("A013", s)
 A014 local a = [{ k = 2, n = "a" }, { k = 1, n = "b" }, { k = 2, n = "c" }, { k = 1, n = "d" }]; a.sort(function(x, y) { return x.k - y.k }); local s = ""; foreach (v in a) s += v.n; P("A014", s)
+# --- run 3 (pending): threads and signals (results print a few frames later) ---
+T001 ::t1 <- ""; foreach (n in ["a", "b", "c"]) thread (function(n) { wait 0.05; ::t1 += n })(n); thread (function() { wait 0.05; ::t1 += "|"; wait 0.2; P("T001", ::t1) })()
+T002 RegisterSignal("pfT2"); ::o2 <- {}; thread (function() { local r = WaitSignal(::o2, "pfT2"); local k = []; foreach (kk, v in r) k.append(kk); k.sort(); local s = ""; foreach (x in k) s += x + ","; P("T002", s) })(); Signal(::o2, "pfT2", { a = 1 })
+T004 RegisterSignal("pfT4"); ::o4 <- {}; ::s4 <- ""; thread (function() { EndSignal(::o4, "pfT4"); OnThreadEnd(function() { ::s4 += "end," }); waitthread (function() { OnThreadEnd(function() { ::s4 += "child," }); wait 10 })() })(); thread (function() { wait 0.1; Signal(::o4, "pfT4"); P("T004", ::s4) })()
+T005 RegisterSignal("pfT5"); ::o5 <- {}; ::s5 <- ""; thread (function() { WaitSignal(::o5, "pfT5"); ::s5 += "w," })(); thread (function() { wait 0.1; ::s5 += "a,"; Signal(::o5, "pfT5"); ::s5 += "b,"; wait 0.1; P("T005", ::s5) })()
+T006 RegisterSignal("pfT6a"); RegisterSignal("pfT6b"); ::o6 <- {}; thread (function() { local r = WaitSignal(::o6, "pfT6a", "pfT6b"); P("T006", r.signal) })(); Signal(::o6, "pfT6b")
+T007 thread (function() { local v = waitthread (function() { return 5 })(); P("T007", "" + v) })()
+T008 try { wait 1 } catch (e) { P("T008", e) }
+T009 try { Signal({}, "pfNope9") } catch (e) { P("T009", e) }
+T010 ::t10 <- { n = "obj", function F() { P("T010", ("n" in this) ? this.n : "root") } }; thread ::t10.F()
+T011 ::s11 <- ""; thread (function() { ::s11 += "1"; waitthreadsolo (function() { ::s11 += "2"; wait 0.05; ::s11 += "4" })(); ::s11 += "5"; P("T011", ::s11) })(); ::s11 += "3"

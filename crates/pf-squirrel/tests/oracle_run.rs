@@ -53,14 +53,15 @@ fn interpreter_matches_the_game() {
     let game = game_results();
     let mut bad = Vec::new();
     let mut checked = 0;
+    let mut time = 0.0f32;
     for line in include_str!("../oracle/cases.txt").lines() {
         if line.trim().is_empty() || line.trim_start().starts_with('#') {
             continue;
         }
         let (id, code) = line.split_once(' ').unwrap_or((line, ""));
-        let Some(expected) = game.get(id) else {
-            continue;
-        };
+        // Cases the game hasn't run yet are run too (their output shows with
+        // PF_ORACLE_SHOW=1) but not checked.
+        let expected = game.get(id);
         printed.borrow_mut().clear();
         let src = format!(
             "try {{ compilestring( \"{}\" )() }} catch ( e ) {{ print( \"{id}|ERR|\" + e + \"\\n\" ) }}",
@@ -69,6 +70,11 @@ fn interpreter_matches_the_game() {
         if let Err(e) = vm.run_script(&src, id) {
             bad.push(format!("{id}: harness failed: {e:?}"));
             continue;
+        }
+        // Thread cases print a few frames later: run a second of frames.
+        for _ in 0..60 {
+            time += 1.0 / 60.0;
+            vm.run_frame(time);
         }
         let out = printed.borrow().clone();
         // The game's console log drops unprintable characters (tabs stay,
@@ -80,6 +86,12 @@ fn interpreter_matches_the_game() {
             .chars()
             .filter(|c| !c.is_control() || *c == '\t')
             .collect();
+        let Some(expected) = expected else {
+            if std::env::var_os("PF_ORACLE_SHOW").is_some() {
+                eprintln!("{id}|{ours}");
+            }
+            continue;
+        };
         checked += 1;
         if &ours != expected {
             bad.push(format!("{id}: game {expected:?}, ours {ours:?}"));

@@ -142,17 +142,52 @@ Each value is a 4-byte type tag plus 8 bytes of data. Tags seen so far: null `0x
 
 `array.sort` is a quicksort: the first element is the pivot; scan up from the left past elements that compare ≤ 0 with the pivot, down from the right past elements that compare > 0; swap and repeat until the scans cross, then swap the pivot into place and sort both sides. A comparison function gets (element, pivot) with the root table as `this`. Where equal elements end up depends on this, and scripts can see it (oracle A013/A014 check it).
 
+### Threads and signals
+
+launcher.dll's thread system, which `_threads.nut` builds on (our `threads.rs`):
+
+- **The keywords are calls.** The compiler looks these names up in the root table and calls them: `thread f(a)` → `SpinOff`, `waitthread` → `SpinOffAndWaitFor`, `waitthreadsolo` → `SpinOffAndWaitForSolo`, `wait t` → `Wait`, `delaythread(d) f(a)` → `SpinOffDelayed(d, f, a)`. A script that replaced one of them would change the keyword. We pass `a` as `this` for `thread a.f()` (to be confirmed, oracle T010).
+- **`SpinOff(f, ...)`** makes a new script thread whose `this` is `SpinOff`'s `this`, then runs it at once until it first waits. With a delay (`SpinOffDelayed`), the thread waits first and starts when its time comes.
+- **Waiting by time:** `Wait(t)` puts the thread in the bucket for time `now + t` (32-bit float). Buckets are kept in time order; threads join a bucket at the end.
+- **Each frame** (`RunFrame(time)`):
+  1. threads woken outside the last frame become the ready list; if there are none, the end-of-frame list does;
+  2. every bucket whose time has come moves onto the end of the ready list, in time order (a thread in `WaitSignalTimeout` stops waiting for its signals);
+  3. the ready list runs in rounds: each round takes the whole list and runs it in order; threads made ready during a round run in the next round, in the same frame; when nothing is ready, the `WaitEndFrame` threads become ready.
+
+  So `wait 0` waits until the next frame.
+- **Waking:** a thread woken during a frame joins the ready list; one woken outside a frame (from engine code) joins a list that runs first next frame.
+- **`waitthread`:** if the new thread is still running after its first run, the caller waits for it. When it ends, the caller wakes. If the caller ends first, the child ends too (not with `waitthreadsolo`).
+- **`Signal(owner, name[, results])`:**
+  - the owner must be an object;
+  - the name must have been registered with `RegisterSignal` ("\"X\" is not a registered signal");
+  - `results` defaults to a new table, and gets `results.signal = name`;
+  - then every thread that called `EndSignal(owner, name)` ends;
+  - then every thread in `WaitSignal(owner, name, ...)` wakes, and its `WaitSignal` returns `results`.
+- **Ending a thread:**
+  - its waiting parent wakes;
+  - a `waitthread` child ends too;
+  - its signal waits are dropped;
+  - its `OnThreadEnd` functions run in order, outside any thread, bound to the `this` they were registered with.
+
+  A thread that ends itself (by signalling its own end signal) stops at that call.
+- **Not ported yet:**
+  - the dead-owner rules: `WaitSignal`/`EndSignal` on an entity already destroyed, with `"OnDestroy"` among the names, return or end at once;
+  - a second hook in `Signal` whose meaning isn't clear yet;
+  - the name of one results key set in the dead-owner case.
+
+  These need entities first.
+
 ## Our interpreter (`crates/pf-squirrel`)
 
 - **Pipeline:** our parser, then our own compiler to a simple stack bytecode, then our VM. The bytecode is ours; what matches the game is the behaviour.
 - **Numbers:** 32-bit integers (wrapping) and 32-bit floats, printed like the game's C library (`fmt.rs`).
-- **Script threads:** each has its own stack, so `wait` can stop it mid-function. `thread f()` runs `f` at once until its first wait; `Vm::update(time)` carries on threads whose wait is over. A thread that waits during an update carries on next update at the earliest. A call from Rust (an engine callback) must finish without waiting.
+- **Script threads:** each has its own stack, so `wait` can stop it mid-function; scheduling is the game's (above), run by `Vm::run_frame(time)`. A call from Rust (an engine callback) must finish without waiting.
 - **Checked:**
   - all 146 oracle cases print exactly what the game printed (`tests/oracle_run.rs`);
   - all 481 game scripts compile (`tests/game_scripts.rs`, when the install is present).
 - **One compiler quirk ported:** Squirrel 2's compiler only checks that the last operand of an assignment's left side is assignable, so `local x = 0 + y -= w` compiles (one game script, `cl_burncards_lobby.nut`, has it). We give `(0 + y) - w` with `y` unchanged, from how that compiler works; oracle Q001/Q002 will confirm.
-- **Not yet checked against the game** (oracle run 3 cases are written): rounding of exact ties in `format` (assumed away from zero, the old Microsoft library), not-a-number printing, `%s` with numbers, the error texts for natives called with the wrong argument count, and the order threads carry on in within one update.
-- **Next:** the native functions (thread signals, `Vector`, then what `init.nut`, `_consts.nut`, `_threads.nut` and the client VM's scripts call), then running the client VM's startup.
+- **Not yet checked against the game** (oracle run 3 cases are written): rounding of exact ties in `format` (assumed away from zero, the old Microsoft library), not-a-number printing, `%s` with numbers, the error texts for natives called with the wrong argument count, and the thread and signal rules (oracle T001–T011).
+- **Next:** the native functions (`Vector`, then what `init.nut`, `_consts.nut`, `_threads.nut` and the client VM's scripts call), then running the client VM's startup.
 
 ## Native functions (what scripts can call in the engine)
 
