@@ -164,3 +164,22 @@ M003 P("M003", "" + RAND_MAX + "|" + PI)
 M004 T("M004", (1).tochar())
 M005 T("M005", "%".len())
 M006 T("M006", type(1))
+# --- run 3 (pending): compiler quirks, rounding, error details ---
+Q001 local b = 5; local a = 0 + b -= 2; P("Q001", a + "|" + b)
+Q002 local b = 5; local a = 1 + b = 7; P("Q002", a + "|" + b)
+F034 P("F034", format("%.0f|%.1f|%.2f|%.0f", 0.5, 0.25, 0.125, 1.5))
+F035 P("F035", "" + (0.0 / 0.0) + "|" + (-1.0 / 0.0))
+F036 P("F036", format("%5.2f|%-6d|%06.1f|%+d", 1.005, 42, -3.14159, 7))
+S021 P("S021", format("%s|%s", 5, 1.5))
+E009 try { throw { a = 1 } } catch (e) { }; local x = 1 + []
+E010 print()
+E011 local t = {}; delete t.y
+E012 local a = [1]; a[5] = 2
+E013 local a = [1]; a.x <- 2
+E014 local C = class { x = 1 }; local o = C(); o.y <- 1
+E015 local C = class { x = 1 }; local o = C(); C.z <- 2
+E016 local s = "abc"; s.x
+E017 (5).foo
+E018 local f = function(a, b = 1) { return a }; f(1, 2, 3)
+A013 local a = [3, 1, 3, 2, 3]; a.sort(function(x, y) { return 0 }); local s = ""; foreach (v in a) s += v; P("A013", s)
+A014 local a = [{ k = 2, n = "a" }, { k = 1, n = "b" }, { k = 2, n = "c" }, { k = 1, n = "d" }]; a.sort(function(x, y) { return x.k - y.k }); local s = ""; foreach (v in a) s += v.n; P("A014", s)

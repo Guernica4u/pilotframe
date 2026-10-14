@@ -80,7 +80,7 @@ Squirrel 2.2 (its public reference manual), with these additions and quirks, all
     - the integer keys 0, 7, 14…273 come out as 0, 259, 196, 133, 70, 7, 266…;
     - a table literal `{ zebra, apple, mango, kiwi, banana }` iterates banana, apple, kiwi, zebra, mango.
 
-    Our tables must reproduce these exactly (the string hash and the table layout are to be read from launcher.dll).
+    Our tables must reproduce these exactly. The rules that do it are under "Inside the interpreter" below.
   - **Arity is strict:** calling with too few or too many arguments throws "wrong number of parameters (calling (unnamed_function)): found 1, expected 2". The counts include `this`.
   - **Class defaults are shared:** a class member's default array is the same array in every instance.
   - **Assignment needs an existing slot:** `t.b = 1` on a missing slot throws "the index 'b' does not exist"; `<-` creates it or overwrites it.
@@ -90,6 +90,69 @@ Squirrel 2.2 (its public reference manual), with these additions and quirks, all
 - **Parser check against the game:** `crates/pf-squirrel/tests/oracle_cases.rs` makes our parser accept every case the game compiled and reject every case it refused, with the same message. All 146 agree.
 
 **Parser check:** all 481 scripts parse (`crates/pf-squirrel/tests/game_scripts.rs`, which runs when the install is present).
+
+## Inside the interpreter (read from launcher.dll)
+
+### Value tags
+
+Each value is a 4-byte type tag plus 8 bytes of data. Tags seen so far: null `0x1000001`, bool `0x1000008`, integer `0x5000002`, float `0x5000004`, string `0x8000010`, table `0xA000020`, class `0x8004000`, instance `0xA008000`. Bit 27 (`0x8000000`) marks a reference-counted object.
+
+### Strings
+
+- Every string is interned in one VM-wide string table, so equal strings are the same object; table keys compare by tag and object.
+- **Hash** (64-bit, unsigned, computed once when the string is made), with `n` the byte length:
+  - `h = n`; `step = (n | 32) >> 5` (1 for strings under 32 bytes);
+  - walk the bytes **forward from the first**, taking every `step`-th byte while the bytes remaining are at least `step`;
+  - for each byte `c` (read as a signed char, then masked to 16 bits): `h = h ^ (h*32 + (h >> 2) + c)`.
+
+### Tables
+
+- **Key hash:** integers and bools use their value, floats their value truncated to an integer, strings the hash above, and any other object its address shifted right by 3. The slot is `hash & (size - 1)`.
+- **Layout:** an array of `size` nodes (key, value, next-in-chain), `size` a power of two, plus a "free" cursor that starts at the last node.
+- **Size:** a new table starts at 4, or at the smallest power of two ≥ the requested size. A table literal requests its entry count (so a five-entry literal starts at 8).
+- **Insert** (a missing key): look up its main slot.
+  - If the main slot is empty, the key goes there.
+  - If it holds a key whose own main slot is elsewhere, and the free cursor is below the main slot, that key is moved to the free node (its chain relinked) and the new key takes the main slot.
+  - Otherwise the new key goes in the free node, linked right after the main slot.
+  - Then the free cursor walks down to the next node with no key and no link. If it runs off the bottom, the table resizes and the insert is retried.
+- **Resize:** with `n` = current size (counted as at least 4) and `c` = keys held:
+  - `c ≥ n − n/4`: double;
+  - `c ≤ n/4` and `n > 4`: halve;
+  - otherwise the same size (only when forced, i.e. on a full insert; a delete doesn't resize then).
+
+  Old nodes are re-inserted in node order, first to last.
+- **Delete:** clears the node's key and value, then checks for a resize (which may shrink).
+- **Iteration order** (`foreach`) and `clone` both walk the nodes first to last.
+- **Checked:** these rules reproduce all five key orders the game printed in oracle run 2 (insert order, `key0`..`key19`, the multiples of 7, the five-entry literal, and deletes followed by an insert).
+
+### Calls
+
+- **Argument count** (counts include `this`), with `n` the function's parameters:
+  - fewer than `n`: allowed if the function has default values and the missing ones are all covered by them;
+  - more than `n`: allowed if the function takes `...` (the extras go to `vargv`);
+  - otherwise: "wrong number of parameters (calling NAME): found F, expected N", with "(unnamed_function)" for a function without a name.
+
+### Errors
+
+- **The last error is kept** in the VM and never cleared, not even by `catch`.
+- **Arithmetic errors include it:** "arith op + between 'integer' and 'array'", followed by " (LAST ERROR)" when there is one. Only the arithmetic error does this (oracle E001–E005). What it shows when the last error isn't a string is still to be checked (oracle E009).
+- **Indexing a missing key:** arrays, tables, classes, instances (and userdata) say "the index 'KEY' does not exist"; other types say "cannot index TYPE with 'KEY'". The key is cut to 50 characters.
+
+### Sorting
+
+`array.sort` is a quicksort: the first element is the pivot; scan up from the left past elements that compare ≤ 0 with the pivot, down from the right past elements that compare > 0; swap and repeat until the scans cross, then swap the pivot into place and sort both sides. A comparison function gets (element, pivot) with the root table as `this`. Where equal elements end up depends on this, and scripts can see it (oracle A013/A014 check it).
+
+## Our interpreter (`crates/pf-squirrel`)
+
+- **Pipeline:** our parser, then our own compiler to a simple stack bytecode, then our VM. The bytecode is ours; what matches the game is the behaviour.
+- **Numbers:** 32-bit integers (wrapping) and 32-bit floats, printed like the game's C library (`fmt.rs`).
+- **Script threads:** each has its own stack, so `wait` can stop it mid-function. `thread f()` runs `f` at once until its first wait; `Vm::update(time)` carries on threads whose wait is over. A thread that waits during an update carries on next update at the earliest. A call from Rust (an engine callback) must finish without waiting.
+- **Checked:**
+  - all 146 oracle cases print exactly what the game printed (`tests/oracle_run.rs`);
+  - all 481 game scripts compile (`tests/game_scripts.rs`, when the install is present).
+- **One compiler quirk ported:** Squirrel 2's compiler only checks that the last operand of an assignment's left side is assignable, so `local x = 0 + y -= w` compiles (one game script, `cl_burncards_lobby.nut`, has it). We give `(0 + y) - w` with `y` unchanged, from how that compiler works; oracle Q001/Q002 will confirm.
+- **Not yet checked against the game** (oracle run 3 cases are written): rounding of exact ties in `format` (assumed away from zero, the old Microsoft library), not-a-number printing, `%s` with numbers, the error texts for natives called with the wrong argument count, and the order threads carry on in within one update.
+- **Next:** the native functions (thread signals, `Vector`, then what `init.nut`, `_consts.nut`, `_threads.nut` and the client VM's scripts call), then running the client VM's startup.
 
 ## Native functions (what scripts can call in the engine)
 

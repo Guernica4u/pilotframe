@@ -7,7 +7,15 @@
 //! Layer 0: no Bevy, no file access.
 
 pub mod ast;
+pub mod compiler;
+pub mod fmt;
 pub mod lexer;
 pub mod parser;
+mod stdlib;
+pub mod table;
+pub mod value;
+pub mod vm;
 
 pub use parser::{ParseError, parse};
+pub use value::Value;
+pub use vm::{NativeError, NativeResult, Vm, Wake, native, throw};

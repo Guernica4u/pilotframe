@@ -20,12 +20,19 @@ use crate::lexer::{Kw, Tok, Token};
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
     pub line: u32,
+    /// The message as the game's compiler words it (where we know it).
     pub message: String,
+    /// The token the error was found at (ours, for debugging).
+    pub near: String,
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "line {}: {}", self.line, self.message)
+        write!(f, "line {}: {}", self.line, self.message)?;
+        if !self.near.is_empty() {
+            write!(f, " (at {})", self.near)?;
+        }
+        Ok(())
     }
 }
 
@@ -41,6 +48,7 @@ pub fn parse(src: &str) -> Result<Vec<Stmt>> {
     let toks = crate::lexer::lex(src).map_err(|e| ParseError {
         line: e.line,
         message: e.message,
+        near: String::new(),
     })?;
     let mut p = Parser { toks, pos: 0 };
     let mut out = Vec::new();
@@ -82,7 +90,8 @@ impl Parser {
     fn err<T>(&self, message: impl Into<String>) -> Result<T> {
         Err(ParseError {
             line: self.line(),
-            message: format!("{} (at {:?})", message.into(), self.peek()),
+            message: message.into(),
+            near: format!("{:?}", self.peek()),
         })
     }
 
