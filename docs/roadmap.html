@@ -152,9 +152,9 @@ footer { color: var(--muted); font-size: 0.8rem; border-top: 1px solid var(--lin
       <li class="ok"><span class="mark">✓</span><div><b>Inventory</b><p>All <span class="num">1,615</span> engine functions scripts can call, the load order (<span class="num">168</span> client files, <span class="num">83</span> UI files) and the <span class="num">~97</span> engine callbacks.</p></div></li>
       <li class="ok"><span class="mark">✓</span><div><b>Parser</b><p>Reads all <span class="num">481</span> game scripts, with the same error messages as the game.</p></div></li>
       <li class="ok"><span class="mark">✓</span><div><b>Oracle</b><p><span class="num">146</span> test cases run in the real game. Our parser agrees with the game on every one.</p></div></li>
-      <li class="go"><span class="mark">4</span><div><b>Read the interpreter's internals</b><p>From launcher.dll: string hashing and table layout (to match the game's key order), number sizes, error chaining, threads and <code>wait</code>.</p></div></li>
-      <li><span class="mark">5</span><div><b>Run scripts</b><p>Values, tables, functions, classes and the standard library, checked against every saved game answer.</p></div></li>
-      <li><span class="mark">6</span><div><b>Threads and signals</b><p><code>thread</code>, <code>wait</code>, <code>WaitSignal</code>: how the game's scripts run over time.</p></div></li>
+      <li class="ok"><span class="mark">✓</span><div><b>The interpreter's internals</b><p>Read from launcher.dll: the string hash and table layout (our <code>foreach</code> order matches the game's), error chaining, argument rules, the sort.</p></div></li>
+      <li class="ok"><span class="mark">✓</span><div><b>Run scripts</b><p>Our compiler and VM. All <span class="num">146</span> oracle cases print exactly what the game printed, and all <span class="num">481</span> game scripts compile.</p></div></li>
+      <li class="go"><span class="mark">6</span><div><b>Threads and signals</b><p><code>thread</code> and <code>wait</code> work. Next: the game's own thread functions in launcher.dll (<code>SpinOff</code>, <code>Signal</code>, <code>WaitSignal</code>, <code>EndSignal</code>, <code>OnThreadEnd</code>), which <code>_threads.nut</code> builds on.</p></div></li>
       <li><span class="mark">7</span><div><b>First milestone: a gun and the HUD</b><p>Run the R-101C's weapon script and <code>cl_main_hud.nut</code> with their engine functions. Then shooting and the HUD start for real.</p></div></li>
     </ol>
   </section>
@@ -163,19 +163,19 @@ footer { color: var(--muted); font-size: 0.8rem; border-top: 1px solid var(--lin
     <h2 id="notes">Latest</h2>
     <div class="cols">
       <div>
-        <h3>Found in the movement recording</h3>
+        <h3>Found this session</h3>
         <ul class="plain">
-          <li>Most guns slow you by a hidden <span class="num">0.95238</span> modifier. Ported.</li>
-          <li>Real walk and sprint: <span class="num">180.5</span> and <span class="num">270</span>, not the files' <span class="num">180.6</span> and <span class="num">269.85</span>.</li>
-          <li>Crouch and aim use different buttons than Source usually does.</li>
-          <li>Gravity <span class="num">750</span> matches exactly.</li>
+          <li>The game's tables put keys in a fixed but scrambled order, and scripts see it. Ours now match it exactly.</li>
+          <li>The game's error messages chain: an arithmetic error carries the previous error in brackets. Ported.</li>
+          <li>One shipped script has <code>0 + x -= w</code>, which only compiles because of an old compiler quirk. Handled, to be confirmed in oracle run 3.</li>
+          <li>Movement (12 Oct): guns slow you by a hidden <span class="num">0.95238</span>; real walk/sprint are <span class="num">180.5</span>/<span class="num">270</span>.</li>
         </ul>
       </div>
       <div>
         <h3>When you have time</h3>
         <ul class="plain">
-          <li>One more short recording: a couple of long wall-runs and some crouching.</li>
-          <li>Nothing else needed right now. The script engine work is on my side.</li>
+          <li>Oracle run 3: <span class="num">19</span> new script cases (a compiler quirk one game script relies on, rounding, error texts, sort order). Same steps as last time.</li>
+          <li>One more movement recording: a couple of long wall-runs and some crouching.</li>
         </ul>
       </div>
     </div>
