@@ -215,6 +215,10 @@ pub struct NativeFn {
     /// a positive count is exact, a negative one is a minimum.
     pub nparams: i32,
     pub f: NativeFnPtr,
+    /// The `this` set by `bindenv` (None: the caller's). The game's scripts
+    /// rely on it: `SpinOff.bindenv( scope )( f )` runs `f` with `scope` as
+    /// `this`.
+    pub env: Option<Value>,
 }
 
 pub type NativeFnPtr = Rc<dyn Fn(&mut Vm, &[Value]) -> NativeResult>;
@@ -233,6 +237,19 @@ pub struct Instance {
     /// This instance's fields, a shallow copy of the class defaults (so a
     /// default array is shared by every instance, oracle C005).
     pub values: Table,
+    /// What a native class keeps in its instances.
+    pub user: UserData,
+}
+
+/// The native data behind an instance of an engine class.
+#[derive(Clone, Default)]
+pub enum UserData {
+    #[default]
+    None,
+    /// A `Vector` (launcher.dll).
+    Vector([f32; 3]),
+    /// Something of the host's (an entity handle, a HUD element...).
+    Host(Rc<dyn std::any::Any>),
 }
 
 /// `weakref()`: a reference that doesn't keep an object alive.

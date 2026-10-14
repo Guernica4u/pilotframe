@@ -15,6 +15,7 @@ mod stdlib;
 pub mod table;
 mod threads;
 pub mod value;
+mod vector;
 pub mod vm;
 
 pub use parser::{ParseError, parse};

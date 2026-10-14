@@ -115,6 +115,8 @@ pub struct Proto {
     pub source: Rc<str>,
     /// Parameters including `this`.
     pub nparams: usize,
+    /// The parameter names (without `this`).
+    pub param_names: Vec<Rc<str>>,
     pub ndefaults: usize,
     pub varargs: bool,
     pub nfree: usize,
@@ -271,6 +273,7 @@ impl Compiler<'_> {
                 name: (!def.name.is_empty()).then(|| def.name.clone()),
                 source: self.source.clone(),
                 nparams: def.params.len() + 1,
+                param_names: def.params.iter().map(|p| p.name.clone()).collect(),
                 ndefaults: def.params.iter().filter(|p| p.default.is_some()).count(),
                 varargs: def.varargs,
                 nfree: def.free_vars.len(),

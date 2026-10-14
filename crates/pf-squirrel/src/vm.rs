@@ -107,6 +107,9 @@ pub(crate) struct Builtins {
     pub weakref: Table,
 }
 
+/// The host's entity check (see `Vm::entity_is_valid`).
+pub type EntityCheck = Box<dyn Fn(&Value) -> bool>;
+
 /// One script VM (the game has a client VM and a UI VM).
 pub struct Vm {
     pub root: Ref<Table>,
@@ -118,6 +121,11 @@ pub struct Vm {
     pub out: Box<dyn FnMut(&str)>,
     pub(crate) builtins: Builtins,
     pub(crate) threads: crate::threads::Threads,
+    /// The `developer` console variable, as `developer()` reports it.
+    pub developer: i32,
+    /// The host's answer to "is this instance a live engine entity?"
+    /// (`IsValid`). None: no instance is.
+    pub entity_is_valid: Option<EntityCheck>,
     /// Nested runs (calls from Rust into script), to stop runaway recursion.
     depth: usize,
 }
@@ -151,10 +159,13 @@ impl Vm {
                 weakref: Table::new(),
             },
             threads: Default::default(),
+            developer: 0,
+            entity_is_valid: None,
             depth: 0,
         };
         crate::stdlib::install(&mut vm);
         crate::threads::install(&mut vm);
+        crate::vector::install(&mut vm);
         vm
     }
 
@@ -254,8 +265,11 @@ impl Vm {
                         n.nparams.abs()
                     )));
                 }
-                let args: Vec<Value> = ex.stack.drain(at + 1..).collect();
+                let mut args: Vec<Value> = ex.stack.drain(at + 1..).collect();
                 ex.stack.truncate(at);
+                if let Some(env) = &n.env {
+                    args[0] = env.clone();
+                }
                 match (n.f)(self, &args) {
                     Ok(v) => Ok(Start::Done(v)),
                     Err(NativeError::Throw(e)) => Err(e),
@@ -703,7 +717,8 @@ impl Vm {
                         Value::Int(i) => i as usize,
                         _ => 0,
                     };
-                    match self.foreach_next(&container, pos)? {
+                    let prev_key = ex.stack[s + 2].clone();
+                    match self.foreach_next(&container, pos, prev_key)? {
                         Some((next, k, v)) => {
                             ex.stack[s + 1] = Value::Int(next as i32);
                             ex.stack[s + 2] = k;
@@ -1039,6 +1054,7 @@ impl Vm {
         Value::Instance(new_ref(Instance {
             class: cls.clone(),
             values,
+            user: UserData::None,
         }))
     }
 
@@ -1046,7 +1062,19 @@ impl Vm {
         &mut self,
         c: &Value,
         pos: usize,
+        prev_key: Value,
     ) -> Result<Option<(usize, Value, Value)>, Value> {
+        // An instance with `_nexti` gives its keys one by one (Vector: x, y,
+        // z); the values are read by key.
+        if let Some(mm) = self.metamethod(c, "_nexti") {
+            let prev = if pos == 0 { Value::Null } else { prev_key };
+            let key = self.call(&mm, c.clone(), &[prev])?;
+            if key.is_null() {
+                return Ok(None);
+            }
+            let v = self.get(c, &key)?;
+            return Ok(Some((pos + 1, key, v)));
+        }
         Ok(match c {
             Value::Table(t) => t.borrow().next(pos).map(|(i, k, v)| (i + 1, k, v)),
             Value::Array(a) => a
@@ -1327,6 +1355,7 @@ impl Vm {
                     Instance {
                         class: i.class.clone(),
                         values: i.values.shallow_clone(),
+                        user: i.user.clone(),
                     }
                 };
                 let new = Value::Instance(new_ref(copy));
@@ -1421,5 +1450,6 @@ pub fn native(
         name: name.into(),
         nparams,
         f: Rc::new(f),
+        env: None,
     }))
 }

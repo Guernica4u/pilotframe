@@ -426,6 +426,24 @@ impl Parser {
                 self.end_statement()?;
                 StmtKind::Throw(e)
             }
+            // `Assert` is a keyword in the game's compiler, and an `Assert(
+            // ... )` statement compiles to nothing: it skips to the matching
+            // `)` (launcher.dll; the shipped game has asserts compiled out).
+            Tok::Ident(ref name) if name == "Assert" && self.peek2_is_op("(") => {
+                self.next();
+                self.next();
+                let mut depth = 0;
+                loop {
+                    match self.next() {
+                        Tok::Op("(") => depth += 1,
+                        Tok::Op(")") if depth == 0 => break,
+                        Tok::Op(")") => depth -= 1,
+                        Tok::Eof => return self.err("expected ')'"),
+                        _ => {}
+                    }
+                }
+                StmtKind::Empty
+            }
             Tok::Kw(Kw::Wait) => {
                 self.next();
                 let e = self.expr()?;
@@ -922,7 +940,6 @@ impl Parser {
         })
     }
 
-    #[allow(dead_code)]
     fn peek2_is_op(&self, op: &str) -> bool {
         matches!(self.peek_at(1), Tok::Op(o) if *o == op)
     }

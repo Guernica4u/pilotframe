@@ -194,3 +194,22 @@ T008 try { wait 1 } catch (e) { P("T008", e) }
 T009 try { Signal({}, "pfNope9") } catch (e) { P("T009", e) }
 T010 ::t10 <- { n = "obj", function F() { P("T010", ("n" in this) ? this.n : "root") } }; thread ::t10.F()
 T011 ::s11 <- ""; thread (function() { ::s11 += "1"; waitthreadsolo (function() { ::s11 += "2"; wait 0.05; ::s11 += "4" })(); ::s11 += "5"; P("T011", ::s11) })(); ::s11 += "3"
+# --- run 3 (pending): Vector (launcher.dll's class); 9 digits to catch rounding ---
+V001 P("V001", "" + Vector(1, 2.5, -3))
+V002 T("V002", typeof Vector(1, 2, 3))
+V003 local v = Vector(3, 4, 0); P("V003", format("%.9g|%.9g|%.9g|%.9g", v.Length(), v.Norm(), v.x, v.y))
+V004 local f = Vector(10, 20, 30).AnglesToForward(); P("V004", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V005 local f = Vector(10, 20, 30).AnglesToRight(); P("V005", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V006 local f = Vector(10, 20, 30).AnglesToUp(); P("V006", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V007 local f = Vector(10, 20, 30).AnglesCompose(Vector(5, -40, 15)); P("V007", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V008 local f = Vector(10, 20, 30).AnglesLerp(Vector(50, -60, 0), 0.25); P("V008", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V009 local f = Vector(1, 2, 3).RotateAngles(Vector(10, 90, 20)); P("V009", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V010 local f = Vector(1, 1, 1).GetAngles(); P("V010", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V011 local f = Vector(10, 20, 30).AnglesInverse(); P("V011", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V012 local s = ""; foreach (k, x in Vector(1, 2, 3)) s += k + "=" + x + ","; P("V012", s)
+V013 try { Vector(1, 2, 3).w } catch (e) { P("V013", e) }
+V014 P("V014", Vector(1, 2, 3).ToKVString())
+V015 T("V015", Vector(1, 2, 3) == Vector(1, 2, 3))
+V016 local v = Vector(1, 2, 3) * 2 + Vector(0.5, 0, 0) - Vector(0, 1, 0); P("V016", format("%.9g|%.9g|%.9g", v.x, v.y, v.z))
+V017 local c = Vector(1, 0, 0).Cross(Vector(0, 1, 0)); P("V017", c.x + "|" + c.y + "|" + c.z + "|" + Vector(1, 2, 3).Dot(Vector(4, 5, 6)))
+V018 local v = Vector(); P("V018", v.x + "|" + v.y + "|" + v.z)

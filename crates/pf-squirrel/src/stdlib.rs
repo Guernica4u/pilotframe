@@ -121,6 +121,46 @@ fn base(vm: &mut Vm) {
         Ok(Value::Array(new_ref(vec![fill; n as usize])))
     });
     vm.register("collectgarbage", 1, |_, _| Ok(Value::Int(0)));
+    vm.register("setconsttable", 2, |vm, a| match &a[1] {
+        Value::Table(t) => Ok(Value::Table(std::mem::replace(&mut vm.consts, t.clone()))),
+        other => Err(type_error(1, "table", Some(other))),
+    });
+    vm.register("enabledebuginfo", 2, |_, _| Ok(Value::Null));
+    vm.register("printtodiag", 2, |vm, a| {
+        let text = vm.to_bytes(&a[1])?;
+        (vm.out)(&String::from_utf8_lossy(&text));
+        Ok(Value::Null)
+    });
+    vm.register("dummy", 0, |_, _| Ok(Value::Null));
+    // The current Squirrel thread object. We have no such value type yet; only
+    // the game's debugger code (`__serialize_state`) uses it.
+    vm.register("getthread", 0, |_, _| Ok(Value::Null));
+    // launcher.dll's own three: `developer()` is the developer console
+    // variable (0 in the shipped game).
+    vm.register("developer", 1, |vm, _| Ok(Value::Int(vm.developer)));
+    vm.register("GetFunctionSignature", 3, |_, a| {
+        let Value::Closure(c) = &a[1] else {
+            return Ok(Value::Null);
+        };
+        let name = match &a[2] {
+            Value::Str(s) if !s.is_empty() => s.to_string_lossy(),
+            _ => c.proto.name.as_deref().unwrap_or("<unnamed>").to_string(),
+        };
+        let params: Vec<&str> = c.proto.param_names.iter().map(|p| &**p).collect();
+        Ok(Value::str(&format!(
+            "function {name}({})",
+            params.join(", ")
+        )))
+    });
+    // IsValid: null is invalid; an instance is valid only if it's a live
+    // engine entity (asked of the host); any other value is valid.
+    vm.register("IsValid", 2, |vm, a| {
+        Ok(Value::Bool(match &a[1] {
+            Value::Null => false,
+            Value::Instance(_) => vm.entity_is_valid.as_ref().is_some_and(|f| f(&a[1])),
+            _ => true,
+        }))
+    });
     vm.register("seterrorhandler", 2, |_, _| Ok(Value::Null));
     vm.register("setdebughook", 2, |_, _| Ok(Value::Null));
     vm.register("getstackinfos", 2, |_, _| Ok(Value::Null));
@@ -681,22 +721,6 @@ fn table_methods() -> Table {
             t.borrow_mut().delegate = delegate;
             Ok(Value::Null)
         }),
-        ("setdelegate", 2, |_, a| {
-            let t = table_of(&a[0])?;
-            t.borrow_mut().delegate = match &a[1] {
-                Value::Table(d) => Some(d.clone()),
-                Value::Null => None,
-                other => return Err(type_error(1, "table", Some(other))),
-            };
-            Ok(a[0].clone())
-        }),
-        ("getdelegate", 1, |_, a| {
-            Ok(table_of(&a[0])?
-                .borrow()
-                .delegate
-                .clone()
-                .map_or(Value::Null, Value::Table))
-        }),
         ("tostring", 1, |vm, a| {
             Ok(Value::str(&vm.plain_string(&a[0])))
         }),
@@ -733,6 +757,12 @@ fn function_methods() -> Table {
                 proto: c.proto.clone(),
                 free: c.free.clone(),
                 defaults: c.defaults.clone(),
+                env: Some(a[1].clone()),
+            }))),
+            Value::Native(n) => Ok(Value::Native(Rc::new(NativeFn {
+                name: n.name.clone(),
+                nparams: n.nparams,
+                f: n.f.clone(),
                 env: Some(a[1].clone()),
             }))),
             other => Ok(other.clone()),
@@ -782,6 +812,7 @@ fn class_methods() -> Table {
                 Ok(Value::Instance(new_ref(Instance {
                     class: c.clone(),
                     values,
+                    user: UserData::None,
                 })))
             }
             other => Err(type_error(0, "class", Some(other))),
@@ -791,6 +822,7 @@ fn class_methods() -> Table {
             _ => Ok(Value::Bool(false)),
         }),
         ("getattributes", 2, |_, _| Ok(Value::Null)),
+        ("setattributes", 3, |_, _| Ok(Value::Null)),
         ("tostring", 1, |vm, a| {
             Ok(Value::str(&vm.plain_string(&a[0])))
         }),
