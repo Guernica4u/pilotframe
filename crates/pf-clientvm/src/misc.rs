@@ -1,0 +1,164 @@
+//! Smaller client.dll script functions: profiling marks, file-system hints,
+//! platform checks, the bot-loadout name lists, impact tables, particle
+//! lookups and console-command callbacks.
+
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use pf_squirrel::{Value, throw};
+
+use crate::ClientVm;
+
+fn name_arg(a: &[Value], i: usize) -> String {
+    match a.get(i) {
+        Some(Value::Str(s)) => s.to_string_lossy(),
+        _ => String::new(),
+    }
+}
+
+/// Console-command callbacks (`RegisterConCommandTriggeredCallback`).
+#[derive(Default)]
+pub struct ConCommandCallbacks {
+    pub callbacks: Vec<(String, Value)>,
+}
+
+/// At most 30 callbacks (client.dll 0x1802c0a50).
+pub const MAX_CONCOMMAND_CALLBACKS: usize = 0x1e;
+
+/// Impact tables precached for pilot landing and Titan footsteps, landing
+/// and dodging (-1 for none).
+#[derive(Default, Clone, Copy, Debug)]
+pub struct ImpactTables {
+    pub pilot_land: i32,
+    pub titan_footstep: i32,
+    pub titan_land: i32,
+    pub titan_dodge: i32,
+}
+
+pub fn install(cvm: &mut ClientVm) -> Rc<RefCell<ConCommandCallbacks>> {
+    let vm = &mut cvm.vm;
+
+    // PerfStart/PerfEnd( id ) (0x1802c4250/0x1802c4260) only time script
+    // code for the profiler: nothing the game shows.
+    vm.register("PerfStart", 2, |_, _| Ok(Value::Null));
+    vm.register("PerfEnd", 2, |_, _| Ok(Value::Null));
+    // VPKNotifyFile( path ) (0x1802c1f70): a hint for building VPKs.
+    vm.register("VPKNotifyFile", 2, |_, _| Ok(Value::Null));
+    // Durango_IsDurango (0x180449bc0): the Xbox One build only.
+    vm.register("Durango_IsDurango", 1, |_, _| Ok(Value::Bool(false)));
+
+    // IsPrivateMatch (0x180449af0); its error names its old name.
+    let host = cvm.host.clone();
+    vm.register("IsPrivateMatch", 1, move |_, _| {
+        if !host.is_connected() {
+            return Err(throw("AreWeMatchmaking: Not connected to a server"));
+        }
+        Ok(Value::Bool(host.is_private_match()))
+    });
+
+    // ClearItemTypes / RegisterItemType( type, name ) (0x1802e89b0/c0): the
+    // names `bot_loadout` completes, per item type.
+    let items: Rc<RefCell<Vec<(i32, String)>>> = Default::default();
+    let it = items.clone();
+    vm.register("ClearItemTypes", 1, move |_, _| {
+        it.borrow_mut().clear();
+        Ok(Value::Null)
+    });
+    vm.register("RegisterItemType", 3, move |_, a| {
+        let t = match a[1] {
+            Value::Int(n) => n,
+            Value::Float(x) => x as i32,
+            _ => 0,
+        };
+        items.borrow_mut().push((t, name_arg(a, 2)));
+        Ok(Value::Null)
+    });
+
+    // PrecachePilotImpactEffectTables( land ) (0x1802c4f50) and
+    // PrecacheTitanImpactEffectTables( footstep, land, dodge ) (0x1802c4ed0):
+    // an empty name means none (-1).
+    let tables = Rc::new(RefCell::new(ImpactTables {
+        pilot_land: -1,
+        titan_footstep: -1,
+        titan_land: -1,
+        titan_dodge: -1,
+    }));
+    let host = cvm.host.clone();
+    let t = tables.clone();
+    vm.register("PrecachePilotImpactEffectTables", 2, move |_, a| {
+        let n = name_arg(a, 1);
+        t.borrow_mut().pilot_land = if n.is_empty() {
+            -1
+        } else {
+            host.precache_impact_table(&n)
+        };
+        Ok(Value::Null)
+    });
+    let host = cvm.host.clone();
+    vm.register("PrecacheTitanImpactEffectTables", 4, move |_, a| {
+        let index = |i: usize| {
+            let n = name_arg(a, i);
+            if n.is_empty() {
+                -1
+            } else {
+                host.precache_impact_table(&n)
+            }
+        };
+        let mut t = tables.borrow_mut();
+        t.titan_footstep = index(1);
+        t.titan_land = index(2);
+        t.titan_dodge = index(3);
+        Ok(Value::Null)
+    });
+
+    // GetParticleSystemIndex( name ) (0x18013d590): 0 if it isn't loaded.
+    let host = cvm.host.clone();
+    vm.register("GetParticleSystemIndex", 2, move |_, a| {
+        Ok(Value::Int(host.particle_system_index(&name_arg(a, 1))))
+    });
+
+    // RegisterConCommandTriggeredCallback( command, func ) (0x1802c0a50).
+    let callbacks = Rc::new(RefCell::new(ConCommandCallbacks::default()));
+    let host = cvm.host.clone();
+    let cb = callbacks.clone();
+    vm.register("RegisterConCommandTriggeredCallback", 3, move |_, a| {
+        let Value::Str(cmd) = &a[1] else {
+            return Err(throw("Bad commandName parameter"));
+        };
+        let cmd = cmd.to_string_lossy();
+        if !host.concommand_exists(&cmd) {
+            return Err(throw(format!("No ConCommand with name '{cmd}' exists")));
+        }
+        let mut cb = cb.borrow_mut();
+        if cb.callbacks.len() >= MAX_CONCOMMAND_CALLBACKS {
+            return Err(throw(format!(
+                "Can not register more than {MAX_CONCOMMAND_CALLBACKS} ConCommand callbacks"
+            )));
+        }
+        cb.callbacks.push((cmd, a[2].clone()));
+        Ok(Value::Null)
+    });
+    callbacks
+}
+
+impl ClientVm {
+    /// A console command ran: call the script callbacks registered for it.
+    pub fn concommand_triggered(&mut self, cmd: &str) {
+        let Some(cb) = self.concommand_callbacks.clone() else {
+            return;
+        };
+        let funcs: Vec<Value> = cb
+            .borrow()
+            .callbacks
+            .iter()
+            .filter(|(c, _)| c.eq_ignore_ascii_case(cmd))
+            .map(|(_, f)| f.clone())
+            .collect();
+        let root = Value::Table(self.vm.root.clone());
+        for f in funcs {
+            if let Err(e) = self.vm.call(&f, root.clone(), &[]) {
+                self.vm.report_error(&e);
+            }
+        }
+    }
+}

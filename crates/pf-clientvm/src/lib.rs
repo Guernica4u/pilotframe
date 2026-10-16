@@ -22,6 +22,7 @@ pub mod entities;
 pub mod gamerules;
 pub mod globals;
 pub mod hud;
+pub mod misc;
 pub mod progression;
 pub mod remote;
 pub mod weapons;
@@ -115,6 +116,20 @@ pub trait Host {
         let _ = name;
         true
     }
+    /// A private match (not matchmade).
+    fn is_private_match(&self) -> bool {
+        false
+    }
+    /// A loaded particle system's index, 0 if it isn't loaded.
+    fn particle_system_index(&self, name: &str) -> i32 {
+        let _ = name;
+        0
+    }
+    /// Whether the engine has a console command with this name.
+    fn concommand_exists(&self, name: &str) -> bool {
+        let _ = name;
+        true
+    }
     /// The game window's size in pixels (`Hud.GetScreenSize()`).
     fn screen_size(&self) -> (i32, i32) {
         (1920, 1080)
@@ -170,6 +185,8 @@ pub struct ClientVm {
     pub entities: Option<entities::Shared>,
     /// HUD elements and VGUI panels (set up by `start`).
     pub hud: Option<hud::SharedHud>,
+    /// Script callbacks for console commands (set up by `start`).
+    pub concommand_callbacks: Option<Rc<std::cell::RefCell<misc::ConCommandCallbacks>>>,
 }
 
 impl ClientVm {
@@ -182,6 +199,7 @@ impl ClientVm {
             host,
             entities: None,
             hud: None,
+            concommand_callbacks: None,
         }
     }
 
@@ -209,6 +227,7 @@ impl ClientVm {
         engine::install(self);
         progression::install(self);
         weapons::install(self);
+        self.concommand_callbacks = Some(misc::install(self));
         let ents = entities::install(self);
         let hud = hud::install(self);
         hud::install_screens(self, &hud, &ents);
