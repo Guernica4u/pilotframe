@@ -24,6 +24,7 @@ pub mod globals;
 pub mod hud;
 pub mod progression;
 pub mod remote;
+pub mod weapons;
 
 /// What the client VM needs from the game.
 pub trait Host {
@@ -108,6 +109,11 @@ pub trait Host {
     /// The local player (the one this client controls or watches).
     fn local_player(&self) -> Option<EntityId> {
         None
+    }
+    /// Load a weapon (its models, sounds, effects). False if it can't be.
+    fn precache_weapon(&self, name: &str) -> bool {
+        let _ = name;
+        true
     }
     /// The game window's size in pixels (`Hud.GetScreenSize()`).
     fn screen_size(&self) -> (i32, i32) {
@@ -202,6 +208,7 @@ impl ClientVm {
         gamerules::install(self);
         engine::install(self);
         progression::install(self);
+        weapons::install(self);
         let ents = entities::install(self);
         let hud = hud::install(self);
         hud::install_screens(self, &hud, &ents);

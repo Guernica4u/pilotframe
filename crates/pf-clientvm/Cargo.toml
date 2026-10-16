@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 pf-squirrel = { path = "../pf-squirrel" }
 pf-vgui = { path = "../pf-vgui" }
+pf-fmt-ui = { path = "../pf-fmt-ui" }
 
 [dev-dependencies]
 pf-gamefs.workspace = true
