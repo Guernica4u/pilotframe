@@ -21,6 +21,7 @@ pub mod engine;
 pub mod entities;
 pub mod gamerules;
 pub mod globals;
+pub mod hud;
 pub mod progression;
 pub mod remote;
 
@@ -108,6 +109,10 @@ pub trait Host {
     fn local_player(&self) -> Option<EntityId> {
         None
     }
+    /// The game window's size in pixels (`Hud.GetScreenSize()`).
+    fn screen_size(&self) -> (i32, i32) {
+        (1920, 1080)
+    }
 }
 
 /// An entity, as the host names it.
@@ -157,6 +162,8 @@ pub struct ClientVm {
     pub host: Rc<dyn Host>,
     /// The entity script classes and instances (set up by `start`).
     pub entities: Option<entities::Shared>,
+    /// HUD elements and VGUI panels (set up by `start`).
+    pub hud: Option<hud::SharedHud>,
 }
 
 impl ClientVm {
@@ -168,6 +175,7 @@ impl ClientVm {
             vm,
             host,
             entities: None,
+            hud: None,
         }
     }
 
@@ -194,7 +202,11 @@ impl ClientVm {
         gamerules::install(self);
         engine::install(self);
         progression::install(self);
-        self.entities = Some(entities::install(self));
+        let ents = entities::install(self);
+        let hud = hud::install(self);
+        hud::install_screens(self, &hud, &ents);
+        self.entities = Some(ents);
+        self.hud = Some(hud);
         self.run_file("vscript_client")?;
         // client.dll includes `_cl_mapspawn` with no scope: the root table.
         let root = Value::Table(self.vm.root.clone());

@@ -74,6 +74,8 @@ pub struct Panel {
     /// The panel's own alpha (`SetPanelAlpha`), 0–255.
     pub panel_alpha: f32,
     pub text: String,
+    /// Arguments for a localized text's `%s1`..`%s5`.
+    pub text_args: Vec<String>,
     pub image: Option<String>,
     pub font: Option<String>,
     pub scale: [f32; 2],
@@ -256,6 +258,7 @@ impl Panel {
             bg_color: [0, 0, 0, 0],
             panel_alpha: 255.0,
             text: String::new(),
+            text_args: Vec::new(),
             image: None,
             font: None,
             scale: [1.0, 1.0],
