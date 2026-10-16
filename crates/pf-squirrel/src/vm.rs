@@ -133,6 +133,10 @@ pub struct Vm {
     /// lookup would fail with "does not exist" (object, key). The survey
     /// tool uses it to list missing engine functions in one run.
     pub missing_hook: Option<MissingHook>,
+    /// Where the last error happened: `source:line` of each frame it passed
+    /// through, innermost first (for error reports; not in the game).
+    pub error_trace: Vec<String>,
+    tracing: bool,
     /// Nested runs (calls from Rust into script), to stop runaway recursion.
     depth: usize,
 }
@@ -169,6 +173,8 @@ impl Vm {
             developer: 0,
             entity_is_valid: None,
             missing_hook: None,
+            error_trace: Vec::new(),
+            tracing: false,
             depth: 0,
         };
         crate::stdlib::install(&mut vm);
@@ -221,6 +227,9 @@ impl Vm {
         self.depth += 1;
         let r = self.call_in(&mut ex, 0, args.len());
         self.depth -= 1;
+        if self.depth == 0 {
+            self.tracing = false;
+        }
         r
     }
 
@@ -396,6 +405,16 @@ impl Vm {
                 Ok(o) => return Ok(o),
                 Err(e) => {
                     self.last_error = e.clone();
+                    if !self.tracing {
+                        self.error_trace.clear();
+                        self.tracing = true;
+                    }
+                    for f in ex.frames[stop..].iter().rev() {
+                        let p = &f.closure.proto;
+                        let line = p.lines.get(f.pc.saturating_sub(1)).copied().unwrap_or(0);
+                        let name = p.name.as_deref().unwrap_or("(unnamed_function)");
+                        self.error_trace.push(format!("{}:{line} {name}", p.source));
+                    }
                     // Find a `try` in the frames this run owns.
                     let mut caught = false;
                     while ex.frames.len() > stop {
@@ -405,6 +424,7 @@ impl Vm {
                             ex.stack.truncate(trap.stack_len);
                             ex.stack.push(e.clone());
                             caught = true;
+                            self.tracing = false;
                             break;
                         }
                         let f = ex.frames.pop().expect("frame");
@@ -1433,6 +1453,14 @@ impl Vm {
             }
         }
         Ok(self.plain_string(v).into_bytes())
+    }
+
+    /// Print a script error the way the game's console shows one, with
+    /// where it happened (ours: the frames it passed through).
+    pub fn report_error(&mut self, e: &Value) {
+        let msg = self.to_display(e);
+        let at = self.error_trace.join(" <- ");
+        (self.out)(&format!("SCRIPT ERROR: {msg}\n    at {at}\n"));
     }
 
     /// For showing errors: the text, or the plain form if `_tostring` fails.

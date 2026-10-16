@@ -227,8 +227,7 @@ impl Vm {
             Ok(Outcome::Returned(_)) => false,
             Err(e) => {
                 // An error ends the thread; the game prints it and carries on.
-                let msg = self.to_display(&e);
-                (self.out)(&format!("SCRIPT ERROR: {msg}\n"));
+                self.report_error(&e);
                 false
             }
         };
@@ -268,8 +267,7 @@ impl Vm {
         let root = Value::Table(self.root.clone());
         for f in funcs {
             if let Err(e) = self.call(&f, root.clone(), &[]) {
-                let msg = self.to_display(&e);
-                (self.out)(&format!("SCRIPT ERROR: {msg}\n"));
+                self.report_error(&e);
             }
         }
         self.threads.current = prev;

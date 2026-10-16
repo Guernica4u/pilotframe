@@ -15,6 +15,7 @@ use std::rc::Rc;
 
 use pf_squirrel::{Value, Vm};
 
+pub mod classes;
 pub mod consts;
 pub mod engine;
 pub mod entities;
@@ -27,6 +28,10 @@ pub mod remote;
 pub trait Host {
     /// A file from the install (`scripts/vscripts/...`), or None.
     fn read_script(&self, path: &str) -> Option<String>;
+    /// Whether a script file exists (`ScriptExists`).
+    fn script_exists(&self, path: &str) -> bool {
+        self.read_script(path).is_some()
+    }
     /// The loaded level, as the engine names it (`maps/mp_colony.bsp`).
     fn level_name(&self) -> String;
     /// The `developer` console variable (0 in the shipped game).
@@ -228,6 +233,12 @@ pub fn include(vm: &mut Vm, host: &dyn Host, name: &str, scope: Value) -> Result
     let path = script_path(name).ok_or_else(fail)?;
     let text = host.read_script(&path).ok_or_else(fail)?;
     let f = vm.compile(&text, &path).map_err(|m| Value::str(&m))?;
+    // No scope means the root table.
+    let scope = if scope.is_null() {
+        Value::Table(vm.root.clone())
+    } else {
+        scope
+    };
     vm.call(&f, scope, &[])?;
     Ok(())
 }

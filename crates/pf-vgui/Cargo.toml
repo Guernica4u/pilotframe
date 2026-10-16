@@ -1,0 +1,13 @@
+[package]
+name = "pf-vgui"
+description = "The game's VGUI panels as client script drives them: screens from vgui_screens.txt and .res layouts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pf-fmt-ui = { path = "../pf-fmt-ui" }
+
+[lints]
+workspace = true

@@ -31,6 +31,17 @@ pub fn install(cvm: &mut ClientVm) {
         Ok(Value::Bool(true))
     });
 
+    // ScriptExists( name ): the same path rules as DoIncludeScript.
+    let host = cvm.host.clone();
+    vm.register("ScriptExists", 2, move |_, a| {
+        let Value::Str(name) = &a[1] else {
+            return Ok(Value::Bool(false));
+        };
+        Ok(Value::Bool(
+            crate::script_path(&name.to_string_lossy()).is_some_and(|p| host.script_exists(&p)),
+        ))
+    });
+
     // Which VM this is (0x1802c1f90, 0x1802c1fc0, 0x1802c1f80).
     vm.register("IsClient", 1, |_, _| Ok(Value::Bool(true)));
     vm.register("IsUI", 1, |_, _| Ok(Value::Bool(false)));

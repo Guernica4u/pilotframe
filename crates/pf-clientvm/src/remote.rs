@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use pf_squirrel::table::Table;
-use pf_squirrel::value::{Class, Instance, UserData, new_ref};
+use pf_squirrel::value::UserData;
 use pf_squirrel::{Value, native, throw};
 
 use crate::ClientVm;
@@ -88,17 +88,17 @@ pub fn install(cvm: &mut ClientVm) {
         }),
     );
 
-    let class = new_ref(Class {
-        base: None,
+    let class = crate::classes::register(
+        &mut cvm.vm,
+        "CRemoteFunctions",
+        "CClientScriptRemoteFunctions",
+        None,
         members,
-        locked: true,
-    });
-    let instance = Value::Instance(new_ref(Instance {
-        class: class.clone(),
-        values: Table::new(),
-        user: UserData::Host(state),
-    }));
-    let mut root = cvm.vm.root.borrow_mut();
-    root.insert(Value::str("CRemoteFunctions"), Value::Class(class));
-    root.insert(Value::str("Remote"), instance);
+    );
+    let instance =
+        crate::classes::instantiate(&mut cvm.vm, &class, UserData::Host(state)).unwrap_or_default();
+    cvm.vm
+        .root
+        .borrow_mut()
+        .insert(Value::str("Remote"), instance);
 }
