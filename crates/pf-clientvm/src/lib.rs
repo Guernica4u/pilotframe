@@ -17,6 +17,7 @@ use pf_squirrel::{Value, Vm};
 
 pub mod consts;
 pub mod engine;
+pub mod entities;
 pub mod gamerules;
 pub mod globals;
 pub mod progression;
@@ -89,6 +90,50 @@ pub trait Host {
     fn color_correction_set_exclusive(&self, index: i32, exclusive: bool) {
         let _ = (index, exclusive);
     }
+    /// An entity's current state, or None if it doesn't exist (any more).
+    fn entity(&self, id: EntityId) -> Option<EntityInfo> {
+        let _ = id;
+        None
+    }
+    /// Every player, in entity index order.
+    fn players(&self) -> Vec<EntityId> {
+        Vec::new()
+    }
+    /// The local player (the one this client controls or watches).
+    fn local_player(&self) -> Option<EntityId> {
+        None
+    }
+}
+
+/// An entity, as the host names it.
+pub type EntityId = u32;
+
+/// What client script can read of an entity. The host fills it from the
+/// game; the script functions apply the game's own rules to it (angle
+/// normalizing and so on).
+#[derive(Clone, Debug, Default)]
+pub struct EntityInfo {
+    /// The script class of its C++ class (`C_Portal_Player`, `C_WeaponX`…).
+    pub script_class: String,
+    pub classname: String,
+    /// Its script-facing type name (`player`, `npc_titan`…).
+    pub signifier: String,
+    pub name: String,
+    pub ent_index: i32,
+    pub origin: [f32; 3],
+    pub local_origin: [f32; 3],
+    pub angles: [f32; 3],
+    pub velocity: [f32; 3],
+    pub eye_position: [f32; 3],
+    pub eye_angles: [f32; 3],
+    pub team: i32,
+    pub health: i32,
+    pub max_health: i32,
+    pub life_state: i32,
+    pub is_player: bool,
+    pub is_npc: bool,
+    pub is_titan: bool,
+    pub client_only: bool,
 }
 
 /// What the game rules report about a team.
@@ -105,6 +150,8 @@ pub struct TeamInfo {
 pub struct ClientVm {
     pub vm: Vm,
     pub host: Rc<dyn Host>,
+    /// The entity script classes and instances (set up by `start`).
+    pub entities: Option<entities::Shared>,
 }
 
 impl ClientVm {
@@ -112,7 +159,11 @@ impl ClientVm {
     pub fn new(host: Rc<dyn Host>) -> ClientVm {
         let mut vm = Vm::new();
         vm.developer = host.developer();
-        ClientVm { vm, host }
+        ClientVm {
+            vm,
+            host,
+            entities: None,
+        }
     }
 
     /// Run the startup, in client.dll's order. Errors are the first
@@ -138,6 +189,7 @@ impl ClientVm {
         gamerules::install(self);
         engine::install(self);
         progression::install(self);
+        self.entities = Some(entities::install(self));
         self.run_file("vscript_client")?;
         // client.dll includes `_cl_mapspawn` with no scope: the root table.
         let root = Value::Table(self.vm.root.clone());

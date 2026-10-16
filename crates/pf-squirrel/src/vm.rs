@@ -110,6 +110,9 @@ pub(crate) struct Builtins {
 /// The host's entity check (see `Vm::entity_is_valid`).
 pub type EntityCheck = Box<dyn Fn(&Value) -> bool>;
 
+/// See `Vm::missing_hook`.
+pub type MissingHook = Box<dyn FnMut(&Value, &Value) -> Option<Value>>;
+
 /// One script VM (the game has a client VM and a UI VM).
 pub struct Vm {
     pub root: Ref<Table>,
@@ -126,6 +129,10 @@ pub struct Vm {
     /// The host's answer to "is this instance a live engine entity?"
     /// (`IsValid`). None: no instance is.
     pub entity_is_valid: Option<EntityCheck>,
+    /// A debugging aid (not in the game): asked for a value whenever a
+    /// lookup would fail with "does not exist" (object, key). The survey
+    /// tool uses it to list missing engine functions in one run.
+    pub missing_hook: Option<MissingHook>,
     /// Nested runs (calls from Rust into script), to stop runaway recursion.
     depth: usize,
 }
@@ -161,6 +168,7 @@ impl Vm {
             threads: Default::default(),
             developer: 0,
             entity_is_valid: None,
+            missing_hook: None,
             depth: 0,
         };
         crate::stdlib::install(&mut vm);
@@ -796,6 +804,9 @@ impl Vm {
         if let Some(v) = self.root.borrow().get(key) {
             return Ok(v.clone());
         }
+        if let Some(v) = self.missing_hook.as_mut().and_then(|h| h(this, key)) {
+            return Ok(v);
+        }
         let k = self.key_text(key);
         Err(self.raise_str(&format!("the index '{k}' does not exist")))
     }
@@ -815,7 +826,12 @@ impl Vm {
     pub fn get(&mut self, obj: &Value, key: &Value) -> Result<Value, Value> {
         match self.try_get(obj, key)? {
             Some(v) => Ok(v),
-            None => Err(self.index_error(obj, key)),
+            None => {
+                if let Some(v) = self.missing_hook.as_mut().and_then(|h| h(obj, key)) {
+                    return Ok(v);
+                }
+                Err(self.index_error(obj, key))
+            }
         }
     }
 

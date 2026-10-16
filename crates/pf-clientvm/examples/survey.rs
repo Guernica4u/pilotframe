@@ -1,27 +1,29 @@
 //! Survey tool: start the client VM from the player's install, with the
-//! client.dll functions ported so far, and list every engine function the
-//! scripts call that we don't have yet.
+//! client.dll functions ported so far, and list every engine function and
+//! entity method the scripts use that we don't have yet.
 //!
-//! A missing name gets a stand-in that returns null, so one run finds them
-//! all (results after the first stand-in are only a guide). Usage:
+//! A missing name gets a stand-in that returns null (through the VM's
+//! debugging hook), so one run finds them all; results after the first
+//! stand-in are only a guide. Usage:
 //! `cargo run -p pf-clientvm --example survey [map] [frames]`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::rc::Rc;
 
-use pf_clientvm::{ClientVm, Host};
-use pf_squirrel::table::Table;
-use pf_squirrel::value::new_ref;
+use pf_clientvm::{ClientVm, EntityId, EntityInfo, Host};
 use pf_squirrel::{Value, native};
 
-struct FileHost {
+/// A stand-in game: Colony, Attrition, one local pilot on IMC.
+struct SurveyHost {
     level: String,
-    time: std::cell::Cell<f32>,
+    time: Cell<f32>,
 }
 
-impl Host for FileHost {
+const PLAYER: EntityId = 1;
+
+impl Host for SurveyHost {
     fn read_script(&self, path: &str) -> Option<String> {
         pf_gamefs::read_text(path)
     }
@@ -41,6 +43,25 @@ impl Host for FileHost {
             _ => String::new(),
         }
     }
+    fn entity(&self, id: EntityId) -> Option<EntityInfo> {
+        (id == PLAYER).then(|| EntityInfo {
+            script_class: "C_Portal_Player".into(),
+            classname: "player".into(),
+            signifier: "player".into(),
+            ent_index: 1,
+            team: 2,
+            health: 200,
+            max_health: 200,
+            is_player: true,
+            ..Default::default()
+        })
+    }
+    fn players(&self) -> Vec<EntityId> {
+        vec![PLAYER]
+    }
+    fn local_player(&self) -> Option<EntityId> {
+        Some(PLAYER)
+    }
 }
 
 fn main() {
@@ -58,7 +79,7 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
 
-    let host = Rc::new(FileHost {
+    let host = Rc::new(SurveyHost {
         level: format!("maps/{map}.bsp"),
         time: Default::default(),
     });
@@ -67,23 +88,30 @@ fn main() {
     let sink = log.clone();
     cvm.vm.out = Box::new(move |s| sink.borrow_mut().push_str(s));
 
-    // Root-table lookups that fail: recorded, answered with a stand-in.
+    // Failed lookups: recorded (as `Class.method` on entities), answered
+    // with a stand-in function.
     let missing: Rc<RefCell<BTreeMap<String, (usize, usize)>>> = Default::default();
-    let order = Rc::new(RefCell::new(0usize));
     let m = missing.clone();
-    let fallback = native("_get", 2, move |_, a| {
-        let key = match &a[1] {
-            Value::Str(s) => s.to_string_lossy(),
-            other => format!("{other:?}"),
+    let h = host.clone();
+    let mut order = 0usize;
+    cvm.vm.missing_hook = Some(Box::new(move |obj, key| {
+        let Value::Str(k) = key else { return None };
+        let k = k.to_string_lossy();
+        let name = match obj {
+            Value::Instance(_) => match pf_clientvm::entities::entity_id(obj) {
+                Some(id) => format!(
+                    "{}.{k}",
+                    h.entity(id).map(|e| e.script_class).unwrap_or_default()
+                ),
+                None => format!("instance.{k}"),
+            },
+            Value::Table(_) => k.clone(),
+            other => format!("{}.{k}", other.type_name()),
         };
-        let mut o = order.borrow_mut();
-        m.borrow_mut().entry(key.clone()).or_insert((*o, 0)).1 += 1;
-        *o += 1;
-        Ok(native(&key, 0, |_, _| Ok(Value::Null)))
-    });
-    let mut delegate = Table::new();
-    delegate.insert(Value::str("_get"), fallback);
-    cvm.vm.root.borrow_mut().delegate = Some(new_ref(delegate));
+        m.borrow_mut().entry(name).or_insert((order, 0)).1 += 1;
+        order += 1;
+        Some(native(&k, 0, |_, _| Ok(Value::Null)))
+    }));
 
     if let Err(e) = cvm.start() {
         println!("ERROR during startup: {e}");
