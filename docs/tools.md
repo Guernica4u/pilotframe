@@ -51,7 +51,7 @@ These read decompiled code or game data, so they live in gitignored `Resources/r
   - Self-test: replaying our own output gives a gap of 0.00.
 - **`helpers/`**: 38 older one-off research scripts (string and caller finders, cvar readers, recording analysis), indexed in its README.
 - **Script research** (see docs/port/scripts.md):
-  - `natives.py`: every native function the scripts can call, from all three DLLs. It keeps one registration per name; a few names have a single-player and a multiplayer version (`IsMultiplayer`: false / true), and the multiplayer one is the one the game uses.
+  - `natives.py`: every native function the scripts can call, from all three DLLs, with its parameter types where the registration gives them (written inline, or by a signature template function it follows). It keeps one registration per name; a few names have a single-player and a multiplayer version (`IsMultiplayer`: false / true), and the multiplayer one is the one the game uses.
   - `classnatives.py`: the script classes client.dll registers (the entity classes, `CRemoteFunctions`, HUD elements, game rules…) and their methods: 32 classes, 709 methods, in `classnatives.json`/`.txt`.
   - `sqreg.py`: launcher.dll's static Squirrel tables.
   - `script_calls.py`: calls the scripts make that aren't found yet, per VM.

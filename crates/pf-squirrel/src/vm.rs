@@ -194,6 +194,19 @@ impl Vm {
         self.root.borrow_mut().insert(Value::str(name), v);
     }
 
+    /// Add a native function with a type mask (`native_checked`) to the
+    /// root table.
+    pub fn register_checked(
+        &mut self,
+        name: &str,
+        nparams: i32,
+        typemask: &str,
+        f: impl Fn(&mut Vm, &[Value]) -> NativeResult + 'static,
+    ) {
+        let v = native_checked(name, nparams, typemask, f);
+        self.root.borrow_mut().insert(Value::str(name), v);
+    }
+
     /// Compile a script into a function (its `main`). Errors are the
     /// compiler's message.
     pub fn compile(&mut self, src: &str, source_name: &str) -> Result<Value, String> {
@@ -281,6 +294,18 @@ impl Vm {
                         "wrong number of parameters: found {found}, expected {}",
                         n.nparams.abs()
                     )));
+                }
+                // The type check sees the arguments as passed (before a
+                // `bindenv` environment replaces `this`).
+                for (i, &mask) in n.typecheck.iter().enumerate().take(found as usize) {
+                    let got = &ex.stack[at + 1 + i];
+                    if mask != u32::MAX && got.type_bit() & mask == 0 {
+                        return Err(self.raise_str(&format!(
+                            "parameter {i} has an invalid type '{}' ; expected: '{}'",
+                            got.type_name(),
+                            mask_names(mask)
+                        )));
+                    }
                 }
                 let mut args: Vec<Value> = ex.stack.drain(at + 1..).collect();
                 ex.stack.truncate(at);
@@ -855,7 +880,9 @@ impl Vm {
         }
     }
 
-    fn try_get(&mut self, obj: &Value, key: &Value) -> Result<Option<Value>, Value> {
+    /// `obj[key]` as `get` reads it, but None when the key is missing
+    /// (the engine's `sq_get`, which sets no error).
+    pub fn try_get(&mut self, obj: &Value, key: &Value) -> Result<Option<Value>, Value> {
         Ok(match obj {
             Value::Table(t) => return self.table_get(t, obj, key),
             Value::Array(a) => match key {
@@ -1494,6 +1521,107 @@ pub fn native(
         name: name.into(),
         nparams,
         f: Rc::new(f),
+        typecheck: Rc::from([]),
         env: None,
     }))
+}
+
+/// A native function with a Squirrel type mask (`sq_setparamscheck`): each
+/// argument (`this` first) must have one of the mask's types.
+///
+/// Panics on a bad mask: masks are written in our code, not read from data.
+pub fn native_checked(
+    name: &str,
+    nparams: i32,
+    typemask: &str,
+    f: impl Fn(&mut Vm, &[Value]) -> NativeResult + 'static,
+) -> Value {
+    let typecheck = compile_typemask(typemask)
+        .unwrap_or_else(|| panic!("bad type mask {typemask:?} for {name}"));
+    Value::Native(Rc::new(NativeFn {
+        name: name.into(),
+        nparams,
+        f: Rc::new(f),
+        typecheck: typecheck.into(),
+        env: None,
+    }))
+}
+
+/// Squirrel 2.2's type-mask letters, one parameter each: `o` null,
+/// `i` integer, `f` float, `n` integer or float, `s` string, `t` table,
+/// `a` array, `u` userdata, `c` function (script or native), `b` bool,
+/// `g` generator, `p` userpointer, `v` thread, `x` instance, `y` class,
+/// `r` weakref, `.` anything. `|` joins letters into one parameter; spaces
+/// are skipped. None for an unknown letter or a trailing `|`.
+pub fn compile_typemask(mask: &str) -> Option<Vec<u32>> {
+    let b = mask.as_bytes();
+    let (mut out, mut m, mut i) = (Vec::new(), 0u32, 0);
+    while i < b.len() {
+        m |= match b[i] {
+            b'o' => 0x1,
+            b'i' => 0x2,
+            b'f' => 0x4,
+            b'n' => 0x6,
+            b's' => 0x10,
+            b't' => 0x20,
+            b'a' => 0x40,
+            b'u' => 0x80,
+            b'c' => 0x300,
+            b'b' => 0x8,
+            b'g' => 0x400,
+            b'p' => 0x800,
+            b'v' => 0x1000,
+            b'x' => 0x8000,
+            b'y' => 0x4000,
+            b'r' => 0x10000,
+            b'.' => {
+                out.push(u32::MAX);
+                i += 1;
+                m = 0;
+                continue;
+            }
+            b' ' => {
+                i += 1;
+                continue;
+            }
+            _ => return None,
+        };
+        i += 1;
+        if b.get(i) == Some(&b'|') {
+            i += 1;
+            if i == b.len() {
+                return None;
+            }
+            continue;
+        }
+        out.push(m);
+        m = 0;
+    }
+    Some(out)
+}
+
+/// The names of a type mask's types, joined by `|`, for the parameter
+/// error (launcher.dll 0x1800415a0: bits from lowest to highest).
+fn mask_names(mask: u32) -> String {
+    let names: Vec<&str> = (0..16)
+        .map(|b| 1u32 << b)
+        .filter(|bit| mask & bit != 0)
+        .map(|bit| match bit {
+            0x1 => "null",
+            0x2 => "integer",
+            0x4 => "float",
+            0x8 => "bool",
+            0x10 => "string",
+            0x20 => "table",
+            0x40 => "array",
+            0x80 | 0x800 => "userdata",
+            0x100 | 0x2000 => "function",
+            0x200 => "native function",
+            0x400 => "generator",
+            0x1000 => "thread",
+            0x4000 => "class",
+            _ => "instance",
+        })
+        .collect();
+    names.join("|")
 }

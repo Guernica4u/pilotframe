@@ -763,6 +763,7 @@ fn function_methods() -> Table {
                 name: n.name.clone(),
                 nparams: n.nparams,
                 f: n.f.clone(),
+                typecheck: n.typecheck.clone(),
                 env: Some(a[1].clone()),
             }))),
             other => Ok(other.clone()),

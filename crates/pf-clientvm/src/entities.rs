@@ -58,6 +58,10 @@ pub struct Entities {
     /// Entities that exist only in client script.
     pub client_only: HashMap<EntityId, EntityInfo>,
     next_client_only: EntityId,
+    /// Script scopes made by `ValidateScriptScope`.
+    scopes: HashMap<EntityId, Value>,
+    /// The unique-key serial number (launcher.dll's, counted per VM).
+    key_serial: u64,
 }
 
 pub type Shared = Rc<RefCell<Entities>>;
@@ -117,10 +121,69 @@ impl Entities {
         id
     }
 
-    /// Forget an entity's instance (it was destroyed).
+    /// Forget an entity's instance (it was destroyed). Its scope stays in
+    /// the root table: releasing it is still to be ported.
     pub fn forget(this: &Shared, id: EntityId) {
-        this.borrow_mut().instances.remove(&id);
+        let mut e = this.borrow_mut();
+        e.instances.remove(&id);
+        e.scopes.remove(&id);
     }
+
+    /// The entity's scope (client.dll 0x18002a710): made on first use by
+    /// init.nut's `VSquirrel_OnCreateScope( key, root )`, under a new
+    /// unique key, with `self` set to the entity. Null if the instance or
+    /// the scope can't be made.
+    pub fn validate_scope(this: &Shared, vm: &mut Vm, host: &dyn Host, id: EntityId) -> Value {
+        if let Some(s) = this.borrow().scopes.get(&id) {
+            return s.clone();
+        }
+        let inst = Entities::instance(this, vm, host, id);
+        let Some(info) = Entities::info(this, host, id) else {
+            return Value::Null;
+        };
+        // The key's root: the entity's name, or its class name.
+        let root_name = if info.name.is_empty() {
+            &info.classname
+        } else {
+            &info.name
+        };
+        let key = {
+            let mut e = this.borrow_mut();
+            e.key_serial += 1;
+            unique_key(e.key_serial, host.time(), root_name)
+        };
+        let root = Value::Table(vm.root.clone());
+        let Some(create) = vm
+            .try_get(&root, &Value::str("VSquirrel_OnCreateScope"))
+            .ok()
+            .flatten()
+        else {
+            return Value::Null;
+        };
+        let scope = match vm.call(&create, root.clone(), &[Value::str(&key), root]) {
+            Ok(s @ Value::Table(_)) => s,
+            Ok(_) => return Value::Null,
+            Err(e) => {
+                vm.report_error(&e);
+                return Value::Null;
+            }
+        };
+        if let Value::Table(t) = &scope {
+            t.borrow_mut().insert(Value::str("self"), inst);
+        }
+        this.borrow_mut().scopes.insert(id, scope.clone());
+        scope
+    }
+}
+
+/// launcher.dll's GenerateUniqueKey (0x1800099d0): `%x%x%llx_%s` of a
+/// random number below 0x1000, the clock in milliseconds and the serial
+/// number. The game's random number and clock make these keys differ
+/// every run; ours uses game time and a hash of the serial (ours).
+fn unique_key(serial: u64, time: f32, root: &str) -> String {
+    let random = (serial.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 52) as u32 & 0xfff;
+    let ms = (time * 1000.0) as u32;
+    format!("{random:x}{ms:x}{serial:x}_{root}")
 }
 
 /// The entity an instance stands for.
@@ -176,6 +239,8 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
         instances: HashMap::new(),
         client_only: HashMap::new(),
         next_client_only: 0,
+        scopes: HashMap::new(),
+        key_serial: 0,
     }));
 
     // C_BaseEntity's getters (client.dll 0x180300630 registers them).
@@ -245,7 +310,42 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
             }),
         );
     }
+
+    // ValidateScriptScope (0x18002a710) and GetScriptScope (0x180027ea0):
+    // the scope, or null if it hasn't been made.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    base_members.insert(
+        Value::str("ValidateScriptScope"),
+        native("ValidateScriptScope", 1, move |vm, a| {
+            this(&sh, &*host, a, "ValidateScriptScope")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let scope = Entities::validate_scope(&sh, vm, &*host, id);
+            Ok(Value::Bool(!scope.is_null()))
+        }),
+    );
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    base_members.insert(
+        Value::str("GetScriptScope"),
+        native("GetScriptScope", 1, move |_, a| {
+            this(&sh, &*host, a, "GetScriptScope")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            Ok(sh.borrow().scopes.get(&id).cloned().unwrap_or_default())
+        }),
+    );
     members_of.insert("C_BaseEntity", base_members);
+
+    // C_BasePlayer.GetActiveBurnCardIndex (0x1800368b0): the networked
+    // value as it is (the class file subtracts one).
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    let mut player_members = Table::new();
+    player_members.insert(
+        Value::str("GetActiveBurnCardIndex"),
+        native("GetActiveBurnCardIndex", 1, move |_, a| {
+            let e = this(&sh, &*host, a, "GetActiveBurnCardIndex")?;
+            Ok(Value::Int(e.active_burn_card_index))
+        }),
+    );
+    members_of.insert("C_BasePlayer", player_members);
 
     // Register the classes base first, each with its class file run (see
     // classes.rs).

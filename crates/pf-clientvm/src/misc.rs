@@ -1,6 +1,6 @@
 //! Smaller client.dll script functions: profiling marks, file-system hints,
 //! platform checks, the bot-loadout name lists, impact tables, particle
-//! lookups and console-command callbacks.
+//! lookups, console-command callbacks and `Graph`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -111,6 +111,18 @@ pub fn install(cvm: &mut ClientVm) -> Rc<RefCell<ConCommandCallbacks>> {
         Ok(Value::Null)
     });
 
+    // Graph( v, a, b, c, d ) (0x1802c4480): v mapped from [a, b] onto
+    // [c, d]; GraphCapped (0x1802c44d0) clamps to [c, d]. Five numbers
+    // (mask ".nnnnn"), worked in 32-bit floats.
+    vm.register_checked("Graph", 6, ".nnnnn", |_, a| {
+        let [v, a0, b0, c, d] = [1, 2, 3, 4, 5].map(|i| num(a, i));
+        Ok(Value::Float(graph(v, a0, b0, c, d, false)))
+    });
+    vm.register_checked("GraphCapped", 6, ".nnnnn", |_, a| {
+        let [v, a0, b0, c, d] = [1, 2, 3, 4, 5].map(|i| num(a, i));
+        Ok(Value::Float(graph(v, a0, b0, c, d, true)))
+    });
+
     // GetParticleSystemIndex( name ) (0x18013d590): 0 if it isn't loaded.
     let host = cvm.host.clone();
     vm.register("GetParticleSystemIndex", 2, move |_, a| {
@@ -141,6 +153,30 @@ pub fn install(cvm: &mut ClientVm) -> Rc<RefCell<ConCommandCallbacks>> {
     callbacks
 }
 
+fn num(a: &[Value], i: usize) -> f32 {
+    match a.get(i) {
+        Some(Value::Int(n)) => *n as f32,
+        Some(Value::Float(x)) => *x,
+        _ => 0.0,
+    }
+}
+
+/// `Graph`/`GraphCapped`. With a == b (or either not a number, which the
+/// game's compare also treats as equal) the result is d when v >= b, else
+/// c. The clamp keeps 0..1 and turns not-a-number into 0, like the SSE
+/// max/min the game uses.
+pub fn graph(v: f32, a: f32, b: f32, c: f32, d: f32, capped: bool) -> f32 {
+    if a == b || a.is_nan() || b.is_nan() {
+        return if v - b >= 0.0 { d } else { c };
+    }
+    let mut t = (v - a) / (b - a);
+    if capped {
+        t = if t > 0.0 { t } else { 0.0 };
+        t = if t < 1.0 { t } else { 1.0 };
+    }
+    (d - c) * t + c
+}
+
 impl ClientVm {
     /// A console command ran: call the script callbacks registered for it.
     pub fn concommand_triggered(&mut self, cmd: &str) {
@@ -160,5 +196,21 @@ impl ClientVm {
                 self.vm.report_error(&e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::graph;
+
+    #[test]
+    fn graph_maps_and_caps() {
+        assert_eq!(graph(0.5, 0.0, 1.0, 300.0, 500.0, false), 400.0);
+        assert_eq!(graph(2.0, 0.0, 1.0, 300.0, 500.0, false), 700.0);
+        assert_eq!(graph(2.0, 0.0, 1.0, 300.0, 500.0, true), 500.0);
+        assert_eq!(graph(-1.0, 0.0, 1.0, 300.0, 500.0, true), 300.0);
+        // a == b: a step at b.
+        assert_eq!(graph(1.0, 1.0, 1.0, 3.0, 5.0, false), 5.0);
+        assert_eq!(graph(0.9, 1.0, 1.0, 3.0, 5.0, false), 3.0);
     }
 }

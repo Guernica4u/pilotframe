@@ -13,8 +13,8 @@ use crate::table::Table;
 use crate::value::*;
 use crate::vm::{NativeResult, Vm, throw};
 
-/// What a Vector instance carries.
-fn get(v: &Value) -> Option<[f32; 3]> {
+/// What a Vector instance carries (None for anything else).
+pub fn get(v: &Value) -> Option<[f32; 3]> {
     match v {
         Value::Instance(i) => match i.borrow().user {
             UserData::Vector(xyz) => Some(xyz),
@@ -269,6 +269,7 @@ pub(crate) fn install(vm: &mut Vm) {
                 name: name.into(),
                 nparams: n,
                 f,
+                typecheck: Rc::from([]),
                 env: None,
             })),
         );

@@ -58,6 +58,25 @@ impl Value {
         }
     }
 
+    /// The type's bit in Squirrel's type masks (its type tag's low bits,
+    /// docs/port/scripts.md "Value tags").
+    pub fn type_bit(&self) -> u32 {
+        match self {
+            Value::Null => 0x1,
+            Value::Int(_) => 0x2,
+            Value::Float(_) => 0x4,
+            Value::Bool(_) => 0x8,
+            Value::Str(_) => 0x10,
+            Value::Table(_) => 0x20,
+            Value::Array(_) => 0x40,
+            Value::Closure(_) => 0x100,
+            Value::Native(_) => 0x200,
+            Value::Class(_) => 0x4000,
+            Value::Instance(_) => 0x8000,
+            Value::WeakRef(_) => 0x10000,
+        }
+    }
+
     /// Squirrel's truth test: null, false, 0 and 0.0 are false; everything
     /// else (including "" and empty arrays) is true (oracle Y005–Y009).
     pub fn truthy(&self) -> bool {
@@ -215,6 +234,10 @@ pub struct NativeFn {
     /// a positive count is exact, a negative one is a minimum.
     pub nparams: i32,
     pub f: NativeFnPtr,
+    /// Squirrel's type check: one mask of type bits per parameter (`this`
+    /// first; `u32::MAX` takes anything). Empty: no check. See
+    /// `compile_typemask`.
+    pub typecheck: Rc<[u32]>,
     /// The `this` set by `bindenv` (None: the caller's). The game's scripts
     /// rely on it: `SpinOff.bindenv( scope )( f )` runs `f` with `scope` as
     /// `this`.

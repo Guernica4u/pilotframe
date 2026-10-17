@@ -23,8 +23,10 @@ pub mod gamerules;
 pub mod globals;
 pub mod hud;
 pub mod misc;
+pub mod modelfx;
 pub mod progression;
 pub mod remote;
+pub mod rumble;
 pub mod weapons;
 
 /// What the client VM needs from the game.
@@ -165,6 +167,9 @@ pub struct EntityInfo {
     pub is_npc: bool,
     pub is_titan: bool,
     pub client_only: bool,
+    /// A player's burn card slot as the game networks it (0: none; script
+    /// sees one less).
+    pub active_burn_card_index: i32,
 }
 
 /// What the game rules report about a team.
@@ -187,6 +192,10 @@ pub struct ClientVm {
     pub hud: Option<hud::SharedHud>,
     /// Script callbacks for console commands (set up by `start`).
     pub concommand_callbacks: Option<Rc<std::cell::RefCell<misc::ConCommandCallbacks>>>,
+    /// Model effect definitions (set up by `start`).
+    pub model_fx: Option<modelfx::Shared>,
+    /// Rumble graphs and play params (set up by `start`).
+    pub rumble: Option<rumble::Shared>,
 }
 
 impl ClientVm {
@@ -200,6 +209,8 @@ impl ClientVm {
             entities: None,
             hud: None,
             concommand_callbacks: None,
+            model_fx: None,
+            rumble: None,
         }
     }
 
@@ -228,6 +239,8 @@ impl ClientVm {
         progression::install(self);
         weapons::install(self);
         self.concommand_callbacks = Some(misc::install(self));
+        self.model_fx = Some(modelfx::install(self));
+        self.rumble = Some(rumble::install(self));
         let ents = entities::install(self);
         let hud = hud::install(self);
         hud::install_screens(self, &hud, &ents);

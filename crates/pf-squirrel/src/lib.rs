@@ -20,4 +20,4 @@ pub mod vm;
 
 pub use parser::{ParseError, parse};
 pub use value::Value;
-pub use vm::{NativeError, NativeResult, Vm, native, throw};
+pub use vm::{NativeError, NativeResult, Vm, compile_typemask, native, native_checked, throw};

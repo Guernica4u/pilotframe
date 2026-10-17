@@ -258,6 +258,38 @@ A class whose instances hold three 32-bit floats (our `vector.rs`).
   - a few direct registrations (`developer`, `GetFunctionSignature`, `IsValid`).
 - **Count:** 1,615 natives found across the three DLLs.
 
+### Argument checks
+
+launcher.dll registers each client.dll function with Squirrel's own argument check (`sq_setparamscheck`), so a wrong argument fails before the function runs:
+- **The type mask** is built from the function's parameter types: `.` for `this`, then per parameter `n` (int or float), `x` (an instance: Vector), `b` (bool), `s` (string), `.` (any script object). Another type ends the mask there; the parameters after it aren't checked. The parameter count must be exact (types + 1).
+- Functions that read the Squirrel stack themselves (`Rumble_CreateGraph`, `GetPersistentVarAsInt`, the HUD's `SetColor`…) carry their own mask and count instead (e.g. `.saaaa`, 6; `..`, at least 2).
+- **The errors** are Squirrel's: "wrong number of parameters: found F, expected N"; "parameter I has an invalid type 'T' ; expected: 'A|B'" (I counts `this` as 0; the expected names come from the mask's type bits, lowest first, so `n` reads "integer|float").
+- **Then the values are converted:** an int passed for a float becomes a float, a float passed for an int is truncated, a non-bool for a bool is false.
+- **Errors raised inside a function** (client.dll 0x1802c4fe0) are formatted, lose one trailing line break, and are stored; the last one stored wins and is thrown when the function returns. Whatever the function did before raising stays done.
+- Each function's signature comes from a small template function that writes the return type (+0x38) and appends the parameter types (+0x40); `natives.py` now follows these, so `natives.json` has the parameter list of 504 client functions.
+- Ours: `pf-squirrel` has the mask check (`native_checked`, `compile_typemask`); new client functions are registered with their masks. The functions ported before this still need theirs added.
+
+### Client functions (pf-clientvm)
+
+- **`Graph( v, a, b, c, d )`** (0x1802c4480) maps `v` from [a, b] onto [c, d] in 32-bit floats: `(d - c) * ((v - a) / (b - a)) + c`. When a == b (or either is not a number) it's a step: d if `v - b >= 0`, else c. `GraphCapped` (0x1802c44d0) clamps the fraction to 0..1 (not-a-number becomes 0). Both were script functions once (`_utility_shared.nut` keeps them commented out, "Moved to code").
+- **Model effects** (`ModelFX_*`, 0x18015a4e0 on): a definition per model (names matched ignoring ASCII case), holding groups (in the order begun; beginning a name twice makes two groups), each with a start state, who sees it (`all` 0, `friend` 1, `foe` 2, `notLocalPlayer` 3; anything else is an error after the group is made, seen by all) and effects per attachment tag:
+  - spawn effect (one per tag; a second replaces it);
+  - health effects (health fraction, effect, one-shot flag, sound, one-shot sound), each with a lower fraction than the tag's last, else an error after it's added;
+  - health-damage effects (state index, fraction, effect, min/max delay; the looping version has delays -1), the same order rule, its error always named `ModelFX_AddTagHealthDamageFX`;
+  - damage effects (state index, effect, min/max delay, sound), break effects (state index, effect, sound), break gibs (state index, model, gib type, min/max velocity).
+  - Every addition except the spawn effect marks the model as having state effects; a break effect or gib with state -1 marks a whole-model break. All state effects (damage, health-damage, break) must sit in one group of the model: "ModelFX_AddTagBreakFX: only one group should have body group fx."
+  - Effect and sound names are kept to 31 characters, gib models to 63. Adding an effect loads it and keeps its index (0 if not loaded).
+  - `ModelFX_BeginData` twice without `ModelFX_EndData` is an error; the add functions without a `BeginData` would crash the game (we raise an error instead, ours). Everything is cleared when the client VM shuts down.
+- **Rumble** (`Rumble_CreateGraph` 0x180442300, `Rumble_CreatePlayParams` 0x180440c20): a graph is four arrays of Vectors read as (time, power) points: heavy motor, light motor, left trigger, right trigger. Play params name a graph and may set `position` (default: the engine's "no position", all `FLT_MAX`), `scale`, `scaleMin`, `scaleMax`, `distanceMin`, `distanceMax` (all default 1; ints accepted) and `loop` (a bool, default false). Both are stored by name (case-sensitive, replacing an earlier one). A missing field is skipped without touching the VM's last error; a field of the wrong type is an error naming it.
+- **Entity scopes:** `ValidateScriptScope` (0x18002a710) makes an entity's scope on first use by calling init.nut's `VSquirrel_OnCreateScope( key, root )` with the root table as `this`, then sets `self` in it to the entity; it returns true. `GetScriptScope` (0x180027ea0) returns the scope, or null if none was made; the class file wraps it to validate first. The key is launcher.dll's `GenerateUniqueKey` (0x1800099d0): `%x%x%llx_%s` of a random number below 0x1000, the clock in milliseconds, a serial number, and the entity's name (or its class name if it has none). Because of the random number and clock, the root table's order of these keys differs on every run in the game too. Releasing a scope when its entity goes is still to be ported.
+- **`GetActiveBurnCardIndex`** (C_BasePlayer, 0x1800368b0) returns the networked field as it is; the class file subtracts 1.
+
+### Persistence
+
+- **Where the definition comes from:** the persistent data definition (`cfg/server/persistent_player_data_version_N.pdef`: the saved variables and the enums such as `maps`, `gameModes`, `challenge`, `titanDecals`, `burnCard`, `pilotRace`, `unlockRefs`) is read by the **server** (engine.dll 0x180218630 takes the highest version found), which sends it to each client BZ2-compressed with its version number on connect (0x1802188d0). Demos carry a copy (0x180218a20, "pdef source from server"). It is not in the PC install: none of the 286 client VPKs nor the loose files have a `.pdef`.
+- **The client functions:** `PersistenceGetEnumCount( enum )` (0x1802c8e30) and `PersistenceGetEnumIndexForItemName( enum, item )` (0x1802c8ea0) ask the engine (engine.dll 0x180211620, 0x180216c50); without a definition they raise "Persistence datadef is not loaded."; an unknown enum is "Unknown persistent enum "NAME"."; an unknown pair is "Invalid enum or item name."; each then returns 0.
+- **The plan (owner's decision, 2026-10-17):** our game plays the server's part, so it supplies the definition: rebuilt at runtime from the install's own scripts (every enum and variable they use, item order from the scripts' own lists), with anything that can't be pinned down marked as a placeholder. Nothing of it goes in git.
+
 ### What's still unaccounted for
 
 These are called by scripts the VM loads, defined by no script, and not found in the DLLs yet:
