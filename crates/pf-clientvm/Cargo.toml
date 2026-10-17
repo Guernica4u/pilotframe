@@ -13,6 +13,7 @@ pf-fmt-ui = { path = "../pf-fmt-ui" }
 
 [dev-dependencies]
 pf-gamefs.workspace = true
+pf-fmt-mdl = { path = "../pf-fmt-mdl" }
 
 [lints]
 workspace = true

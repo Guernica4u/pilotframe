@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::rc::Rc;
 
+use pf_clientvm::persistence::PersistenceDef;
 use pf_clientvm::{ClientVm, EntityId, EntityInfo, Host};
 use pf_squirrel::{Value, native};
 
@@ -19,6 +20,7 @@ use pf_squirrel::{Value, native};
 struct SurveyHost {
     level: String,
     time: Cell<f32>,
+    pdef: Rc<PersistenceDef>,
 }
 
 const PLAYER: EntityId = 1;
@@ -62,6 +64,9 @@ impl Host for SurveyHost {
     fn local_player(&self) -> Option<EntityId> {
         Some(PLAYER)
     }
+    fn persistence_def(&self) -> Option<Rc<PersistenceDef>> {
+        Some(self.pdef.clone())
+    }
 }
 
 fn main() {
@@ -79,9 +84,15 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
 
+    // The persistence definition, built from the install's scripts.
+    let (pdef, problems) = pf_clientvm::pdef::build(&pf_gamefs::read_text);
+    for p in &problems {
+        println!("persistence: {p}");
+    }
     let host = Rc::new(SurveyHost {
         level: format!("maps/{map}.bsp"),
         time: Default::default(),
+        pdef: Rc::new(pdef),
     });
     let mut cvm = ClientVm::new(host.clone());
     let log = Rc::new(RefCell::new(String::new()));

@@ -161,3 +161,138 @@ pub struct ClassDef {
     /// Members in order: name, value, static.
     pub members: Vec<(Expr, Expr, bool)>,
 }
+
+/// Call `f` on every expression in the statements, in source order (an
+/// expression before the ones inside it). For tools that read scripts.
+pub fn visit_exprs(stmts: &[Stmt], f: &mut impl FnMut(&Expr)) {
+    for s in stmts {
+        visit_stmt(s, f);
+    }
+}
+
+fn visit_stmt(s: &Stmt, f: &mut impl FnMut(&Expr)) {
+    match &s.kind {
+        StmtKind::Expr(e) | StmtKind::Throw(e) | StmtKind::Wait(e) | StmtKind::Const(_, e) => {
+            visit_expr(e, f)
+        }
+        StmtKind::Return(e) => e.iter().for_each(|e| visit_expr(e, f)),
+        StmtKind::Local(vars) => vars
+            .iter()
+            .filter_map(|(_, e)| e.as_ref())
+            .for_each(|e| visit_expr(e, f)),
+        StmtKind::If(c, a, b) => {
+            visit_expr(c, f);
+            visit_stmt(a, f);
+            b.iter().for_each(|b| visit_stmt(b, f));
+        }
+        StmtKind::While(c, body) => {
+            visit_expr(c, f);
+            visit_stmt(body, f);
+        }
+        StmtKind::DoWhile(body, c) => {
+            visit_stmt(body, f);
+            visit_expr(c, f);
+        }
+        StmtKind::For {
+            init,
+            cond,
+            step,
+            body,
+        } => {
+            init.iter().for_each(|s| visit_stmt(s, f));
+            cond.iter().for_each(|e| visit_expr(e, f));
+            step.iter().for_each(|e| visit_expr(e, f));
+            visit_stmt(body, f);
+        }
+        StmtKind::Foreach {
+            container, body, ..
+        } => {
+            visit_expr(container, f);
+            visit_stmt(body, f);
+        }
+        StmtKind::Switch(e, cases) => {
+            visit_expr(e, f);
+            for (label, body) in cases {
+                label.iter().for_each(|e| visit_expr(e, f));
+                visit_exprs(body, f);
+            }
+        }
+        StmtKind::Block(body) => visit_exprs(body, f),
+        StmtKind::Function(_, def) => visit_exprs(&def.body, f),
+        StmtKind::Class(e, def) => {
+            visit_expr(e, f);
+            visit_class(def, f);
+        }
+        StmtKind::Enum(_, items) => items.iter().for_each(|(_, e)| visit_expr(e, f)),
+        StmtKind::Try(a, _, b) => {
+            visit_stmt(a, f);
+            visit_stmt(b, f);
+        }
+        StmtKind::Break | StmtKind::Continue | StmtKind::Empty => {}
+    }
+}
+
+fn visit_class(def: &ClassDef, f: &mut impl FnMut(&Expr)) {
+    def.base.iter().for_each(|e| visit_expr(e, f));
+    for (k, v, _) in &def.members {
+        visit_expr(k, f);
+        visit_expr(v, f);
+    }
+}
+
+fn visit_expr(e: &Expr, f: &mut impl FnMut(&Expr)) {
+    f(e);
+    let mut go = |e: &Expr| visit_expr(e, f);
+    match e {
+        Expr::Null
+        | Expr::Bool(_)
+        | Expr::Int(_)
+        | Expr::Float(_)
+        | Expr::Str(_)
+        | Expr::Ident(_)
+        | Expr::Root(_)
+        | Expr::This
+        | Expr::Vargc => {}
+        Expr::Vargv(a)
+        | Expr::Field(a, _)
+        | Expr::Unary(_, a)
+        | Expr::Delete(a)
+        | Expr::Clone(a)
+        | Expr::Typeof(a)
+        | Expr::Resume(a)
+        | Expr::Thread(a)
+        | Expr::WaitThread(a)
+        | Expr::WaitThreadSolo(a) => go(a),
+        Expr::IncDec { target, .. } => go(target),
+        Expr::Index(a, b)
+        | Expr::Binary(_, a, b)
+        | Expr::And(a, b)
+        | Expr::Or(a, b)
+        | Expr::NewSlot(a, b)
+        | Expr::Delegate(a, b)
+        | Expr::DelayThread(a, b) => {
+            go(a);
+            go(b);
+        }
+        Expr::Call(callee, args) => {
+            go(callee);
+            args.iter().for_each(go);
+        }
+        Expr::Ternary(a, b, c) => {
+            go(a);
+            go(b);
+            go(c);
+        }
+        Expr::Assign { target, value, .. } => {
+            go(target);
+            go(value);
+        }
+        Expr::Table(items) => items.iter().for_each(|(k, v)| {
+            visit_expr(k, f);
+            visit_expr(v, f);
+        }),
+        Expr::Array(items) | Expr::Comma(items) => items.iter().for_each(go),
+        Expr::Function(def) => visit_exprs(&def.body, f),
+        Expr::Class(def) => visit_class(def, f),
+    }
+}

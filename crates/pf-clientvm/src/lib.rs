@@ -24,6 +24,8 @@ pub mod globals;
 pub mod hud;
 pub mod misc;
 pub mod modelfx;
+pub mod pdef;
+pub mod persistence;
 pub mod progression;
 pub mod remote;
 pub mod rumble;
@@ -131,6 +133,11 @@ pub trait Host {
     fn concommand_exists(&self, name: &str) -> bool {
         let _ = name;
         true
+    }
+    /// The persistent data definition, or None if it isn't loaded (in the
+    /// game: not connected to a server). See `pdef::build`.
+    fn persistence_def(&self) -> Option<Rc<persistence::PersistenceDef>> {
+        None
     }
     /// The game window's size in pixels (`Hud.GetScreenSize()`).
     fn screen_size(&self) -> (i32, i32) {
@@ -241,6 +248,7 @@ impl ClientVm {
         self.concommand_callbacks = Some(misc::install(self));
         self.model_fx = Some(modelfx::install(self));
         self.rumble = Some(rumble::install(self));
+        persistence::install(self);
         let ents = entities::install(self);
         let hud = hud::install(self);
         hud::install_screens(self, &hud, &ents);
