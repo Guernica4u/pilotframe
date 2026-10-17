@@ -62,6 +62,8 @@ pub struct Entities {
     scopes: HashMap<EntityId, Value>,
     /// The unique-key serial number (launcher.dll's, counted per VM).
     key_serial: u64,
+    /// Players whose connect scripts have run, by entity index.
+    connected: std::collections::HashSet<i32>,
 }
 
 pub type Shared = Rc<RefCell<Entities>>;
@@ -121,6 +123,13 @@ impl Entities {
         id
     }
 
+    /// Remove a client-only entity: it's gone for `IsValid` and every
+    /// method. (Script destroy callbacks are still to be ported.)
+    pub fn destroy_client_only(this: &Shared, id: EntityId) {
+        this.borrow_mut().client_only.remove(&id);
+        Entities::forget(this, id);
+    }
+
     /// Forget an entity's instance (it was destroyed). Its scope stays in
     /// the root table: releasing it is still to be ported.
     pub fn forget(this: &Shared, id: EntityId) {
@@ -173,6 +182,37 @@ impl Entities {
         }
         this.borrow_mut().scopes.insert(id, scope.clone());
         scope
+    }
+}
+
+impl ClientVm {
+    /// The local player has arrived: run `CodeCallback_RunClientConnectScripts
+    /// ( player )` once per player (client.dll 0x180087b70): the player's
+    /// scope is made, the function is looked up through it and called with
+    /// the root table as `this`.
+    pub fn run_client_connect_scripts(&mut self, id: EntityId) {
+        let Some(ents) = self.entities.clone() else {
+            return;
+        };
+        let Some(info) = Entities::info(&ents, &*self.host, id) else {
+            return;
+        };
+        if ents.borrow().connected.contains(&info.ent_index) {
+            return;
+        }
+        let scope = Entities::validate_scope(&ents, &mut self.vm, &*self.host, id);
+        if scope.is_null() {
+            return;
+        }
+        let name = Value::str("CodeCallback_RunClientConnectScripts");
+        if let Ok(Some(f)) = self.vm.try_get(&scope, &name) {
+            let player = Entities::instance(&ents, &mut self.vm, &*self.host, id);
+            let root = Value::Table(self.vm.root.clone());
+            if let Err(e) = self.vm.call(&f, root, &[player]) {
+                self.vm.report_error(&e);
+            }
+        }
+        ents.borrow_mut().connected.insert(info.ent_index);
     }
 }
 
@@ -241,6 +281,7 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
         next_client_only: 0,
         scopes: HashMap::new(),
         key_serial: 0,
+        connected: Default::default(),
     }));
 
     // C_BaseEntity's getters (client.dll 0x180300630 registers them).
@@ -330,6 +371,21 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
             this(&sh, &*host, a, "GetScriptScope")?;
             let id = entity_id(&a[0]).unwrap_or_default();
             Ok(sh.borrow().scopes.get(&id).cloned().unwrap_or_default())
+        }),
+    );
+    // Destroy (0x1802f2eb0): only entities made by client script.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    base_members.insert(
+        Value::str("Destroy"),
+        native("Destroy", 1, move |_, a| {
+            let e = this(&sh, &*host, a, "Destroy")?;
+            if !e.client_only {
+                return Err(throw("You cannot destroy a server entity in client script"));
+            }
+            if let Some(id) = entity_id(&a[0]) {
+                Entities::destroy_client_only(&sh, id);
+            }
+            Ok(Value::Null)
         }),
     );
     members_of.insert("C_BaseEntity", base_members);

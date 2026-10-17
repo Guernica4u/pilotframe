@@ -117,7 +117,9 @@ fn main() {
                 None => format!("instance.{k}"),
             },
             Value::Table(_) => k.clone(),
-            other => format!("{}.{k}", other.type_name()),
+            // A method on a non-object (null, a number…): not a missing
+            // engine function; let it fail with the script's trace.
+            _ => return None,
         };
         m.borrow_mut().entry(name).or_insert((order, 0)).1 += 1;
         order += 1;
@@ -127,6 +129,8 @@ fn main() {
     if let Err(e) = cvm.start() {
         println!("ERROR during startup: {e}");
     }
+    // The engine then reports the local player connected.
+    cvm.run_client_connect_scripts(PLAYER);
     for i in 0..frames {
         host.time.set(i as f32 / 60.0);
         cvm.vm.run_frame(i as f32 / 60.0);

@@ -22,6 +22,7 @@ pub mod entities;
 pub mod gamerules;
 pub mod globals;
 pub mod hud;
+pub mod input;
 pub mod misc;
 pub mod modelfx;
 pub mod pdef;
@@ -84,6 +85,12 @@ pub trait Host {
         let _ = name;
         true
     }
+    /// Load a model. False if it couldn't be loaded. (The game skips
+    /// loading in the optimized lobby and reports success.)
+    fn precache_model(&self, name: &str) -> bool {
+        let _ = name;
+        true
+    }
     /// Load a particle system; its index.
     fn precache_particle_system(&self, name: &str) -> i32 {
         let _ = name;
@@ -138,6 +145,36 @@ pub trait Host {
     /// game: not connected to a server). See `pdef::build`.
     fn persistence_def(&self) -> Option<Rc<persistence::PersistenceDef>> {
         None
+    }
+    /// Whether keyboard, mouse and controller go to the game (not, e.g.,
+    /// to the console). Nothing reads as pressed otherwise.
+    fn input_to_game(&self) -> bool {
+        true
+    }
+    /// Whether the game's own menus (the UI VM) have the input: the client
+    /// VM's button callbacks don't run then.
+    fn game_ui_active(&self) -> bool {
+        false
+    }
+    /// A controller is in use: controller buttons count.
+    fn controller_mode(&self) -> bool {
+        false
+    }
+    /// Whether a button is held, by the engine's button code
+    /// (`input::BUTTONS`).
+    fn button_down(&self, code: i32) -> bool {
+        let _ = code;
+        false
+    }
+    /// A controller axis, -32767..32767, by the engine's axis number.
+    fn axis_raw(&self, axis: i32) -> i32 {
+        let _ = axis;
+        0
+    }
+    /// The console command bound to a button ("" if none).
+    fn key_binding(&self, code: i32) -> String {
+        let _ = code;
+        String::new()
     }
     /// The game window's size in pixels (`Hud.GetScreenSize()`).
     fn screen_size(&self) -> (i32, i32) {
@@ -197,8 +234,8 @@ pub struct ClientVm {
     pub entities: Option<entities::Shared>,
     /// HUD elements and VGUI panels (set up by `start`).
     pub hud: Option<hud::SharedHud>,
-    /// Script callbacks for console commands (set up by `start`).
-    pub concommand_callbacks: Option<Rc<std::cell::RefCell<misc::ConCommandCallbacks>>>,
+    /// Button, stick and console-command callbacks (set up by `start`).
+    pub input: Option<input::Shared>,
     /// Model effect definitions (set up by `start`).
     pub model_fx: Option<modelfx::Shared>,
     /// Rumble graphs and play params (set up by `start`).
@@ -215,7 +252,7 @@ impl ClientVm {
             host,
             entities: None,
             hud: None,
-            concommand_callbacks: None,
+            input: None,
             model_fx: None,
             rumble: None,
         }
@@ -245,7 +282,8 @@ impl ClientVm {
         engine::install(self);
         progression::install(self);
         weapons::install(self);
-        self.concommand_callbacks = Some(misc::install(self));
+        misc::install(self);
+        self.input = Some(input::install(self));
         self.model_fx = Some(modelfx::install(self));
         self.rumble = Some(rumble::install(self));
         persistence::install(self);

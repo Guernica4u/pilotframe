@@ -70,6 +70,19 @@ pub fn install(cvm: &mut ClientVm) {
         }
         Ok(Value::Null)
     });
+    // PrecacheModel( name ) (0x1802c5f40). The host skips loading in the
+    // optimized lobby, as the game does.
+    let host = cvm.host.clone();
+    vm.register_checked("PrecacheModel", 2, ".s", move |_, a| {
+        let name = name_arg(a, 1);
+        if name.is_empty() {
+            return Err(throw("Empty model name."));
+        }
+        if !host.precache_model(&name) {
+            return Err(throw(format!("Couldn't precache '{name}'.")));
+        }
+        Ok(Value::Null)
+    });
     // PrecacheParticleSystem( name ) (0x18013d580): its particle system index.
     let host = cvm.host.clone();
     vm.register("PrecacheParticleSystem", 2, move |_, a| {

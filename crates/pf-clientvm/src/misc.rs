@@ -1,6 +1,6 @@
 //! Smaller client.dll script functions: profiling marks, file-system hints,
 //! platform checks, the bot-loadout name lists, impact tables, particle
-//! lookups, console-command callbacks and `Graph`.
+//! lookups and `Graph`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -16,15 +16,6 @@ fn name_arg(a: &[Value], i: usize) -> String {
     }
 }
 
-/// Console-command callbacks (`RegisterConCommandTriggeredCallback`).
-#[derive(Default)]
-pub struct ConCommandCallbacks {
-    pub callbacks: Vec<(String, Value)>,
-}
-
-/// At most 30 callbacks (client.dll 0x1802c0a50).
-pub const MAX_CONCOMMAND_CALLBACKS: usize = 0x1e;
-
 /// Impact tables precached for pilot landing and Titan footsteps, landing
 /// and dodging (-1 for none).
 #[derive(Default, Clone, Copy, Debug)]
@@ -35,13 +26,34 @@ pub struct ImpactTables {
     pub titan_dodge: i32,
 }
 
-pub fn install(cvm: &mut ClientVm) -> Rc<RefCell<ConCommandCallbacks>> {
+pub fn install(cvm: &mut ClientVm) {
     let vm = &mut cvm.vm;
 
     // PerfStart/PerfEnd( id ) (0x1802c4250/0x1802c4260) only time script
     // code for the profiler: nothing the game shows.
     vm.register("PerfStart", 2, |_, _| Ok(Value::Null));
     vm.register("PerfEnd", 2, |_, _| Ok(Value::Null));
+    // PerfInitLabel( id, name ) (0x1802c4240) and PerfClearAll
+    // (0x1802c4280) do nothing in the shipped game.
+    vm.register_checked("PerfInitLabel", 3, ".ns", |_, _| Ok(Value::Null));
+    vm.register_checked("PerfClearAll", 1, ".", |_, _| Ok(Value::Null));
+
+    // AngleNormalize( angle ) (0x1804fb9f0): wrapped to [-180, 180].
+    vm.register_checked("AngleNormalize", 2, ".n", |_, a| {
+        Ok(Value::Float(crate::entities::angle_normalize(num(a, 1))))
+    });
+
+    // GetCPULevel (0x1802b5b40): the particle_cpu_level console variable
+    // (0 minimum spec, 1 medium, 2 high).
+    let host = cvm.host.clone();
+    vm.register_checked("GetCPULevel", 1, ".", move |_, _| {
+        let v: f32 = host
+            .convar("particle_cpu_level")
+            .trim()
+            .parse()
+            .unwrap_or(0.0);
+        Ok(Value::Int(v as i32))
+    });
     // VPKNotifyFile( path ) (0x1802c1f70): a hint for building VPKs.
     vm.register("VPKNotifyFile", 2, |_, _| Ok(Value::Null));
     // Durango_IsDurango (0x180449bc0): the Xbox One build only.
@@ -128,29 +140,6 @@ pub fn install(cvm: &mut ClientVm) -> Rc<RefCell<ConCommandCallbacks>> {
     vm.register("GetParticleSystemIndex", 2, move |_, a| {
         Ok(Value::Int(host.particle_system_index(&name_arg(a, 1))))
     });
-
-    // RegisterConCommandTriggeredCallback( command, func ) (0x1802c0a50).
-    let callbacks = Rc::new(RefCell::new(ConCommandCallbacks::default()));
-    let host = cvm.host.clone();
-    let cb = callbacks.clone();
-    vm.register("RegisterConCommandTriggeredCallback", 3, move |_, a| {
-        let Value::Str(cmd) = &a[1] else {
-            return Err(throw("Bad commandName parameter"));
-        };
-        let cmd = cmd.to_string_lossy();
-        if !host.concommand_exists(&cmd) {
-            return Err(throw(format!("No ConCommand with name '{cmd}' exists")));
-        }
-        let mut cb = cb.borrow_mut();
-        if cb.callbacks.len() >= MAX_CONCOMMAND_CALLBACKS {
-            return Err(throw(format!(
-                "Can not register more than {MAX_CONCOMMAND_CALLBACKS} ConCommand callbacks"
-            )));
-        }
-        cb.callbacks.push((cmd, a[2].clone()));
-        Ok(Value::Null)
-    });
-    callbacks
 }
 
 fn num(a: &[Value], i: usize) -> f32 {
@@ -175,28 +164,6 @@ pub fn graph(v: f32, a: f32, b: f32, c: f32, d: f32, capped: bool) -> f32 {
         t = if t < 1.0 { t } else { 1.0 };
     }
     (d - c) * t + c
-}
-
-impl ClientVm {
-    /// A console command ran: call the script callbacks registered for it.
-    pub fn concommand_triggered(&mut self, cmd: &str) {
-        let Some(cb) = self.concommand_callbacks.clone() else {
-            return;
-        };
-        let funcs: Vec<Value> = cb
-            .borrow()
-            .callbacks
-            .iter()
-            .filter(|(c, _)| c.eq_ignore_ascii_case(cmd))
-            .map(|(_, f)| f.clone())
-            .collect();
-        let root = Value::Table(self.vm.root.clone());
-        for f in funcs {
-            if let Err(e) = self.vm.call(&f, root.clone(), &[]) {
-                self.vm.report_error(&e);
-            }
-        }
-    }
 }
 
 #[cfg(test)]
