@@ -57,6 +57,8 @@ pub struct Entities {
     instances: HashMap<EntityId, Value>,
     /// Entities that exist only in client script.
     pub client_only: HashMap<EntityId, EntityInfo>,
+    /// What client script can change on them.
+    pub client_state: HashMap<EntityId, crate::clientents::ClientOnlyState>,
     next_client_only: EntityId,
     /// Script scopes made by `ValidateScriptScope`.
     scopes: HashMap<EntityId, Value>,
@@ -120,6 +122,7 @@ impl Entities {
         e.next_client_only += 1;
         info.client_only = true;
         e.client_only.insert(id, info);
+        e.client_state.insert(id, Default::default());
         id
     }
 
@@ -127,6 +130,7 @@ impl Entities {
     /// method. (Script destroy callbacks are still to be ported.)
     pub fn destroy_client_only(this: &Shared, id: EntityId) {
         this.borrow_mut().client_only.remove(&id);
+        this.borrow_mut().client_state.remove(&id);
         Entities::forget(this, id);
     }
 
@@ -278,6 +282,7 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
         classes: HashMap::new(),
         instances: HashMap::new(),
         client_only: HashMap::new(),
+        client_state: HashMap::new(),
         next_client_only: 0,
         scopes: HashMap::new(),
         key_serial: 0,
@@ -388,6 +393,7 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
             Ok(Value::Null)
         }),
     );
+    crate::clientents::base_methods(cvm, &shared, &mut base_members);
     members_of.insert("C_BaseEntity", base_members);
 
     // C_BasePlayer.GetActiveBurnCardIndex (0x1800368b0): the networked
@@ -401,7 +407,33 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
             Ok(Value::Int(e.active_burn_card_index))
         }),
     );
+    // CameraPosition / CameraAngles (0x180035270, 0x180035360).
+    for (name, angles) in [("CameraPosition", false), ("CameraAngles", true)] {
+        let (host, sh) = (cvm.host.clone(), shared.clone());
+        let vector_class = vector_class.clone();
+        player_members.insert(
+            Value::str(name),
+            native(name, 1, move |vm, a| {
+                let e = this(&sh, &*host, a, name)?;
+                let v = if angles {
+                    e.camera_angles
+                } else {
+                    e.camera_origin
+                };
+                let class = vector_class.clone().unwrap_or_default();
+                Ok(vm.call(
+                    &class,
+                    Value::Null,
+                    &[Value::Float(v[0]), Value::Float(v[1]), Value::Float(v[2])],
+                )?)
+            }),
+        );
+    }
     members_of.insert("C_BasePlayer", player_members);
+    members_of.insert(
+        "C_PointCamera",
+        crate::clientents::point_camera_methods(cvm, &shared),
+    );
 
     // Register the classes base first, each with its class file run (see
     // classes.rs).

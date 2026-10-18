@@ -16,6 +16,7 @@ use std::rc::Rc;
 use pf_squirrel::{Value, Vm};
 
 pub mod classes;
+pub mod clientents;
 pub mod consts;
 pub mod engine;
 pub mod entities;
@@ -84,6 +85,11 @@ pub trait Host {
     fn precache_material(&self, name: &str) -> bool {
         let _ = name;
         true
+    }
+    /// The optimized lobby is on (`optimized_lobby_enabled` in the lobby):
+    /// precaching is skipped and the HUD uses its lobby layout.
+    fn optimized_lobby(&self) -> bool {
+        false
     }
     /// Load a model. False if it couldn't be loaded. (The game skips
     /// loading in the optimized lobby and reports success.)
@@ -211,6 +217,10 @@ pub struct EntityInfo {
     pub is_npc: bool,
     pub is_titan: bool,
     pub client_only: bool,
+    /// A player's current camera (`CameraPosition`/`CameraAngles`): the
+    /// view the game renders from (eye, third-person or a script camera).
+    pub camera_origin: [f32; 3],
+    pub camera_angles: [f32; 3],
     /// A player's burn card slot as the game networks it (0: none; script
     /// sees one less).
     pub active_burn_card_index: i32,
@@ -288,6 +298,7 @@ impl ClientVm {
         self.rumble = Some(rumble::install(self));
         persistence::install(self);
         let ents = entities::install(self);
+        clientents::install(self, &ents);
         let hud = hud::install(self);
         hud::install_screens(self, &hud, &ents);
         self.entities = Some(ents);

@@ -100,8 +100,14 @@ pub struct Screen {
 pub struct Ui {
     pub panels: Vec<Option<Panel>>,
     pub screens: Vec<Screen>,
+    /// The HUD's own root panel (client.dll's `CHudScriptElements`), in
+    /// screen pixels: the parent of the elements `Hud.HudElement` finds.
+    pub hud_root: Option<PanelId>,
     /// Scheme colours by name (`resource/hudscriptedscheme.res`).
     pub scheme_colors: HashMap<String, Rgba>,
+    /// The scheme's `InheritableProperties`: templates panels name with
+    /// `InheritProperties`.
+    templates: Option<Node>,
     defs: Option<Node>,
 }
 
@@ -114,8 +120,13 @@ impl Ui {
         let defs =
             read("scripts/vgui_screens.txt").and_then(|t| kv::parse(&t).nodes.into_iter().next());
         let mut scheme_colors = HashMap::new();
-        if let Some(scheme) = read("resource/hudscriptedscheme.res")
-            .and_then(|t| kv::parse(&t).nodes.into_iter().next())
+        let scheme = read("resource/hudscriptedscheme.res")
+            .and_then(|t| kv::parse(&t).nodes.into_iter().next());
+        let templates = scheme
+            .as_ref()
+            .and_then(|s| s.get("InheritableProperties"))
+            .cloned();
+        if let Some(scheme) = scheme
             && let Some(colors) = scheme.get("Colors")
         {
             for c in colors.children() {
@@ -129,7 +140,9 @@ impl Ui {
         Ui {
             panels: Vec::new(),
             screens: Vec::new(),
+            hud_root: None,
             scheme_colors,
+            templates,
             defs,
         }
     }
@@ -172,7 +185,7 @@ impl Ui {
         if let Some(p) = self.panel_mut(root) {
             (p.w, p.h) = (pw, ph);
         }
-        self.add_children(root, &layout_root, (pw, ph));
+        self.add_children(root, &layout_root, (pw, ph), 1.0, read);
         self.screens.push(Screen {
             name: name.to_string(),
             root,
@@ -182,6 +195,27 @@ impl Ui {
         Some(self.screens.len() - 1)
     }
 
+    /// Build the HUD's root panel from its layout file (client.dll
+    /// 0x18041eb90 loads `resource/UI/HudScripted_mp.res`, `_sp` or, in the
+    /// optimized lobby, `_lobby`), sized to the screen in pixels. The
+    /// panel is proportional: the file's numbers are in units of a
+    /// 480-tall screen. None if the file is missing.
+    pub fn create_hud(&mut self, res: &str, screen: (f32, f32), read: ReadFile) -> Option<PanelId> {
+        let layout_root = load_res(res, read)?;
+        let root = self.add(Panel::new(
+            "CHudScriptElements",
+            Control::Panel,
+            None,
+            Node::block("CHudScriptElements"),
+        ));
+        if let Some(p) = self.panel_mut(root) {
+            (p.w, p.h) = screen;
+        }
+        self.add_children(root, &layout_root, screen, screen.1 / 480.0, read);
+        self.hud_root = Some(root);
+        Some(root)
+    }
+
     fn add(&mut self, p: Panel) -> PanelId {
         self.panels.push(Some(p));
         self.panels.len() - 1
@@ -189,8 +223,19 @@ impl Ui {
 
     /// The panels of a layout block become children of `parent`, placed by
     /// the game's layout rules on a parent of `size`.
-    fn add_children(&mut self, parent: PanelId, block: &Node, size: (f32, f32)) {
-        let rects = layout::layout(block, size, |_| None);
+    ///
+    /// A nested panel (`CNestedPanel`) gets its own children from its
+    /// `controlSettingsFile`, laid out on its own size.
+    fn add_children(
+        &mut self,
+        parent: PanelId,
+        block: &Node,
+        size: (f32, f32),
+        scale: f32,
+        read: ReadFile,
+    ) {
+        let block = &self.inherit(block);
+        let rects = layout::layout_proportional(block, size, scale, |_| None);
         for n in block.children().iter().filter(|n| !n.children().is_empty()) {
             let control = Control::from_name(n.text("ControlName"));
             let mut p = Panel::new(&n.key, control, Some(parent), n.clone());
@@ -198,11 +243,47 @@ impl Ui {
                 (p.x, p.y, p.w, p.h) = (r.x, r.y, r.w, r.h);
             }
             self.apply_settings(&mut p);
+            let nested = (p.control == Control::NestedPanel)
+                .then(|| {
+                    n.text("controlSettingsFile")
+                        .and_then(|f| load_res(f, read))
+                })
+                .flatten();
+            let own_size = (p.w, p.h);
             let id = self.add(p);
             if let Some(par) = self.panel_mut(parent) {
                 par.children.push(id);
             }
+            if let Some(file) = nested {
+                self.add_children(id, &file, own_size, scale, read);
+            }
         }
+    }
+
+    /// The block with each panel's `InheritProperties` template applied
+    /// (client.dll 0x1806894b0): every key of the template the panel
+    /// doesn't have is copied in; the panel's own keys win whole.
+    fn inherit(&self, block: &Node) -> Node {
+        let mut out = block.clone();
+        let (Some(templates), kv::Value::Block(items)) = (&self.templates, &mut out.value) else {
+            return out;
+        };
+        for n in items.iter_mut() {
+            let Some(t) = n
+                .text("InheritProperties")
+                .and_then(|name| templates.get(name))
+            else {
+                continue;
+            };
+            if let kv::Value::Block(keys) = &mut n.value {
+                for k in t.children() {
+                    if !keys.iter().any(|m| m.key.eq_ignore_ascii_case(&k.key)) {
+                        keys.push(k.clone());
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// The `.res` keys every panel kind reads.

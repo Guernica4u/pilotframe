@@ -165,7 +165,15 @@ fn update_visibility(h: &mut HudState, i: usize) {
 
 pub fn install(cvm: &mut ClientVm) -> SharedHud {
     let host = cvm.host.clone();
-    let ui = Ui::new(&|p| host.read_script(p));
+    let mut ui = Ui::new(&|p| host.read_script(p));
+    // The HUD's root panel and its elements (client.dll 0x18041eb90).
+    let res = if host.optimized_lobby() {
+        "resource/UI/HudScripted_lobby.res"
+    } else {
+        "resource/UI/HudScripted_mp.res"
+    };
+    let (w, h) = host.screen_size();
+    ui.create_hud(res, (w as f32, h as f32), &|p| host.read_script(p));
     let hud: SharedHud = Rc::new(RefCell::new(HudState {
         ui,
         elements: Vec::new(),
@@ -654,6 +662,40 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         native("GetScreenSize", 1, move |_, _| {
             let (w, h) = host.screen_size();
             Ok(int_pair(w as f32, h as f32))
+        }),
+    );
+    // HudElement( name ) (0x18042a000): a direct child of the HUD's root
+    // panel, wrapped (an error if missing or already wrapped).
+    let h2 = hud.clone();
+    hm.insert(
+        Value::str("HudElement"),
+        pf_squirrel::native_checked("HudElement", 2, ".s", move |vm, a| {
+            let root = h2.borrow().ui.hud_root.ok_or_else(|| throw("no HUD"))?;
+            child_element(&h2, vm, root, &str_arg(a, 1))
+        }),
+    );
+    // GetOrCreateHudElement( name ) (0x18042a890): the child's existing
+    // element, or a new one. (A missing child would crash the game.)
+    let h2 = hud.clone();
+    hm.insert(
+        Value::str("GetOrCreateHudElement"),
+        pf_squirrel::native_checked("GetOrCreateHudElement", 2, ".s", move |vm, a| {
+            let name = str_arg(a, 1);
+            let child = {
+                let h = h2.borrow();
+                let root = h.ui.hud_root.ok_or_else(|| throw("no HUD"))?;
+                h.ui.find_child(root, &name)
+            };
+            let Some(child) = child else {
+                return Err(throw(format!("HudElement \"{name}\" could not be found")));
+            };
+            let existing = h2.borrow().ui.panel(child).and_then(|p| p.element);
+            if let Some(e) = existing {
+                return Ok(h2.borrow().elements[e]
+                    .as_ref()
+                    .map_or(Value::Null, |e| e.instance.clone()));
+            }
+            create_element(&h2, vm, child)
         }),
     );
     let hud_class = crate::classes::register(

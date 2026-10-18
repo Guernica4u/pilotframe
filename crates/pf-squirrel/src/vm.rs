@@ -1488,6 +1488,8 @@ impl Vm {
         let msg = self.to_display(e);
         let at = self.error_trace.join(" <- ");
         (self.out)(&format!("SCRIPT ERROR: {msg}\n    at {at}\n"));
+        // The error is dealt with: the next one starts a new trace.
+        self.tracing = false;
     }
 
     /// For showing errors: the text, or the plain form if `_tostring` fails.

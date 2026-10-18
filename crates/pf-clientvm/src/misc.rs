@@ -43,6 +43,14 @@ pub fn install(cvm: &mut ClientVm) {
         Ok(Value::Float(crate::entities::angle_normalize(num(a, 1))))
     });
 
+    // SafeareaSettingIsEnabled (0x1802c9220): the cl_safearea console
+    // variable (default "0") is not 0.
+    let host = cvm.host.clone();
+    vm.register_checked("SafeareaSettingIsEnabled", 1, ".", move |_, _| {
+        let v: f32 = host.convar("cl_safearea").trim().parse().unwrap_or(0.0);
+        Ok(Value::Bool(v as i32 != 0))
+    });
+
     // GetCPULevel (0x1802b5b40): the particle_cpu_level console variable
     // (0 minimum spec, 1 medium, 2 high).
     let host = cvm.host.clone();

@@ -552,6 +552,13 @@ impl Vm {
 
 /// The thread natives, registered in the root table.
 pub(crate) fn install(vm: &mut Vm) {
+    // Every VM starts with three signals registered (launcher.dll 0x1800328e0,
+    // from its built-in names 12, 13 and 14).
+    for name in ["OnDamaged", "OnDeath", "OnDestroy"] {
+        vm.threads
+            .signals
+            .insert(Value::str(name), Value::Bool(true));
+    }
     vm.register("SpinOff", -2, |vm, a| {
         vm.spin_off(a[0].clone(), a[1].clone(), &a[2..], 0.0, 0)
     });
