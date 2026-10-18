@@ -36,6 +36,10 @@ pub struct Element {
     /// Children fetched through it (`GetChild`/`HudElement`), newest first.
     pub children: Vec<usize>,
     pub parent_element: Option<usize>,
+    /// `SetVisGroupID` (-1 until set, client.dll 0x1804293c0).
+    pub vis_group: i32,
+    /// `EnableKeyBindingIcons` was called.
+    pub key_binding_icons: bool,
 }
 
 pub struct HudState {
@@ -102,6 +106,8 @@ fn create_element(hud: &SharedHud, vm: &mut Vm, panel: PanelId) -> Result<Value,
         base_color: base.2,
         children: Vec::new(),
         parent_element: None,
+        vis_group: -1,
+        key_binding_icons: false,
     });
     if let Some(p) = h.ui.panel_mut(panel) {
         p.element = Some(index);
@@ -375,10 +381,59 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         -2,
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
-            let c = color_args(a, &h2, i);
+            let c = color_args(a, &h2, i)?;
             set_color(&mut h2.borrow_mut(), i, c);
             Ok(Value::Null)
         }),
+    );
+    // SetColorBG (0x1804298f0): the same arguments, the background colour.
+    let h2 = hud.clone();
+    add(
+        "SetColorBG",
+        -2,
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            let c = color_args(a, &h2, i)?;
+            with_panel(&h2, i, |p| p.bg_color = c);
+            Ok(Value::Null)
+        }),
+    );
+    // SetVisGroupID( id ) (0x18041fec0): which visibility group the element
+    // belongs to (`hud_setvisgroup` and friends show and hide by group).
+    let h2 = hud.clone();
+    add(
+        "SetVisGroupID",
+        2,
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            if let Some(e) = h2.borrow_mut().elements[i].as_mut() {
+                e.vis_group = num_arg(a, 1) as i32;
+            }
+            Ok(Value::Null)
+        }),
+    );
+    // EnableKeyBindingIcons (0x180420030): show `%command%` tokens in the
+    // label's text as the bound key's icon (docs/port/hud.md; drawn by
+    // pf-game).
+    let h2 = hud.clone();
+    add(
+        "EnableKeyBindingIcons",
+        1,
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            if let Some(e) = h2.borrow_mut().elements[i].as_mut() {
+                e.key_binding_icons = true;
+            }
+            Ok(Value::Null)
+        }),
+    );
+    // IsValidInternal (launcher.dll 0x18000c920, on every class): the
+    // element still exists.
+    let h2 = hud.clone();
+    add(
+        "IsValidInternal",
+        1,
+        Box::new(move |_, a| Ok(Value::Bool(this_element(&h2, a).is_ok()))),
     );
     // SetAlpha( a ) (0x180425b80): the current colour with a new alpha.
     let h2 = hud.clone();
@@ -738,23 +793,47 @@ fn set_color(h: &mut HudState, i: usize, c: Rgba) {
     }
 }
 
-/// `(r, g, b[, a])` or an array of them; missing alpha keeps the current.
-fn color_args(a: &[Value], hud: &SharedHud, i: usize) -> Rgba {
-    let nums: Vec<f32> = match a.get(1) {
-        Some(Value::Array(arr)) => arr
-            .borrow()
-            .iter()
-            .map(|v| match v {
-                Value::Int(n) => *n as f32,
-                Value::Float(x) => *x,
-                _ => 0.0,
-            })
-            .collect(),
-        _ => (1..a.len()).map(|k| num_arg(a, k)).collect(),
+/// The colour arguments of `SetColor`/`SetColorBG` (client.dll
+/// 0x1804295f0): `( [r, g, b] )`, `( [r, g, b, a] )`, `( [r, g, b], a )`,
+/// `( r, g, b )` or `( r, g, b, a )`, each read as an integer and kept to
+/// its low 8 bits. A missing alpha is the element's current foreground (or
+/// draw) colour's alpha, for either call.
+fn color_args(a: &[Value], hud: &SharedHud, i: usize) -> Result<Rgba, NativeError> {
+    let byte = |v: &Value| match v {
+        Value::Int(n) => *n as u8,
+        Value::Float(x) => *x as i32 as u8,
+        _ => 0,
     };
-    let cur = current_color(&hud.borrow(), i);
-    let at = |k: usize, d: u8| nums.get(k).map_or(d, |&v| v.clamp(0.0, 255.0) as u8);
-    [at(0, cur[0]), at(1, cur[1]), at(2, cur[2]), at(3, cur[3])]
+    let alpha = current_color(&hud.borrow(), i)[3];
+    let from_array = |v: &Value, sizes: &[usize]| -> Result<Vec<u8>, NativeError> {
+        let Value::Array(arr) = v else {
+            return Err(throw(
+                "SetColor/SetColorBG called with invalid argument type; must be array.",
+            ));
+        };
+        let arr = arr.borrow();
+        if !sizes.contains(&arr.len()) {
+            return Err(throw(
+                "SetColor/SetColorBG called with invalid number of elements in array.",
+            ));
+        }
+        Ok(arr.iter().map(byte).collect())
+    };
+    let c = match a.len() {
+        2 => from_array(&a[1], &[3, 4])?,
+        3 => {
+            let mut c = from_array(&a[1], &[3])?;
+            c.push(byte(&a[2]));
+            c
+        }
+        4 | 5 => a[1..].iter().map(byte).collect(),
+        _ => {
+            return Err(throw(
+                "SetColor/SetColorBG called with invalid number of parameters.",
+            ));
+        }
+    };
+    Ok([c[0], c[1], c[2], c.get(3).copied().unwrap_or(alpha)])
 }
 
 /// `CreateClientsideVGuiScreen( name, pass, origin, angles, width, height )`

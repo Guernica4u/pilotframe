@@ -31,6 +31,7 @@ pub mod persistence;
 pub mod progression;
 pub mod remote;
 pub mod rumble;
+pub mod standin;
 pub mod weapons;
 
 /// What the client VM needs from the game.
@@ -182,10 +183,35 @@ pub trait Host {
         let _ = code;
         String::new()
     }
+    /// The local client is watching a kill replay (engine.dll).
+    fn watching_kill_replay(&self) -> bool {
+        false
+    }
+    /// The local player's persistent value at a path (`"xp"`,
+    /// `"pilotLoadouts[0].name"`); None if the path isn't a variable. The
+    /// real definitions come with the server work (docs/port/server.md).
+    fn persistent_var(&self, path: &str) -> Option<PersistentValue> {
+        let _ = path;
+        None
+    }
     /// The game window's size in pixels (`Hud.GetScreenSize()`).
     fn screen_size(&self) -> (i32, i32) {
         (1920, 1080)
     }
+}
+
+/// A persistent variable's value as `GetPersistentVar` returns it
+/// (client.dll 0x1802c88a0): an enum gives its item's name, and the `NULL`
+/// item gives null.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PersistentValue {
+    Bool(bool),
+    Int(i32),
+    Float(f32),
+    String(String),
+    Enum(String),
+    /// A struct: reading one is an error.
+    Struct,
 }
 
 /// An entity, as the host names it.
@@ -221,6 +247,17 @@ pub struct EntityInfo {
     /// view the game renders from (eye, third-person or a script camera).
     pub camera_origin: [f32; 3],
     pub camera_angles: [f32; 3],
+    /// Player fields as the server networks them: cinematic event flags
+    /// (client.dll +0x2a54), total XP (+0x3610), a bad reputation
+    /// (+0x2bd8), when a Titan is next available (+0x3638) and the player
+    /// settings (class) name.
+    pub cinematic_event_flags: i32,
+    pub xp: i32,
+    pub bad_reputation: bool,
+    pub next_titan_respawn_available: f32,
+    pub player_settings: String,
+    /// A player's cockpit entity (client.dll +0x3220), if it has one.
+    pub cockpit: Option<EntityId>,
     /// A player's burn card slot as the game networks it (0: none; script
     /// sees one less).
     pub active_burn_card_index: i32,
@@ -252,6 +289,8 @@ pub struct ClientVm {
     pub rumble: Option<rumble::Shared>,
     /// The functions the server may call (set up by `start`).
     pub remote: Option<remote::Shared>,
+    /// The XP table scripts fill (set up by `start`).
+    pub xp_table: Option<Rc<std::cell::RefCell<progression::XpTable>>>,
 }
 
 impl ClientVm {
@@ -268,6 +307,7 @@ impl ClientVm {
             model_fx: None,
             rumble: None,
             remote: None,
+            xp_table: None,
         }
     }
 

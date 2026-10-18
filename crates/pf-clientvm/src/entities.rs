@@ -66,6 +66,25 @@ pub struct Entities {
     key_serial: u64,
     /// Players whose connect scripts have run, by entity index.
     connected: std::collections::HashSet<i32>,
+    /// Entities with `EnableHealthChangedCallback` on.
+    pub health_callbacks: std::collections::HashSet<EntityId>,
+    /// Players whose crosshair names are hidden (`HideCrosshairNames`, bit
+    /// 4 of a client-side player flags field, client.dll +0x3bb0).
+    pub crosshair_names_hidden: std::collections::HashSet<EntityId>,
+    /// Movement parents client script set (`SetParentRaw`).
+    pub parents: HashMap<EntityId, Parent>,
+}
+
+/// A movement parent set from client script.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Parent {
+    pub parent: EntityId,
+    /// An attachment name ("" for none), or a hitbox when `hitbox` is set.
+    pub attachment: String,
+    pub hitbox: Option<i32>,
+    /// Keep the current offset from the parent (maintainOffset, or a blend
+    /// time above 0).
+    pub keep_offset: bool,
 }
 
 pub type Shared = Rc<RefCell<Entities>>;
@@ -273,6 +292,7 @@ type Getter = fn(&EntityInfo) -> MethodValue;
 pub enum MethodValue {
     Int(i32),
     Bool(bool),
+    Float(f32),
     Str(String),
     Vector([f32; 3]),
 }
@@ -287,6 +307,9 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
         scopes: HashMap::new(),
         key_serial: 0,
         connected: Default::default(),
+        health_callbacks: Default::default(),
+        crosshair_names_hidden: Default::default(),
+        parents: HashMap::new(),
     }));
 
     // C_BaseEntity's getters (client.dll 0x180300630 registers them).
@@ -344,6 +367,7 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
                     MethodValue::Int(i) => Value::Int(i),
                     MethodValue::Bool(b) => Value::Bool(b),
                     MethodValue::Str(s) => Value::str(&s),
+                    MethodValue::Float(f) => Value::Float(f),
                     MethodValue::Vector(v) => {
                         let class = vector_class.clone().unwrap_or_default();
                         vm.call(
@@ -393,6 +417,95 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
             Ok(Value::Null)
         }),
     );
+    // IsValidInternal (launcher.dll 0x18000c920, added to every class):
+    // the entity still exists.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    base_members.insert(
+        Value::str("IsValidInternal"),
+        native("IsValidInternal", 1, move |_, a| {
+            Ok(Value::Bool(entity_id(&a[0]).is_some_and(|id| {
+                Entities::info(&sh, &*host, id).is_some()
+            })))
+        }),
+    );
+    // Enable/DisableHealthChangedCallback (0x1802f2990, 0x1802f29a0): the
+    // game then calls ClientCallback_OnHealthChanged when its health
+    // changes (that call comes with entity updates; not ported yet).
+    for (name, on) in [
+        ("EnableHealthChangedCallback", true),
+        ("DisableHealthChangedCallback", false),
+    ] {
+        let (host, sh) = (cvm.host.clone(), shared.clone());
+        base_members.insert(
+            Value::str(name),
+            native(name, 1, move |_, a| {
+                this(&sh, &*host, a, name)?;
+                let id = entity_id(&a[0]).unwrap_or_default();
+                let mut e = sh.borrow_mut();
+                if on {
+                    e.health_callbacks.insert(id);
+                } else {
+                    e.health_callbacks.remove(&id);
+                }
+                Ok(Value::Null)
+            }),
+        );
+    }
+    // SetParentRaw( parent, maintainOffset, blendTime, useHitbox,
+    // attachment, hitbox ) (0x18002ddf0), the class file's SetParent and
+    // SetParentWithHitbox call it. The model checks (BaseAnimating, model,
+    // hitbox range) wait for models in entity state.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    base_members.insert(
+        Value::str("SetParentRaw"),
+        native("SetParentRaw", 7, move |_, a| {
+            let e = this(&sh, &*host, a, "SetParentRaw")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let attachment = match &a[5] {
+                Value::Str(s) => s.to_string_lossy(),
+                _ => String::new(),
+            };
+            let hitbox = match a[6] {
+                Value::Int(n) => n,
+                Value::Float(x) => x as i32,
+                _ => 0,
+            };
+            if hitbox != 0 && !attachment.is_empty() {
+                return Err(throw(
+                    "SetParent: Cannot attach to hitbox and standard attachment at same time.",
+                ));
+            }
+            let parent = entity_id(&a[1]).filter(|&p| Entities::info(&sh, &*host, p).is_some());
+            let Some(parent) = parent else {
+                return Err(throw(format!(
+                    "Tried to SetParent for entity {} ({}), but the parent entity argument is not valid.",
+                    e.classname, e.name
+                )));
+            };
+            if parent == id {
+                return Err(throw(format!(
+                    "Tried to SetParent of {} ({} {}) to itself.",
+                    e.name, e.classname, e.ent_index
+                )));
+            }
+            let blend = match a[3] {
+                Value::Int(n) => n as f32,
+                Value::Float(x) => x,
+                _ => 0.0,
+            };
+            let use_hitbox = matches!(a[4], Value::Bool(true));
+            sh.borrow_mut().parents.insert(
+                id,
+                Parent {
+                    parent,
+                    attachment,
+                    hitbox: use_hitbox.then_some(hitbox),
+                    keep_offset: matches!(a[2], Value::Bool(true)) || blend > 0.0,
+                },
+            );
+            Ok(Value::Null)
+        }),
+    );
     crate::clientents::base_methods(cvm, &shared, &mut base_members);
     members_of.insert("C_BaseEntity", base_members);
 
@@ -429,6 +542,116 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
             }),
         );
     }
+    // Networked player fields (client.dll 0x180079ea0, 0x1800368d0,
+    // 0x180079ef0, 0x180079e30, 0x18003eac0).
+    let fields: [(&str, Getter); 5] = [
+        ("GetCinematicEventFlags", |e| {
+            MethodValue::Int(e.cinematic_event_flags)
+        }),
+        ("GetXP", |e| MethodValue::Int(e.xp)),
+        ("HasBadReputation", |e| MethodValue::Bool(e.bad_reputation)),
+        ("GetNextTitanRespawnAvailable", |e| {
+            MethodValue::Float(e.next_titan_respawn_available)
+        }),
+        ("GetPlayerSettings", |e| {
+            MethodValue::Str(e.player_settings.clone())
+        }),
+    ];
+    for (name, getter) in fields {
+        let (host, sh) = (cvm.host.clone(), shared.clone());
+        player_members.insert(
+            Value::str(name),
+            native(name, 1, move |_, a| {
+                let e = this(&sh, &*host, a, name)?;
+                Ok(match getter(&e) {
+                    MethodValue::Int(i) => Value::Int(i),
+                    MethodValue::Bool(b) => Value::Bool(b),
+                    MethodValue::Float(f) => Value::Float(f),
+                    MethodValue::Str(s) => Value::str(&s),
+                    MethodValue::Vector(_) => Value::Null,
+                })
+            }),
+        );
+    }
+    // GetLevel (0x1800368e0): the level for the player's XP, from the XP
+    // table ("XP N too low" below 0).
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    let xp_table = cvm.xp_table.clone();
+    player_members.insert(
+        Value::str("GetLevel"),
+        native("GetLevel", 1, move |_, a| {
+            let e = this(&sh, &*host, a, "GetLevel")?;
+            if e.xp < 0 {
+                return Err(throw(format!("XP {} too low", e.xp)));
+            }
+            let level = xp_table.as_ref().map_or(1, |t| t.borrow().level_for(e.xp));
+            Ok(Value::Int(level))
+        }),
+    );
+    // GetPersistentVar( path ) (0x180036810, 0x1802c88a0): the local
+    // player's persistent data.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    player_members.insert(
+        Value::str("GetPersistentVar"),
+        pf_squirrel::native_checked("GetPersistentVar", 2, ".s", move |_, a| {
+            let e = this(&sh, &*host, a, "GetPersistentVar")?;
+            let local = host.local_player().and_then(|id| host.entity(id));
+            if local.is_none_or(|l| l.ent_index != e.ent_index) {
+                return Err(throw("Player must be local."));
+            }
+            let path = match &a[1] {
+                Value::Str(s) => s.to_string_lossy(),
+                _ => String::new(),
+            };
+            if path.is_empty() {
+                return Err(throw("Blank var name not allowed."));
+            }
+            use crate::PersistentValue as P;
+            match host.persistent_var(&path) {
+                None => Err(throw(format!("Invalid var name '{path}'."))),
+                Some(P::Bool(b)) => Ok(Value::Bool(b)),
+                Some(P::Int(i)) => Ok(Value::Int(i)),
+                Some(P::Float(f)) => Ok(Value::Float(f)),
+                Some(P::String(s)) => Ok(Value::str(&s)),
+                Some(P::Enum(s)) if s.is_empty() => Ok(Value::Null),
+                Some(P::Enum(s)) => Ok(Value::str(&s)),
+                Some(P::Struct) => Err(throw("Specified var is a struct.")),
+            }
+        }),
+    );
+    // Hide/UnhideCrosshairNames (0x18007c710, 0x18007c720).
+    for (name, hide) in [
+        ("HideCrosshairNames", true),
+        ("UnhideCrosshairNames", false),
+    ] {
+        let (host, sh) = (cvm.host.clone(), shared.clone());
+        player_members.insert(
+            Value::str(name),
+            native(name, 1, move |_, a| {
+                this(&sh, &*host, a, name)?;
+                let id = entity_id(&a[0]).unwrap_or_default();
+                let mut e = sh.borrow_mut();
+                if hide {
+                    e.crosshair_names_hidden.insert(id);
+                } else {
+                    e.crosshair_names_hidden.remove(&id);
+                }
+                Ok(Value::Null)
+            }),
+        );
+    }
+    // GetCockpit (0x180087cf0): the cockpit entity, or null.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    player_members.insert(
+        Value::str("GetCockpit"),
+        native("GetCockpit", 1, move |vm, a| {
+            let e = this(&sh, &*host, a, "GetCockpit")?;
+            Ok(match e.cockpit {
+                Some(c) => Entities::instance(&sh, vm, &*host, c),
+                None => Value::Null,
+            })
+        }),
+    );
     members_of.insert("C_BasePlayer", player_members);
     members_of.insert(
         "C_PointCamera",

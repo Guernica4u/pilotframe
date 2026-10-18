@@ -64,6 +64,11 @@ impl Host for SurveyHost {
     fn local_player(&self) -> Option<EntityId> {
         Some(PLAYER)
     }
+    /// Survey stand-in: every persistent path reads as 0 until the server
+    /// work brings the real definitions.
+    fn persistent_var(&self, _: &str) -> Option<pf_clientvm::PersistentValue> {
+        Some(pf_clientvm::PersistentValue::Int(0))
+    }
     fn persistence_def(&self) -> Option<Rc<PersistenceDef>> {
         Some(self.pdef.clone())
     }
@@ -131,6 +136,9 @@ fn main() {
     }
     // The engine then reports the local player connected.
     cvm.run_client_connect_scripts(PLAYER);
+    // Ours: a stand-in server reports the match playing (pf-clientvm
+    // standin.rs), once the connect scripts have set up the HUD.
+    cvm.standin_match_playing();
     for i in 0..frames {
         host.time.set(i as f32 / 60.0);
         cvm.vm.run_frame(i as f32 / 60.0);

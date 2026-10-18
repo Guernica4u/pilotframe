@@ -51,6 +51,24 @@ pub fn install(cvm: &mut ClientVm) {
         Ok(Value::Bool(v as i32 != 0))
     });
 
+    // EverythingUnlockedConVarEnabled (0x1802c9290): the
+    // everything_unlocked console variable (default "0") is not 0.
+    let host = cvm.host.clone();
+    vm.register_checked("EverythingUnlockedConVarEnabled", 1, ".", move |_, _| {
+        let v: f32 = host
+            .convar("everything_unlocked")
+            .trim()
+            .parse()
+            .unwrap_or(0.0);
+        Ok(Value::Bool(v as i32 != 0))
+    });
+
+    // IsWatchingKillReplay (0x1802b5970).
+    let host = cvm.host.clone();
+    vm.register_checked("IsWatchingKillReplay", 1, ".", move |_, _| {
+        Ok(Value::Bool(host.watching_kill_replay()))
+    });
+
     // GetCPULevel (0x1802b5b40): the particle_cpu_level console variable
     // (0 minimum spec, 1 medium, 2 high).
     let host = cvm.host.clone();

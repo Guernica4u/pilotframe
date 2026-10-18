@@ -45,6 +45,7 @@ fn int(v: &Value) -> i32 {
 
 pub fn install(cvm: &mut ClientVm) {
     let table = Rc::new(RefCell::new(XpTable::default()));
+    cvm.xp_table = Some(table.clone());
     let t = table.clone();
     cvm.vm.register("SetXPForLevel", 3, move |_, a| {
         let (level, xp) = (int(&a[1]), int(&a[2]));
