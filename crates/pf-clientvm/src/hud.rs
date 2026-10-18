@@ -41,12 +41,25 @@ pub struct Element {
     pub vis_group: i32,
     /// `EnableKeyBindingIcons` was called.
     pub key_binding_icons: bool,
+    /// `SetAutoText`.
+    pub auto_text: Option<crate::autotext::AutoText>,
+    /// `SetClampToScreen`: 0 none, 1 and 2 the game's clamp modes.
+    pub clamp_to_screen: i32,
+    /// `SetADSFade`, `SetFOVFade`, `SetDistanceFade`: the four numbers each
+    /// (stored; the fading is drawn by pf-game).
+    pub ads_fade: Option<[f32; 4]>,
+    pub fov_fade: Option<[f32; 4]>,
+    pub distance_fade: Option<[f32; 4]>,
 }
 
 pub struct HudState {
     pub ui: Ui,
     /// The HUD's animation controller (runs on real time).
     pub anim: Controller,
+    /// Elements with auto text, newest first (the game's list).
+    pub auto_text_order: Vec<usize>,
+    /// `Crosshair_SetState` (CROSSHAIR_STATE_*).
+    pub crosshair_state: i32,
     pub elements: Vec<Option<Element>>,
     class: Option<Ref<Class>>,
     /// Screen entity → its screen in `ui`, and the element of its root.
@@ -111,6 +124,11 @@ fn create_element(hud: &SharedHud, vm: &mut Vm, panel: PanelId) -> Result<Value,
         parent_element: None,
         vis_group: -1,
         key_binding_icons: false,
+        auto_text: None,
+        clamp_to_screen: 0,
+        ads_fade: None,
+        fov_fade: None,
+        distance_fade: None,
     });
     if let Some(p) = h.ui.panel_mut(panel) {
         p.element = Some(index);
@@ -186,6 +204,8 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
     let hud: SharedHud = Rc::new(RefCell::new(HudState {
         ui,
         anim: Controller::default(),
+        auto_text_order: Vec::new(),
+        crosshair_state: 0,
         elements: Vec::new(),
         class: None,
         screens: Vec::new(),
@@ -623,6 +643,153 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
                 let mut rgba = current_color(&h2.borrow(), i);
                 rgba[3] = alpha as u8;
                 color_over_time(&h2, i, rgba, dur, delay, interp)?;
+                Ok(Value::Null)
+            }),
+        );
+    }
+
+    // SetAutoText( text, type, value ) (0x18041ff10 -> 0x1804163d0): only
+    // a label gets one; the old one goes first.
+    let h2 = hud.clone();
+    add_checked(
+        "SetAutoText",
+        4,
+        ".snn",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            let is_label = read_panel(&h2, i, |p| p.control == Control::Label);
+            let made = crate::autotext::create(&str_arg(a, 1), int_at(a, 2), num_arg(a, 3));
+            let mut h = h2.borrow_mut();
+            h.auto_text_order.retain(|&e| e != i);
+            if let Some(e) = h.elements[i].as_mut() {
+                e.auto_text = None;
+            }
+            let made = made.map_err(throw)?;
+            if let (true, Some(at)) = (is_label, made) {
+                if let Some(e) = h.elements[i].as_mut() {
+                    e.auto_text = Some(at);
+                }
+                h.auto_text_order.insert(0, i);
+            }
+            Ok(Value::Null)
+        }),
+    );
+    // EnableAutoText / DisableAutoText (0x18041ffd0, 0x18041fff0).
+    for (name, on) in [("EnableAutoText", true), ("DisableAutoText", false)] {
+        let h2 = hud.clone();
+        add(
+            name,
+            1,
+            Box::new(move |_, a| {
+                let i = this_element(&h2, a)?;
+                let mut h = h2.borrow_mut();
+                match h.elements[i].as_mut().and_then(|e| e.auto_text.as_mut()) {
+                    Some(at) => at.enabled = on,
+                    None => return Err(throw(format!("{name}: No auto text currently set."))),
+                }
+                Ok(Value::Null)
+            }),
+        );
+    }
+    // SetClampToScreen( type ) (0x180420a20): 0, 1 or 2.
+    let h2 = hud.clone();
+    add_checked(
+        "SetClampToScreen",
+        2,
+        ".n",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            let t = int_at(a, 1);
+            if !(0..3).contains(&t) {
+                return Err(throw(format!("Invalid screen clamp type ({t}).")));
+            }
+            if let Some(e) = h2.borrow_mut().elements[i].as_mut() {
+                e.clamp_to_screen = t;
+            }
+            Ok(Value::Null)
+        }),
+    );
+    // SetADSFade / SetFOVFade / SetDistanceFade( four numbers )
+    // (0x18042c090, 0x18042c100, 0x18042c170): the ADS fade is on while its
+    // first number is below 1, the others while their second is above 0.
+    for name in ["SetADSFade", "SetFOVFade", "SetDistanceFade"] {
+        let h2 = hud.clone();
+        add_checked(
+            name,
+            5,
+            ".nnnn",
+            Box::new(move |_, a| {
+                let i = this_element(&h2, a)?;
+                let v = [1, 2, 3, 4].map(|k| num_arg(a, k));
+                let on = if name == "SetADSFade" {
+                    v[0] < 1.0
+                } else {
+                    v[1] > 0.0
+                };
+                if let Some(e) = h2.borrow_mut().elements[i].as_mut() {
+                    let slot = match name {
+                        "SetADSFade" => &mut e.ads_fade,
+                        "SetFOVFade" => &mut e.fov_fade,
+                        _ => &mut e.distance_fade,
+                    };
+                    *slot = on.then_some(v);
+                }
+                Ok(Value::Null)
+            }),
+        );
+    }
+    // SetRotation( degrees ) (0x1804214c0): image panels only.
+    let h2 = hud.clone();
+    add_checked(
+        "SetRotation",
+        2,
+        ".n",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            let (is_image, name) = read_panel(&h2, i, |p| {
+                (p.control == Control::ImagePanel, p.name.clone())
+            });
+            if !is_image {
+                return Err(throw(format!("No ImagePanel element with name '{name}'.")));
+            }
+            let r = num_arg(a, 1);
+            with_panel(&h2, i, |p| p.rotation = r);
+            Ok(Value::Null)
+        }),
+    );
+    // Progress bar sources (0x180420740, 0x1804207a0, 0x180420830): progress
+    // bars only. Remap( inLo, inHi, outLo, outHi ).
+    for (name, n, mask) in [
+        ("SetBarProgressSource", 2, ".n"),
+        ("SetBarProgressSourceEntity", 2, ".."),
+        ("SetBarProgressRemap", 5, ".nnnn"),
+    ] {
+        let h2 = hud.clone();
+        add_checked(
+            name,
+            n,
+            mask,
+            Box::new(move |_, a| {
+                let i = this_element(&h2, a)?;
+                let (is_bar, pname) = read_panel(&h2, i, |p| {
+                    (p.control == Control::ProgressBar, p.name.clone())
+                });
+                if !is_bar {
+                    return Err(throw(format!(
+                        "Hud element is not a progress bar. ({pname})"
+                    )));
+                }
+                let mut h = h2.borrow_mut();
+                let panel = h.elements[i].as_ref().map(|e| e.panel).unwrap_or(0);
+                if let Some(p) = h.ui.panel_mut(panel) {
+                    match name {
+                        "SetBarProgressSource" => p.bar.source = int_at(a, 1),
+                        "SetBarProgressSourceEntity" => {
+                            p.bar.source_entity = crate::entities::entity_id(&a[1])
+                        }
+                        _ => p.bar.remap = Some([1, 2, 3, 4].map(|k| num_arg(a, k))),
+                    }
+                }
                 Ok(Value::Null)
             }),
         );
@@ -1213,6 +1380,22 @@ pub fn install_screens(cvm: &mut ClientVm, hud: &SharedHud, ents: &entities::Sha
             .members
             .insert(Value::str("GetPanel"), get_panel);
     }
+}
+
+/// Crosshair_SetState( state ) (client.dll 0x1802b5850).
+pub fn install_crosshair(cvm: &mut ClientVm, hud: &SharedHud) {
+    let h2 = hud.clone();
+    cvm.vm
+        .register_checked("Crosshair_SetState", 2, ".n", move |_, a| {
+            let s = int_at(a, 1);
+            if !(0..3).contains(&s) {
+                return Err(throw(format!(
+                    "Enum state value {s} does not index CROSSHAIR_STATE_COUNT"
+                )));
+            }
+            h2.borrow_mut().crosshair_state = s;
+            Ok(Value::Null)
+        });
 }
 
 impl ClientVm {

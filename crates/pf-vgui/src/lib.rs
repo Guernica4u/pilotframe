@@ -84,8 +84,20 @@ pub struct Panel {
     pub rotation: f32,
     /// Progress bars: 0–1.
     pub bar_progress: f32,
+    /// Progress bars: where the value comes from (`SetBarProgressSource*`,
+    /// `SetBarProgressRemap`).
+    pub bar: BarSource,
     /// The HUD element wrapping it, if a script made one.
     pub element: Option<usize>,
+}
+
+/// A progress bar's source: PROGRESS_SOURCE_* (0 = set by script), the
+/// entity it reads, and the remap (inLo, inHi, outLo, outHi).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BarSource {
+    pub source: i32,
+    pub source_entity: Option<u32>,
+    pub remap: Option<[f32; 4]>,
 }
 
 /// A screen made from `vgui_screens.txt`.
@@ -358,6 +370,7 @@ impl Panel {
             scale: [1.0, 1.0],
             rotation: 0.0,
             bar_progress: 0.0,
+            bar: BarSource::default(),
             element: None,
         }
     }

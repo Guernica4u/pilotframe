@@ -268,3 +268,22 @@ vgui's `AnimationController` is linked into client.dll; HUD elements' `...OverTi
   - `ColorOverTime( r, g, b, a, duration )` and `ColorOverTimeDelayed( …, duration, delay )` (0x180426870): `FgColor`. `FadeOverTime( alpha, duration )`, `FadeOverTimeDelayed( alpha, duration, delay )` and `HideOverTime( duration )` (alpha 0): the current colour with the new alpha.
 - **Setters cancel:** `SetColor`, `SetAlpha`, `ReturnToBaseColor` cancel `fgcolor`; `SetColorBG` `bgcolor`; `SetPos`, `ReturnToBasePos` `xpos` and `ypos`; `SetSize` `wide` and `tall`; `SetWidth` `wide`; `SetHeight` `tall`; `ReturnToBaseSize` cancels `wide` and `tall` twice each.
 - **Not ported yet:** animation scripts (`RunAnimationScript`, hudanimations.txt events and their queued commands).
+
+## Auto text
+
+`SetAutoText( text, HATT_*, value )` (factory 0x1804163d0) makes a label rewrite itself every frame from game state; ours: `pf-clientvm/src/autotext.rs`.
+
+- Only a label gets one; setting a new one removes the old. HATT_NONE (0) clears it; an unknown number is "SetAutoText: Unsupported HATT type: N". `EnableAutoText`/`DisableAutoText` switch it ("…: No auto text currently set." if none).
+- Each frame (0x180414bb0) the enabled ones update, newest first. Most only rewrite when their values change.
+- **Numbers are printed into fixed buffers that cut them:** `%d` into 3 bytes keeps 2 digits, 5 bytes 4, 8 bytes 7, 10 bytes 9. So the milliseconds of a seconds.ms clock (`%03d` into 3 bytes) show two digits.
+- **Clocks:** uptime (time since value) and countdown (until value) are `#HudAutoText_Uptime`/`#HudAutoText_CountdownTime` with minutes (`%d`) and seconds (`%02d`), whole seconds rounded up. The localized countdowns (27–40; 27–33 on game time, 34–40 on real time) fill the script's text with: seconds; minutes, seconds; seconds (rounded down), thousandths; hours, minutes, seconds; days, hours, minutes, seconds; and the same two with two-digit fields. `HATT_GAME_COUNTDOWN_HOURS_MINUTES_SECONDS` (30) is built as the seconds.ms kind in the game. The evac clocks (20–24) are seconds or seconds.ms with their own texts.
+- **Teams:** the local player's team and the other one: name, score, round score, or "friendly vs enemy". **Weapons:** the active weapon's name or short name (in the script's text), clip ammo, clip size, magazines (ammo outside the clip ÷ clip size, 0 for a clip size of 0); the offhand weapons' names and ammo (with Titan or Pilot texts); no weapon shows `#HudAutoText_TitanNoWeaponName` or `…PilotNoWeaponName`.
+- **Not ported yet:** matchmaking search state/error (25, 26) and 41/42.
+
+## Other element methods
+
+- `SetClampToScreen( 0 | 1 | 2 )` (0x180420a20), "Invalid screen clamp type (N).". `SetRotation( degrees )` (0x1804214c0): image panels only ("No ImagePanel element with name 'X'.").
+- `SetADSFade`, `SetFOVFade`, `SetDistanceFade` (four numbers each, 0x18042c090 on): stored; the ADS fade is on while its first number is below 1, the others while their second is above 0. The fading itself is drawn by pf-game.
+- `SetBarProgressSource( PROGRESS_SOURCE_* )`, `SetBarProgressSourceEntity( ent )`, `SetBarProgressRemap( inLo, inHi, outLo, outHi )` (0x180420740, 0x1804207a0, 0x180420830): progress bars only ("Hud element is not a progress bar. (X)").
+- `Crosshair_SetState( CROSSHAIR_STATE_* )` (0x1802b5850): 0–2, else "Enum state value N does not index CROSSHAIR_STATE_COUNT".
+- **Entity creation callbacks** (0x1802fc260): new entities are queued and flushed (the local player first) as `ClientCodeCallback_OnEntityCreation( entity )`; the connect step flushes right after the connect callback. The pilot HUD is built from there (`CockpitHudInit` on the `titan_cockpit` entity).

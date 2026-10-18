@@ -63,6 +63,16 @@ pub fn install(cvm: &mut ClientVm) {
         Ok(Value::Bool(v as i32 != 0))
     });
 
+    // AreSpectatorControlsActiveForLocalClientPlayer (0x1802b5ab0): the
+    // local player is in observer mode 3 or 7 with the controls flag set.
+    let host = cvm.host.clone();
+    vm.register_checked(
+        "AreSpectatorControlsActiveForLocalClientPlayer",
+        1,
+        ".",
+        move |_, _| Ok(Value::Bool(host.spectator_controls_active())),
+    );
+
     // IsWatchingKillReplay (0x1802b5970).
     let host = cvm.host.clone();
     vm.register_checked("IsWatchingKillReplay", 1, ".", move |_, _| {

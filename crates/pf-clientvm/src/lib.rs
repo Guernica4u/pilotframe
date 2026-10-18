@@ -15,6 +15,7 @@ use std::rc::Rc;
 
 use pf_squirrel::{Value, Vm};
 
+pub mod autotext;
 pub mod classes;
 pub mod clientents;
 pub mod consts;
@@ -183,6 +184,28 @@ pub trait Host {
         let _ = code;
         String::new()
     }
+    /// The other team (the game rules' answer: IMC 2 and Militia 3 face
+    /// each other).
+    fn other_team(&self, team: i32) -> i32 {
+        match team {
+            2 => 3,
+            3 => 2,
+            t => t,
+        }
+    }
+    /// The local player's active weapon, for HUD auto text.
+    fn active_weapon(&self) -> Option<autotext::WeaponHud> {
+        None
+    }
+    /// The local player's offhand weapon in slot 0 or 1.
+    fn offhand_weapon(&self, slot: usize) -> Option<autotext::WeaponHud> {
+        let _ = slot;
+        None
+    }
+    /// The local player is spectating with the spectator controls on.
+    fn spectator_controls_active(&self) -> bool {
+        false
+    }
     /// The local client is watching a kill replay (engine.dll).
     fn watching_kill_replay(&self) -> bool {
         false
@@ -258,6 +281,10 @@ pub struct EntityInfo {
     pub player_settings: String,
     /// A player's cockpit entity (client.dll +0x3220), if it has one.
     pub cockpit: Option<EntityId>,
+    /// The player's objective (client.dll +0x2a48) and when it ends
+    /// (+0x2a50).
+    pub objective_index: i32,
+    pub objective_end_time: f32,
     /// A player's burn card slot as the game networks it (0: none; script
     /// sees one less).
     pub active_burn_card_index: i32,
@@ -343,6 +370,7 @@ impl ClientVm {
         let ents = entities::install(self);
         clientents::install(self, &ents);
         let hud = hud::install(self);
+        hud::install_crosshair(self, &hud);
         hud::install_screens(self, &hud, &ents);
         self.entities = Some(ents);
         self.hud = Some(hud);

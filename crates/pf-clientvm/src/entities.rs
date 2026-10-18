@@ -71,6 +71,8 @@ pub struct Entities {
     /// Players whose crosshair names are hidden (`HideCrosshairNames`, bit
     /// 4 of a client-side player flags field, client.dll +0x3bb0).
     pub crosshair_names_hidden: std::collections::HashSet<EntityId>,
+    /// Players with the script menu on (bit 1 of the same flags field).
+    pub script_menu_on: std::collections::HashSet<EntityId>,
     /// Movement parents client script set (`SetParentRaw`).
     pub parents: HashMap<EntityId, Parent>,
 }
@@ -309,6 +311,7 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
         connected: Default::default(),
         health_callbacks: Default::default(),
         crosshair_names_hidden: Default::default(),
+        script_menu_on: Default::default(),
         parents: HashMap::new(),
     }));
 
@@ -544,7 +547,11 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
     }
     // Networked player fields (client.dll 0x180079ea0, 0x1800368d0,
     // 0x180079ef0, 0x180079e30, 0x18003eac0).
-    let fields: [(&str, Getter); 5] = [
+    let fields: [(&str, Getter); 7] = [
+        ("GetObjectiveIndex", |e| MethodValue::Int(e.objective_index)),
+        ("GetObjectiveEndTime", |e| {
+            MethodValue::Float(e.objective_end_time)
+        }),
         ("GetCinematicEventFlags", |e| {
             MethodValue::Int(e.cinematic_event_flags)
         }),
@@ -640,6 +647,18 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
             }),
         );
     }
+    // SetScriptMenuOff (0x18007c6d0): clears bit 1 of the player's
+    // client-side flags (the script menu is off).
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    player_members.insert(
+        Value::str("SetScriptMenuOff"),
+        native("SetScriptMenuOff", 1, move |_, a| {
+            this(&sh, &*host, a, "SetScriptMenuOff")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            sh.borrow_mut().script_menu_on.remove(&id);
+            Ok(Value::Null)
+        }),
+    );
     // GetCockpit (0x180087cf0): the cockpit entity, or null.
     let (host, sh) = (cvm.host.clone(), shared.clone());
     player_members.insert(
@@ -697,4 +716,39 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
         entity_id(v).is_some_and(|id| Entities::info(&sh, &*host, id).is_some())
     }));
     shared
+}
+
+impl ClientVm {
+    /// Entities that appeared since the last frame: their creation
+    /// callbacks run (client.dll 0x1802fc260): the local player's first,
+    /// then the others in order, each as
+    /// `ClientCodeCallback_OnEntityCreation( entity )` with the root table
+    /// as `this`. The engine also runs this right after the connect
+    /// callback.
+    pub fn entities_created(&mut self, ids: &[EntityId]) {
+        let Some(ents) = self.entities.clone() else {
+            return;
+        };
+        let root = Value::Table(self.vm.root.clone());
+        let Ok(Some(f)) = self
+            .vm
+            .try_get(&root, &Value::str("ClientCodeCallback_OnEntityCreation"))
+        else {
+            return;
+        };
+        let local = self.host.local_player();
+        let order = ids
+            .iter()
+            .filter(|&&id| Some(id) == local)
+            .chain(ids.iter().filter(|&&id| Some(id) != local));
+        for &id in order {
+            let e = Entities::instance(&ents, &mut self.vm, &*self.host, id);
+            if e.is_null() {
+                continue;
+            }
+            if let Err(err) = self.vm.call(&f, root.clone(), &[e]) {
+                self.vm.report_error(&err);
+            }
+        }
+    }
 }

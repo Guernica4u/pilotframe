@@ -24,6 +24,8 @@ struct SurveyHost {
 }
 
 const PLAYER: EntityId = 1;
+/// The player's cockpit (in the game the HUD hangs off it).
+const COCKPIT: EntityId = 2;
 
 impl Host for SurveyHost {
     fn read_script(&self, path: &str) -> Option<String> {
@@ -46,6 +48,16 @@ impl Host for SurveyHost {
         }
     }
     fn entity(&self, id: EntityId) -> Option<EntityInfo> {
+        if id == COCKPIT {
+            return Some(EntityInfo {
+                script_class: "C_Titan_Cockpit".into(),
+                classname: "titan_cockpit".into(),
+                signifier: "titan_cockpit".into(),
+                ent_index: 2,
+                team: 2,
+                ..Default::default()
+            });
+        }
         (id == PLAYER).then(|| EntityInfo {
             script_class: "C_Portal_Player".into(),
             classname: "player".into(),
@@ -55,6 +67,7 @@ impl Host for SurveyHost {
             health: 200,
             max_health: 200,
             is_player: true,
+            cockpit: Some(COCKPIT),
             ..Default::default()
         })
     }
@@ -134,16 +147,21 @@ fn main() {
     if let Err(e) = cvm.start() {
         println!("ERROR during startup: {e}");
     }
+    // Ours: a stand-in server reports the match playing (pf-clientvm
+    // standin.rs). The HUD's set-up reads the game state, so it goes
+    // first; when the real client gets the server's vars relative to the
+    // connect scripts is still to be worked out (docs/port/scripts.md).
+    cvm.standin_match_playing();
     // The engine then reports the local player connected.
     cvm.run_client_connect_scripts(PLAYER);
-    // Ours: a stand-in server reports the match playing (pf-clientvm
-    // standin.rs), once the connect scripts have set up the HUD.
-    cvm.standin_match_playing();
+    // Then it runs the creation callbacks of the entities it has.
+    cvm.entities_created(&[PLAYER, COCKPIT]);
     for i in 0..frames {
         host.time.set(i as f32 / 60.0);
         cvm.vm.run_frame(i as f32 / 60.0);
         cvm.input_frame((i * 1000 / 60) as u32);
         cvm.hud_frame(i as f32 / 60.0);
+        cvm.autotext_frame(i as f32 / 60.0, i as f32 / 60.0);
     }
 
     let mut list: Vec<(String, usize, usize)> = missing
