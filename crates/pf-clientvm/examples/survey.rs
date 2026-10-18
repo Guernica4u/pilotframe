@@ -142,6 +142,8 @@ fn main() {
     for i in 0..frames {
         host.time.set(i as f32 / 60.0);
         cvm.vm.run_frame(i as f32 / 60.0);
+        cvm.input_frame((i * 1000 / 60) as u32);
+        cvm.hud_frame(i as f32 / 60.0);
     }
 
     let mut list: Vec<(String, usize, usize)> = missing

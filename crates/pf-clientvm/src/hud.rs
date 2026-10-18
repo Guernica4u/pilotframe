@@ -15,6 +15,7 @@ use std::rc::Rc;
 use pf_squirrel::table::Table;
 use pf_squirrel::value::{Class, Ref, new_ref};
 use pf_squirrel::{NativeError, Value, Vm, native, throw};
+use pf_vgui::anim::{Controller, Curve, Var};
 use pf_vgui::{Control, PanelId, Rgba, Ui};
 
 use crate::entities::{self, Entities};
@@ -44,6 +45,8 @@ pub struct Element {
 
 pub struct HudState {
     pub ui: Ui,
+    /// The HUD's animation controller (runs on real time).
+    pub anim: Controller,
     pub elements: Vec<Option<Element>>,
     class: Option<Ref<Class>>,
     /// Screen entity → its screen in `ui`, and the element of its root.
@@ -182,15 +185,27 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
     ui.create_hud(res, (w as f32, h as f32), &|p| host.read_script(p));
     let hud: SharedHud = Rc::new(RefCell::new(HudState {
         ui,
+        anim: Controller::default(),
         elements: Vec::new(),
         class: None,
         screens: Vec::new(),
     }));
 
-    let mut m = Table::new();
+    let m = Table::new();
     type Body = Box<dyn Fn(&mut Vm, &[Value]) -> pf_squirrel::NativeResult>;
-    let mut add = |name: &'static str, n: i32, f: Body| {
-        m.insert(Value::str(name), native(name, n, move |vm, a| f(vm, a)));
+    let m = Rc::new(RefCell::new(m));
+    let m2 = m.clone();
+    let add = |name: &'static str, n: i32, f: Body| {
+        m2.borrow_mut()
+            .insert(Value::str(name), native(name, n, move |vm, a| f(vm, a)));
+    };
+    // With the type mask launcher.dll gives the method.
+    let m3 = m.clone();
+    let add_checked = |name: &'static str, n: i32, mask: &'static str, f: Body| {
+        m3.borrow_mut().insert(
+            Value::str(name),
+            pf_squirrel::native_checked(name, n, mask, move |vm, a| f(vm, a)),
+        );
     };
 
     // Child lookup (0x18042a040): makes the child's element.
@@ -381,6 +396,7 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         -2,
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
+            cancel(&h2, i, &[Var::FgColor]);
             let c = color_args(a, &h2, i)?;
             set_color(&mut h2.borrow_mut(), i, c);
             Ok(Value::Null)
@@ -393,6 +409,7 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         -2,
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
+            cancel(&h2, i, &[Var::BgColor]);
             let c = color_args(a, &h2, i)?;
             with_panel(&h2, i, |p| p.bg_color = c);
             Ok(Value::Null)
@@ -435,6 +452,182 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         1,
         Box::new(move |_, a| Ok(Value::Bool(this_element(&h2, a).is_ok()))),
     );
+    // The ...OverTime methods (masks and argument order from client.dll;
+    // an optional last interpolator, 0 = linear).
+    // MoveOverTime( x, y, duration[, interp] ) (0x180426200).
+    let h2 = hud.clone();
+    add_checked(
+        "MoveOverTime",
+        -4,
+        ".nnn",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            move_over_time(
+                &h2,
+                i,
+                int_at(a, 1),
+                int_at(a, 2),
+                num_arg(a, 3),
+                int_at(a, 4),
+            )?;
+            Ok(Value::Null)
+        }),
+    );
+    // OffsetOverTime( dx, dy, duration[, interp] ) (0x1804262d0): from the
+    // current position.
+    let h2 = hud.clone();
+    add_checked(
+        "OffsetOverTime",
+        -4,
+        ".nnn",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            let (x, y) = read_panel(&h2, i, |p| (p.x as i32, p.y as i32));
+            move_over_time(
+                &h2,
+                i,
+                x + int_at(a, 1),
+                y + int_at(a, 2),
+                num_arg(a, 3),
+                int_at(a, 4),
+            )?;
+            Ok(Value::Null)
+        }),
+    );
+    // SetXOverTime / SetYOverTime( v, duration[, interp] ) (0x1804263e0,
+    // 0x1804264c0) and OffsetXOverTime / OffsetYOverTime (0x1804265a0,
+    // 0x180426680): the other coordinate is animated to where it is now.
+    for (name, set_x, offset) in [
+        ("SetXOverTime", true, false),
+        ("SetYOverTime", false, false),
+        ("OffsetXOverTime", true, true),
+        ("OffsetYOverTime", false, true),
+    ] {
+        let h2 = hud.clone();
+        add_checked(
+            name,
+            -3,
+            ".nn",
+            Box::new(move |_, a| {
+                let i = this_element(&h2, a)?;
+                let (x, y) = read_panel(&h2, i, |p| (p.x as i32, p.y as i32));
+                let v = int_at(a, 1);
+                let (nx, ny) = match (set_x, offset) {
+                    (true, false) => (v, y),
+                    (false, false) => (x, v),
+                    (true, true) => (x + v, y),
+                    (false, true) => (x, y + v),
+                };
+                move_over_time(&h2, i, nx, ny, num_arg(a, 2), int_at(a, 3))?;
+                Ok(Value::Null)
+            }),
+        );
+    }
+    // ReturnToBasePosOverTime( duration, interp ) (0x180421c10).
+    let h2 = hud.clone();
+    add_checked(
+        "ReturnToBasePosOverTime",
+        3,
+        ".nn",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            let b = h2.borrow().elements[i]
+                .as_ref()
+                .map(|e| e.base_pos)
+                .unwrap_or_default();
+            move_over_time(&h2, i, b.0 as i32, b.1 as i32, num_arg(a, 1), int_at(a, 2))?;
+            Ok(Value::Null)
+        }),
+    );
+    // ScaleOverTime( sx, sy, duration[, interp] ) (0x180426790) and
+    // ReturnToBaseScaleOverTime( duration, interp ) (0x180426760).
+    let h2 = hud.clone();
+    add_checked(
+        "ScaleOverTime",
+        -4,
+        ".nnn",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            scale_over_time(
+                &h2,
+                i,
+                num_arg(a, 1),
+                num_arg(a, 2),
+                num_arg(a, 3),
+                int_at(a, 4),
+            )?;
+            Ok(Value::Null)
+        }),
+    );
+    let h2 = hud.clone();
+    add_checked(
+        "ReturnToBaseScaleOverTime",
+        3,
+        ".nn",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            scale_over_time(&h2, i, 1.0, 1.0, num_arg(a, 1), int_at(a, 2))?;
+            Ok(Value::Null)
+        }),
+    );
+    // ColorOverTime( r, g, b, a, duration[, interp] ) (0x180429940) and
+    // ColorOverTimeDelayed( r, g, b, a, duration, delay[, interp] )
+    // (0x180429c10): each component's low 8 bits.
+    for (name, delayed) in [("ColorOverTime", false), ("ColorOverTimeDelayed", true)] {
+        let h2 = hud.clone();
+        let (n, mask) = if delayed {
+            (-7, ".iiiinn")
+        } else {
+            (-6, ".iiiin")
+        };
+        add_checked(
+            name,
+            n,
+            mask,
+            Box::new(move |_, a| {
+                let i = this_element(&h2, a)?;
+                let rgba = [1, 2, 3, 4].map(|k| int_at(a, k) as u8);
+                let (delay, interp) = if delayed {
+                    (num_arg(a, 6), int_at(a, 7))
+                } else {
+                    (0.0, int_at(a, 6))
+                };
+                color_over_time(&h2, i, rgba, num_arg(a, 5), delay, interp)?;
+                Ok(Value::Null)
+            }),
+        );
+    }
+    // FadeOverTime( alpha, duration[, interp] ) (0x180429aa0),
+    // FadeOverTimeDelayed( alpha, duration, delay[, interp] ) (0x180429d70)
+    // and HideOverTime( duration[, interp] ) (0x180429b50, alpha 0): the
+    // current colour with the new alpha.
+    for (name, n, mask) in [
+        ("FadeOverTime", -3, ".in"),
+        ("FadeOverTimeDelayed", -4, ".inn"),
+        ("HideOverTime", -2, ".n"),
+    ] {
+        let h2 = hud.clone();
+        add_checked(
+            name,
+            n,
+            mask,
+            Box::new(move |_, a| {
+                let i = this_element(&h2, a)?;
+                let (alpha, dur, delay, interp) = match name {
+                    "FadeOverTime" => (int_at(a, 1), num_arg(a, 2), 0.0, int_at(a, 3)),
+                    "FadeOverTimeDelayed" => {
+                        (int_at(a, 1), num_arg(a, 2), num_arg(a, 3), int_at(a, 4))
+                    }
+                    _ => (0, num_arg(a, 1), 0.0, int_at(a, 2)),
+                };
+                let mut rgba = current_color(&h2.borrow(), i);
+                rgba[3] = alpha as u8;
+                color_over_time(&h2, i, rgba, dur, delay, interp)?;
+                Ok(Value::Null)
+            }),
+        );
+    }
+
     // SetAlpha( a ) (0x180425b80): the current colour with a new alpha.
     let h2 = hud.clone();
     add(
@@ -442,6 +635,7 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         2,
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
+            cancel(&h2, i, &[Var::FgColor]);
             let mut h = h2.borrow_mut();
             let mut c = current_color(&h, i);
             c[3] = num_arg(a, 1) as i32 as u8;
@@ -477,6 +671,7 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         1,
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
+            cancel(&h2, i, &[Var::FgColor]);
             let mut h = h2.borrow_mut();
             let c = h.elements[i]
                 .as_ref()
@@ -524,6 +719,7 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         3,
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
+            cancel(&h2, i, &[Var::XPos, Var::YPos]);
             let (x, y) = (num_arg(a, 1) as i32, num_arg(a, 2) as i32);
             if x.abs() > 0x8000 || y.abs() > 0x8000 {
                 return Err(throw(format!(
@@ -550,6 +746,7 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         3,
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
+            cancel(&h2, i, &[Var::Wide, Var::Tall]);
             let (w, hgt) = (num_arg(a, 1) as i32 as f32, num_arg(a, 2) as i32 as f32);
             with_panel(&h2, i, |p| (p.w, p.h) = (w, hgt));
             Ok(Value::Null)
@@ -561,6 +758,7 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         2,
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
+            cancel(&h2, i, &[Var::Wide]);
             let w = num_arg(a, 1) as i32 as f32;
             with_panel(&h2, i, |p| p.w = w);
             Ok(Value::Null)
@@ -572,6 +770,7 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         2,
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
+            cancel(&h2, i, &[Var::Tall]);
             let hh = num_arg(a, 1) as i32 as f32;
             with_panel(&h2, i, |p| p.h = hh);
             Ok(Value::Null)
@@ -643,6 +842,7 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         1,
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
+            cancel(&h2, i, &[Var::XPos, Var::YPos]);
             let b = h2.borrow().elements[i]
                 .as_ref()
                 .map(|e| e.base_pos)
@@ -657,6 +857,7 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         1,
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
+            cancel(&h2, i, &[Var::Wide, Var::Tall, Var::Wide, Var::Tall]);
             let b = h2.borrow().elements[i]
                 .as_ref()
                 .map(|e| e.base_size)
@@ -698,14 +899,13 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
             Ok(Value::Float(read_panel(&h2, i, |p| p.bar_progress)))
         }),
     );
-    drop(add);
 
     let class = crate::classes::register(
         &mut cvm.vm,
         "CClientHudElement",
         "CClientScriptHudElement",
         None,
-        m,
+        m.borrow().shallow_clone(),
     );
     hud.borrow_mut().class = Some(class);
 
@@ -779,6 +979,124 @@ fn read_panel<T: Default>(hud: &SharedHud, i: usize, f: impl FnOnce(&pf_vgui::Pa
     let h = hud.borrow();
     let panel = h.elements[i].as_ref().map(|e| e.panel).unwrap_or(0);
     h.ui.panel(panel).map(f).unwrap_or_default()
+}
+
+/// Cancel running animations of these variables on the element's panel
+/// (one per entry, as the game's cancel removes the first match).
+fn cancel(hud: &SharedHud, i: usize, vars: &[Var]) {
+    let mut h = hud.borrow_mut();
+    let panel = h.elements[i].as_ref().map(|e| e.panel).unwrap_or(0);
+    for v in vars {
+        h.anim.cancel(panel, v);
+    }
+}
+
+/// An interpolator number from script, or the game's error.
+fn curve(n: i32) -> Result<Curve, NativeError> {
+    Curve::from_index(n).ok_or_else(|| throw(format!("Invalid animation interpolator ({n}).")))
+}
+
+fn int_at(a: &[Value], i: usize) -> i32 {
+    match a.get(i) {
+        Some(Value::Int(n)) => *n,
+        Some(Value::Float(x)) => *x as i32,
+        _ => 0,
+    }
+}
+
+/// Move to (x, y) over time (client.dll 0x180421ab0): both within ±32768;
+/// running x and y animations are cancelled, then y and x run.
+fn move_over_time(
+    hud: &SharedHud,
+    i: usize,
+    x: i32,
+    y: i32,
+    dur: f32,
+    interp: i32,
+) -> Result<(), NativeError> {
+    let c = curve(interp)?;
+    if !(-0x8000..=0x8000).contains(&x) || !(-0x8000..=0x8000).contains(&y) {
+        return Err(throw(format!(
+            "MoveOverTime: position ({x}, {y}) is out of range (32768)"
+        )));
+    }
+    cancel(hud, i, &[Var::XPos, Var::YPos]);
+    let mut h = hud.borrow_mut();
+    let panel = h.elements[i].as_ref().map(|e| e.panel).unwrap_or(0);
+    h.anim.run(
+        panel,
+        Var::YPos,
+        [y as f32, 0.0, 0.0, 0.0],
+        0.0,
+        dur,
+        c,
+        1.0,
+    );
+    h.anim.run(
+        panel,
+        Var::XPos,
+        [x as f32, 0.0, 0.0, 0.0],
+        0.0,
+        dur,
+        c,
+        1.0,
+    );
+    Ok(())
+}
+
+/// Scale to the base size times (sx, sy) over time (0x180421f90).
+fn scale_over_time(
+    hud: &SharedHud,
+    i: usize,
+    sx: f32,
+    sy: f32,
+    dur: f32,
+    interp: i32,
+) -> Result<(), NativeError> {
+    let c = curve(interp)?;
+    cancel(hud, i, &[Var::Wide, Var::Tall]);
+    let mut h = hud.borrow_mut();
+    let (panel, (bw, bh)) = h.elements[i]
+        .as_ref()
+        .map(|e| (e.panel, e.base_size))
+        .unwrap_or_default();
+    h.anim.run(
+        panel,
+        Var::Wide,
+        [(bw as i32) as f32 * sx, 0.0, 0.0, 0.0],
+        0.0,
+        dur,
+        c,
+        1.0,
+    );
+    h.anim.run(
+        panel,
+        Var::Tall,
+        [(bh as i32) as f32 * sy, 0.0, 0.0, 0.0],
+        0.0,
+        dur,
+        c,
+        1.0,
+    );
+    Ok(())
+}
+
+/// Colour over time (0x180426870): FgColor to `rgba` after `delay`.
+fn color_over_time(
+    hud: &SharedHud,
+    i: usize,
+    rgba: Rgba,
+    dur: f32,
+    delay: f32,
+    interp: i32,
+) -> Result<(), NativeError> {
+    let c = curve(interp)?;
+    cancel(hud, i, &[Var::FgColor]);
+    let mut h = hud.borrow_mut();
+    let panel = h.elements[i].as_ref().map(|e| e.panel).unwrap_or(0);
+    let end = rgba.map(|v| v as f32);
+    h.anim.run(panel, Var::FgColor, end, delay, dur, c, 1.0);
+    Ok(())
 }
 
 fn current_color(h: &HudState, i: usize) -> Rgba {
@@ -894,5 +1212,18 @@ pub fn install_screens(cvm: &mut ClientVm, hud: &SharedHud, ents: &entities::Sha
         c.borrow_mut()
             .members
             .insert(Value::str("GetPanel"), get_panel);
+    }
+}
+
+impl ClientVm {
+    /// Advance the HUD's animations to `real_time` (seconds of real time:
+    /// the game runs its HUD controller on `Plat_FloatTime`, not game
+    /// time).
+    pub fn hud_frame(&mut self, real_time: f32) {
+        if let Some(hud) = &self.hud {
+            let mut h = hud.borrow_mut();
+            let h = &mut *h;
+            h.anim.update(&mut h.ui, real_time);
+        }
     }
 }

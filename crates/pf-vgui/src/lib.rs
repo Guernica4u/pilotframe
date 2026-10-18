@@ -15,6 +15,8 @@
 
 use std::collections::HashMap;
 
+pub mod anim;
+
 use pf_fmt_ui::kv::{self, Node};
 use pf_fmt_ui::layout;
 
@@ -214,6 +216,17 @@ impl Ui {
         self.add_children(root, &layout_root, screen, screen.1 / 480.0, read);
         self.hud_root = Some(root);
         Some(root)
+    }
+
+    /// A plain panel for tests.
+    #[cfg(test)]
+    pub(crate) fn add_test_panel(&mut self) -> PanelId {
+        self.add(Panel::new(
+            "test",
+            Control::Panel,
+            None,
+            Node::block("test"),
+        ))
     }
 
     fn add(&mut self, p: Panel) -> PanelId {

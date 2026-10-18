@@ -251,3 +251,20 @@ Ported from `client.dll`; `pf-game/src/cockpit_sway.rs` builds the cockpit's set
 - **Additive blending of the crosshair.** `standard_plus` is `$additive`, but the crosshair isn't on the helmet screen yet, so it's still alpha-blended.
 - **`shadowglow` on fonts.**
 - **The rest of the screen:** minimap, objectives, damage indicators.
+
+## Animation controller
+
+vgui's `AnimationController` is linked into client.dll; HUD elements' `...OverTime` methods drive one global instance (0x1806b2c00). Ours: `pf-vgui/src/anim.rs`.
+
+- **Clock:** the HUD's controller is advanced with `Plat_FloatTime()` (real time, seconds), not game time (0x18038c880, 0x1806b22d0).
+- **Starting an animation** (0x1806afd50 colours, 0x1806afc80 numbers, 0x1806af9b0): any running animation of that variable on that panel is cancelled first; start = now + delay, end = start + duration; the start value is read from the panel when the start time comes.
+- **Cancelling** (0x1806ae2d0) removes only the **first** matching animation (same panel and variable).
+- **Each update** (0x1806adf00), in start order: skip one not started yet; drop one whose panel is gone; on its first run read the start value; past its end set the end value and drop it, otherwise set the interpolated value.
+- **Curves** (0x1806a9f50), t = (now − start) / (end − start) as a 32-bit float: 0 linear; 1 accel t²; 2 decel √t; 3 pulse (cos(2t·π·freq) + 1) / 2; 4 flicker 1 while a random number in 0..1 is below freq, else 0; 5 spline (3 − 2t)·t²; 6 bounce: below 0.33, 1 − sin(t·π·3.0303); below 0.67, ((1 − sin((t − 0.33)·π·2.9412)) + 1) / 2; else (1 − sin((t − 0.67)·π·3.0303))·0.2 + 0.8 (the trig in doubles; the exact constants are in anim.rs). Each component: (end − start)·t + start. The HUD methods always pass freq 1.
+- **Variables** (0x1806b1e50, names matched ignoring case): `position`, `size`, `fgcolor` (an image panel's draw colour), `bgcolor`, `xpos`, `ypos`, `wide`, `tall`. Positions and sizes are written as whole pixels (truncated), colours as truncated bytes (low 8 bits). Other names go to the panel as a named setting (not ported yet).
+- **The HUD methods** (masks from the registrations; the last interpolator is optional, 0 by default, "Invalid animation interpolator (N)." outside 0–6):
+  - `MoveOverTime( x, y, duration )` (0x180426200 → 0x180421ab0): x and y within ±32768 ("MoveOverTime: position (X, Y) is out of range (32768)"); cancels `xpos` and `ypos`, then runs `ypos` and `xpos`. `OffsetOverTime( dx, dy, … )` from the current position; `SetXOverTime`/`SetYOverTime`/`OffsetXOverTime`/`OffsetYOverTime` move one coordinate and animate the other to where it is; `ReturnToBasePosOverTime( duration, interp )` to the base position.
+  - `ScaleOverTime( sx, sy, duration )` (0x180421f90): `wide`/`tall` to the base size × scale; `ReturnToBaseScaleOverTime` scale 1.
+  - `ColorOverTime( r, g, b, a, duration )` and `ColorOverTimeDelayed( …, duration, delay )` (0x180426870): `FgColor`. `FadeOverTime( alpha, duration )`, `FadeOverTimeDelayed( alpha, duration, delay )` and `HideOverTime( duration )` (alpha 0): the current colour with the new alpha.
+- **Setters cancel:** `SetColor`, `SetAlpha`, `ReturnToBaseColor` cancel `fgcolor`; `SetColorBG` `bgcolor`; `SetPos`, `ReturnToBasePos` `xpos` and `ypos`; `SetSize` `wide` and `tall`; `SetWidth` `wide`; `SetHeight` `tall`; `ReturnToBaseSize` cancels `wide` and `tall` twice each.
+- **Not ported yet:** animation scripts (`RunAnimationScript`, hudanimations.txt events and their queued commands).
