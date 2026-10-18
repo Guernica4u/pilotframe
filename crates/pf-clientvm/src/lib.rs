@@ -206,6 +206,23 @@ pub trait Host {
     fn spectator_controls_active(&self) -> bool {
         false
     }
+    /// A networked field of an entity, by the script method that reads it
+    /// (`entities::FIELDS`: "GetSuitPower", "IsWallHanging"…). None reads as
+    /// the field's zero, as a fresh entity's would.
+    fn entity_field(&self, id: EntityId, method: &str) -> Option<FieldValue> {
+        let _ = (id, method);
+        None
+    }
+    /// Every entity the client has, in its entity list's order.
+    fn entities(&self) -> Vec<EntityId> {
+        self.players()
+    }
+    /// Stop a sound playing on an entity for the local player. False if
+    /// the sound name isn't known (the game then does nothing).
+    fn stop_sound_on_entity(&self, id: EntityId, sound: &str) -> bool {
+        let _ = (id, sound);
+        true
+    }
     /// The local client is watching a kill replay (engine.dll).
     fn watching_kill_replay(&self) -> bool {
         false
@@ -221,6 +238,14 @@ pub trait Host {
     fn screen_size(&self) -> (i32, i32) {
         (1920, 1080)
     }
+}
+
+/// A networked entity field read by name (`Host::entity_field`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FieldValue {
+    Int(i32),
+    Float(f32),
+    Bool(bool),
 }
 
 /// A persistent variable's value as `GetPersistentVar` returns it
@@ -281,6 +306,15 @@ pub struct EntityInfo {
     pub player_settings: String,
     /// A player's cockpit entity (client.dll +0x3220), if it has one.
     pub cockpit: Option<EntityId>,
+    /// The player's pet Titan (+0x35e8), its mode (+0x364c), when its hot
+    /// drop lands (+0x2a40), and the player settings' class
+    /// (`GetPlayerClass`).
+    pub pet_titan: Option<EntityId>,
+    pub pet_titan_mode: i32,
+    pub hot_drop_impact_time: f32,
+    pub player_class: String,
+    /// The model's path (`GetModelName`).
+    pub model: String,
     /// The player's objective (client.dll +0x2a48) and when it ends
     /// (+0x2a50).
     pub objective_index: i32,

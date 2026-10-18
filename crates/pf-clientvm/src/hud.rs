@@ -45,6 +45,13 @@ pub struct Element {
     pub auto_text: Option<crate::autotext::AutoText>,
     /// `SetClampToScreen`: 0 none, 1 and 2 the game's clamp modes.
     pub clamp_to_screen: i32,
+    /// `SetClampBounds( x, y )` (client.dll 0x180420a90) and
+    /// `SetOffscreenArrow( bool )` (0x180420ab0).
+    pub clamp_bounds: (f32, f32),
+    pub offscreen_arrow: bool,
+    /// `SetPulsate( minAlpha, maxAlpha, frequency )`: (min, max - min,
+    /// frequency, phase start time); None after `ClearPulsate`.
+    pub pulsate: Option<[f32; 4]>,
     /// `SetADSFade`, `SetFOVFade`, `SetDistanceFade`: the four numbers each
     /// (stored; the fading is drawn by pf-game).
     pub ads_fade: Option<[f32; 4]>,
@@ -125,6 +132,9 @@ fn create_element(hud: &SharedHud, vm: &mut Vm, panel: PanelId) -> Result<Value,
         vis_group: -1,
         key_binding_icons: false,
         auto_text: None,
+        pulsate: None,
+        clamp_bounds: (0.0, 0.0),
+        offscreen_arrow: false,
         clamp_to_screen: 0,
         ads_fade: None,
         fov_fade: None,
@@ -648,6 +658,89 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         );
     }
 
+    let h2 = hud.clone();
+    add_checked(
+        "SetClampBounds",
+        3,
+        ".nn",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            if let Some(e) = h2.borrow_mut().elements[i].as_mut() {
+                e.clamp_bounds = (num_arg(a, 1), num_arg(a, 2));
+            }
+            Ok(Value::Null)
+        }),
+    );
+    let h2 = hud.clone();
+    add_checked(
+        "SetOffscreenArrow",
+        2,
+        ".b",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            if let Some(e) = h2.borrow_mut().elements[i].as_mut() {
+                e.offscreen_arrow = matches!(a[1], Value::Bool(true));
+            }
+            Ok(Value::Null)
+        }),
+    );
+    // SetBaseAlpha( a ) (0x1804210e0): the base colour's alpha.
+    let h2 = hud.clone();
+    add_checked(
+        "SetBaseAlpha",
+        2,
+        ".n",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            if let Some(e) = h2.borrow_mut().elements[i].as_mut() {
+                e.base_color[3] = int_at(a, 1) as u8;
+            }
+            Ok(Value::Null)
+        }),
+    );
+    // SetPulsate( minAlpha, maxAlpha, frequency ) (0x18042c1e0): the pulse
+    // keeps its phase when changed while running; ClearPulsate
+    // (0x1804258a0) stops it and puts the panel's alpha back to 255.
+    let (h2, host) = (hud.clone(), cvm.host.clone());
+    add_checked(
+        "SetPulsate",
+        4,
+        ".nnn",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            let (lo, hi, freq) = (num_arg(a, 1), num_arg(a, 2), num_arg(a, 3));
+            let now = host.time();
+            let mut h = h2.borrow_mut();
+            let Some(e) = h.elements[i].as_mut() else {
+                return Ok(Value::Null);
+            };
+            let start = match e.pulsate {
+                None => now,
+                Some([_, _, old_freq, old_start]) => {
+                    // Keep the phase: whole turns dropped, the rest carried
+                    // over to the new frequency.
+                    let turns = (now - old_start) * old_freq * 0.159_154_94;
+                    let frac = turns - turns.floor();
+                    now - (frac * std::f32::consts::TAU) / freq
+                }
+            };
+            e.pulsate = Some([lo, hi - lo, freq, start]);
+            Ok(Value::Null)
+        }),
+    );
+    let h2 = hud.clone();
+    add(
+        "ClearPulsate",
+        1,
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            if let Some(e) = h2.borrow_mut().elements[i].as_mut() {
+                e.pulsate = None;
+            }
+            with_panel(&h2, i, |p| p.panel_alpha = 255.0);
+            Ok(Value::Null)
+        }),
+    );
     // SetAutoText( text, type, value ) (0x18041ff10 -> 0x1804163d0): only
     // a label gets one; the old one goes first.
     let h2 = hud.clone();

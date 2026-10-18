@@ -13,7 +13,7 @@ use pf_squirrel::table::Table;
 use pf_squirrel::value::{Class, Ref, UserData, new_ref};
 use pf_squirrel::{NativeError, Value, Vm, native, throw};
 
-use crate::{ClientVm, EntityId, EntityInfo, Host};
+use crate::{ClientVm, EntityId, EntityInfo, FieldValue, Host};
 
 /// The entity script classes and their bases, base classes first.
 pub const CLASSES: &[(&str, Option<&str>)] = &[
@@ -71,6 +71,12 @@ pub struct Entities {
     /// Players whose crosshair names are hidden (`HideCrosshairNames`, bit
     /// 4 of a client-side player flags field, client.dll +0x3bb0).
     pub crosshair_names_hidden: std::collections::HashSet<EntityId>,
+    /// Entities that call back to script before being destroyed
+    /// (`SetDoDestroyCallback`, client.dll +0x2ed).
+    pub destroy_callbacks: std::collections::HashSet<EntityId>,
+    /// Cockpits that capture the screen before the view models
+    /// (`SetCaptureScreenBeforeViewmodels`, +0x2360).
+    pub capture_before_viewmodels: std::collections::HashSet<EntityId>,
     /// Players with the script menu on (bit 1 of the same flags field).
     pub script_menu_on: std::collections::HashSet<EntityId>,
     /// Movement parents client script set (`SetParentRaw`).
@@ -290,6 +296,70 @@ pub fn angle_normalize(a: f32) -> f32 {
 
 type Getter = fn(&EntityInfo) -> MethodValue;
 
+/// The script methods that only read one networked field (client.dll: each
+/// body is a single load from the entity and a return; listed with
+/// Resources/re scripts' getter scan): class, method, the field's type.
+pub const FIELDS: &[(&str, &str, FieldKind)] = &[
+    ("C_BaseEntity", "GetLastFiredTime", FieldKind::Float),
+    ("C_BaseEntity", "IsRenderingWithViewModels", FieldKind::Bool),
+    ("C_BaseEntity", "GetCloakEndTime", FieldKind::Float),
+    ("C_BaseAnimating", "IsSequenceFinished", FieldKind::Bool),
+    ("C_BaseAnimating", "Anim_IsActive", FieldKind::Bool),
+    (
+        "C_BaseCombatCharacter",
+        "NameIconAlphaToLocalPlayer",
+        FieldKind::Float,
+    ),
+    ("C_BasePlayer", "CanDoContextAction", FieldKind::Bool),
+    ("C_BasePlayer", "IsOffhandDisabled", FieldKind::Bool),
+    ("C_BasePlayer", "GetSuitPower", FieldKind::Float),
+    ("C_BasePlayer", "GetSuitJumpPower", FieldKind::Float),
+    ("C_BasePlayer", "HasMic", FieldKind::Bool),
+    ("C_BasePlayer", "IsWallHanging", FieldKind::Bool),
+    ("C_BasePlayer", "IsSprinting", FieldKind::Bool),
+    ("C_BasePlayer", "IsDodging", FieldKind::Bool),
+    (
+        "C_BasePlayer",
+        "PlayerMelee_IsAttackActive",
+        FieldKind::Bool,
+    ),
+    ("C_BasePlayer", "PlayerMelee_GetState", FieldKind::Int),
+    ("C_BasePlayer", "PlayerLunge_IsLunging", FieldKind::Bool),
+    ("C_BasePlayer", "GetSplitScreenPlayerSlot", FieldKind::Int),
+    (
+        "C_BasePlayer",
+        "SmartAmmo_GetHighestFraction",
+        FieldKind::Float,
+    ),
+    (
+        "C_BasePlayer",
+        "SmartAmmo_GetPrevHighestFraction",
+        FieldKind::Float,
+    ),
+    ("C_BasePlayer", "GetOutOfBoundsDeadTime", FieldKind::Float),
+    ("C_BasePlayer", "GetVoicePackIndex", FieldKind::Int),
+    ("C_BasePlayer", "GetPassives", FieldKind::Int),
+    ("C_BasePlayer", "GetForcedDialogueOnly", FieldKind::Bool),
+    ("C_BasePlayer", "GetTitanBuildTime", FieldKind::Float),
+    ("C_BasePlayer", "GetTitanBubbleShieldTime", FieldKind::Float),
+    ("C_BasePlayer", "GetGen", FieldKind::Int),
+    ("C_BasePlayer", "GetRank", FieldKind::Int),
+    ("C_BasePlayer", "IsPlayingRanked", FieldKind::Bool),
+    (
+        "C_BasePlayer",
+        "Leech_IsContextActionEnabled",
+        FieldKind::Bool,
+    ),
+];
+
+/// The type of a field in `FIELDS`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FieldKind {
+    Int,
+    Float,
+    Bool,
+}
+
 /// What a simple getter returns.
 pub enum MethodValue {
     Int(i32),
@@ -312,6 +382,8 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
         health_callbacks: Default::default(),
         crosshair_names_hidden: Default::default(),
         script_menu_on: Default::default(),
+        destroy_callbacks: Default::default(),
+        capture_before_viewmodels: Default::default(),
         parents: HashMap::new(),
     }));
 
@@ -418,6 +490,31 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
                 Entities::destroy_client_only(&sh, id);
             }
             Ok(Value::Null)
+        }),
+    );
+    // SetDoDestroyCallback( bool ) (0x180028580).
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    base_members.insert(
+        Value::str("SetDoDestroyCallback"),
+        pf_squirrel::native_checked("SetDoDestroyCallback", 2, ".b", move |_, a| {
+            this(&sh, &*host, a, "SetDoDestroyCallback")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let mut e = sh.borrow_mut();
+            if matches!(a[1], Value::Bool(true)) {
+                e.destroy_callbacks.insert(id);
+            } else {
+                e.destroy_callbacks.remove(&id);
+            }
+            Ok(Value::Null)
+        }),
+    );
+    // GetModelName (0x1800282a0).
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    base_members.insert(
+        Value::str("GetModelName"),
+        native("GetModelName", 1, move |_, a| {
+            let e = this(&sh, &*host, a, "GetModelName")?;
+            Ok(Value::str(&e.model))
         }),
     );
     // IsValidInternal (launcher.dll 0x18000c920, added to every class):
@@ -547,7 +644,14 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
     }
     // Networked player fields (client.dll 0x180079ea0, 0x1800368d0,
     // 0x180079ef0, 0x180079e30, 0x18003eac0).
-    let fields: [(&str, Getter); 7] = [
+    let fields: [(&str, Getter); 10] = [
+        ("GetPetTitanMode", |e| MethodValue::Int(e.pet_titan_mode)),
+        ("GetHotDropImpactTime", |e| {
+            MethodValue::Float(e.hot_drop_impact_time)
+        }),
+        ("GetPlayerClass", |e| {
+            MethodValue::Str(e.player_class.clone())
+        }),
         ("GetObjectiveIndex", |e| MethodValue::Int(e.objective_index)),
         ("GetObjectiveEndTime", |e| {
             MethodValue::Float(e.objective_end_time)
@@ -659,6 +763,18 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
             Ok(Value::Null)
         }),
     );
+    // GetPetTitan (0x180037590): the entity, or null.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    player_members.insert(
+        Value::str("GetPetTitan"),
+        native("GetPetTitan", 1, move |vm, a| {
+            let e = this(&sh, &*host, a, "GetPetTitan")?;
+            Ok(match e.pet_titan {
+                Some(t) => Entities::instance(&sh, vm, &*host, t),
+                None => Value::Null,
+            })
+        }),
+    );
     // GetCockpit (0x180087cf0): the cockpit entity, or null.
     let (host, sh) = (cvm.host.clone(), shared.clone());
     player_members.insert(
@@ -672,6 +788,42 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
         }),
     );
     members_of.insert("C_BasePlayer", player_members);
+    for &(class, name, kind) in FIELDS {
+        let (host, sh) = (cvm.host.clone(), shared.clone());
+        members_of.entry(class).or_default().insert(
+            Value::str(name),
+            native(name, 1, move |_, a| {
+                this(&sh, &*host, a, name)?;
+                let id = entity_id(&a[0]).unwrap_or_default();
+                Ok(match (host.entity_field(id, name), kind) {
+                    (Some(FieldValue::Int(v)), _) => Value::Int(v),
+                    (Some(FieldValue::Float(v)), _) => Value::Float(v),
+                    (Some(FieldValue::Bool(v)), _) => Value::Bool(v),
+                    (None, FieldKind::Int) => Value::Int(0),
+                    (None, FieldKind::Float) => Value::Float(0.0),
+                    (None, FieldKind::Bool) => Value::Bool(false),
+                })
+            }),
+        );
+    }
+    // C_Titan_Cockpit.SetCaptureScreenBeforeViewmodels( bool ) (0x1803f5b50).
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    let mut cockpit_members = Table::new();
+    cockpit_members.insert(
+        Value::str("SetCaptureScreenBeforeViewmodels"),
+        pf_squirrel::native_checked("SetCaptureScreenBeforeViewmodels", 2, ".b", move |_, a| {
+            this(&sh, &*host, a, "SetCaptureScreenBeforeViewmodels")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let mut e = sh.borrow_mut();
+            if matches!(a[1], Value::Bool(true)) {
+                e.capture_before_viewmodels.insert(id);
+            } else {
+                e.capture_before_viewmodels.remove(&id);
+            }
+            Ok(Value::Null)
+        }),
+    );
+    members_of.insert("C_Titan_Cockpit", cockpit_members);
     members_of.insert(
         "C_PointCamera",
         crate::clientents::point_camera_methods(cvm, &shared),
@@ -708,6 +860,51 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
             })
         });
     }
+
+    // StopSoundOnEntity( ent, sound ) (0x1804440a0).
+    let (host, s) = (cvm.host.clone(), shared.clone());
+    cvm.vm
+        .register_checked("StopSoundOnEntity", 3, "..s", move |_, a| {
+            let id = entity_id(&a[1]).filter(|&id| Entities::info(&s, &*host, id).is_some());
+            let Some(id) = id else {
+                return Err(throw("StopSoundOnEntity - null entity"));
+            };
+            let sound = match &a[2] {
+                Value::Str(n) => n.to_string_lossy(),
+                _ => String::new(),
+            };
+            host.stop_sound_on_entity(id, &sound);
+            Ok(Value::Null)
+        });
+    // GetClientEntArrayBySignifier( signifier ) (0x1802c6320): every client
+    // entity with that signifier, in the client's entity list order
+    // (client-only ones after the host's).
+    let (host, s) = (cvm.host.clone(), shared.clone());
+    cvm.vm
+        .register("GetClientEntArrayBySignifier", 0, move |vm, a| {
+            if a.len() != 2 {
+                return Err(throw("Function takes 1 parameter"));
+            }
+            let sig = match &a[1] {
+                Value::Str(n) => n.to_string_lossy(),
+                _ => String::new(),
+            };
+            let mut ids = host.entities();
+            let mut client: Vec<EntityId> = s.borrow().client_only.keys().copied().collect();
+            client.sort();
+            ids.extend(client);
+            let mut out = Vec::new();
+            for id in ids {
+                let matches = Entities::info(&s, &*host, id).is_some_and(|e| e.signifier == sig);
+                if matches {
+                    let v = Entities::instance(&s, vm, &*host, id);
+                    if !v.is_null() {
+                        out.push(v);
+                    }
+                }
+            }
+            Ok(Value::Array(new_ref(out)))
+        });
 
     // IsValid on an entity instance: is it still there?
     let host = cvm.host.clone();

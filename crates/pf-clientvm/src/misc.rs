@@ -73,6 +73,19 @@ pub fn install(cvm: &mut ClientVm) {
         move |_, _| Ok(Value::Bool(host.spectator_controls_active())),
     );
 
+    // ShouldSendDevStats (0x1802c8890): the devStats console variable
+    // (default "0").
+    let host = cvm.host.clone();
+    vm.register_checked("ShouldSendDevStats", 1, ".", move |_, _| {
+        let v: f32 = host.convar("devStats").trim().parse().unwrap_or(0.0);
+        Ok(Value::Bool(v as i32 != 0))
+    });
+    // SmartGlass_SetGlobalProperty( name, value ) (0x180471a20): does
+    // nothing on PC.
+    vm.register_checked("SmartGlass_SetGlobalProperty", 3, ".ss", |_, _| {
+        Ok(Value::Null)
+    });
+
     // IsWatchingKillReplay (0x1802b5970).
     let host = cvm.host.clone();
     vm.register_checked("IsWatchingKillReplay", 1, ".", move |_, _| {
