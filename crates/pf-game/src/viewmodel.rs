@@ -45,7 +45,7 @@ const VIEWMODEL_FOV: f32 = 54.0;
 const ARMS: &str = "models/weapons/arms/pov_mcor_pilot_male_br.mdl";
 /// Blend time in and out of reload and draw animations, seconds.
 const ACTION_FADE: f32 = 0.1;
-/// Faster than this on the ground counts as sprinting for the gun (walk is 180.6).
+/// Faster than this on the ground counts as sprinting for the gun (walk is 180.5).
 const SPRINT_SPEED: f32 = 190.0;
 /// The player tick the game runs weapon spread on, seconds.
 const SPREAD_TICK: f32 = 1.0 / 60.0;
@@ -96,6 +96,8 @@ struct WeaponData {
     sway: sway::Settings,
     /// Recoil (`viewkick_*`).
     recoil: RecoilData,
+    /// Scales the pilot's top ground speed (`move_speed_modifier`).
+    move_speed: f32,
 }
 
 impl WeaponData {
@@ -136,6 +138,7 @@ impl WeaponData {
             spread: SpreadData::from_script(|k| kv.get(k).and_then(|v| v.trim().parse().ok())),
             bodygroups,
             anim_alt: num("anim_alt_idleAttack", 0.0) as u32,
+            move_speed: num("move_speed_modifier", 1.0),
             reload_time: num("reload_time", 2.0),
             reload_empty_time: num("reloadempty_time", 2.5),
             deploy_time: num("deploy_time", 1.0),
@@ -222,6 +225,20 @@ pub struct Viewmodel {
     /// right and up axes this frame (lowercase names; `HoloSightOffset`).
     attachments: Vec<pf_fmt_mdl::Attachment>,
     sights: HashMap<String, Vec2>,
+}
+
+impl Viewmodel {
+    /// The held weapon's `move_speed_modifier`, for movement.
+    pub fn move_speed(&self) -> f32 {
+        self.data.move_speed
+    }
+}
+
+/// The default loadout's primary weapon's `move_speed_modifier` (1 if its
+/// script isn't in the game files). Used by the headless movement replay.
+pub fn default_move_speed() -> f32 {
+    let loadout = Loadout::preset(DEFAULT_PRESET).unwrap_or_default();
+    WeaponData::load(&loadout).map_or(1.0, |d| d.move_speed)
 }
 
 /// What the HUD shows about the gun.

@@ -23,21 +23,31 @@ The **EA install, final patch v1.0.10.1** (locally `Resources/titan fall/.../tit
 
 ## Roadmap
 
+Order set by the owner (2026-10-14): **gameplay perfected first**, then maps, then menus, then the complicated systems. Step numbers are names, not order (branches use them); the table is in working order.
+
+**Why the script engine leads phase 1:** in Titanfall the HUD, minimap, menus and what each weapon does when fired are Squirrel scripts, not engine code. Hand-building those would be thrown away once the scripts run. The engine-side parts (bullet traces, sound playback, animation, effects) are ported from client.dll alongside.
+
 | Step | What | Port from | Status |
 |---|---|---|---|
 | R0 | Reset: one source, cleanup, new plan and docs | — | done |
 | R1 | Read the install directly: install path config, VPK mounting (no extraction step), mod-override folder | file formats | done |
-| R2 | Colony from the EA files: geometry, textures, lightmaps, props, collision, sky | BSP + materials | mostly exists (from older files), re-check |
-| R3 | Pilot movement: ground, air, double jump, wall-run, wall-hang, mantle, crouch, view punches. Values are nearly all from the game already; check the behaviour code against the decompile (`max_slope_deg` is still a guess). | client.dll movement prediction | partly ported |
-| R4 | Viewmodel: animations, sway, recoil, ADS, sight proxies, gun position (ours sits lower and further right than the reference) | client.dll + weapon scripts | partly ported |
-| R5 | **Script test (go/no-go).** Our own Squirrel interpreter, in Rust, runs the game's `cl_main_hud.nut` from the install far enough to build the pilot HUD with a few native functions. **Pass:** the HUD is built by the game's script and matches the reference shots, within 2 sessions. Then scripts drive the HUD and game rules from here on. **Fail:** keep porting each script by hand (today's `hud.rs`). | the game's `.nut` scripts | |
-| R6 | Shooting: bullet traces, impact effects and decals per surface, damage on targets | client.dll + effect tables | |
-| R7 | Sound: weapons, footsteps, ambience. First find where the EA install keeps working audio (its VPK sound entries fail their CRC; an installer rebuilds them). | sound scripts + files | |
-| R8 | First-person animations: sprint, wall-run, hang, mantle, reload variants | MDL sequences + client.dll | |
-| R9 | Menus from the game's own UI files (`.res`, and the scripts if R5 passed) | UI files | |
-| R10+ | More weapons, Titans, more maps, AI, multiplayer | — | |
+| **Phase 1** | **Gameplay, perfected** (on the dev map and Colony) | | |
+| R5 | **Script engine.** Our own Squirrel interpreter, in Rust, runs the game's scripts from the install. Groundwork done: native inventory, load order, language survey, a parser for all 481 scripts, checked against the game's own compiler (146/146 cases). The VM runs; the client VM starts cleanly on Colony; the server's own scripts now run in a second VM (owner's decision 2026-10-17, docs/port/server.md), next its entity system. Then the pilot HUD and the R-101C's weapon script (docs/port/scripts.md). | the game's `.nut` scripts + launcher.dll | in progress |
+| R3 | Pilot movement: ground, air, double jump, wall-run, wall-hang, mantle, crouch, view punches. Values recorded from the game (2026-10-12); open: jump ~1% low, frame-rate stepping, crouch and long wall-run recordings, `max_slope_deg`. | client.dll movement prediction | partly ported |
+| R4 | Viewmodel: sway, recoil, ADS, sight proxies, gun position (ours sits lower and further right than the reference) | client.dll + weapon scripts | partly ported |
+| R6 | Shooting: the weapon scripts' fire callbacks, bullet traces, impact effects and decals per surface, damage on targets | weapon scripts + client.dll + effect tables | |
+| R7 | Sound: weapons, reloads, footsteps, impacts, HUD sounds, ambience. First find where the EA install keeps working audio (its VPK sound entries fail their CRC; an installer rebuilds them). | sound scripts + files | |
+| R8 | First-person animations: fire, reload variants, sprint, wall-run, hang, mantle | MDL sequences + client.dll | |
+| R11 | HUD and minimap, run by the game's own HUD scripts (the hand-built HUD is replaced) | `cl_main_hud.nut` and friends | frozen until R5 |
+| **Phase 2** | **Maps** | | |
+| R2 | Colony checked against the real game: geometry, textures, lightmaps, props, collision, sky | BSP + materials | mostly exists (from older files), re-check |
+| R12 | Every multiplayer map, DLC included, to the same standard | BSP + materials | |
+| **Phase 3** | **Menus and front end** | | |
+| R9 | Main menu, loadouts, settings, lobby, loading screens, from the game's own UI files and scripts | `.res` + UI scripts | |
+| **Phase 4** | **The complicated systems** | | |
+| R10+ | Titans, AI (grunts, spectres), game modes, multiplayer, campaign | — | |
 
-**Public:** the repo stays private until you can start the game, pick a map and walk it with real pilot movement.
+**Public:** the repo went public on 2026-10-18 (owner's decision), with a progress page at https://guernica4u.github.io/pilotframe/ (`docs/index.html`, served by GitHub Pages from `main`). Only pilot movement is called perfected; update the page at milestones.
 
 ## Rules
 

@@ -251,3 +251,39 @@ Ported from `client.dll`; `pf-game/src/cockpit_sway.rs` builds the cockpit's set
 - **Additive blending of the crosshair.** `standard_plus` is `$additive`, but the crosshair isn't on the helmet screen yet, so it's still alpha-blended.
 - **`shadowglow` on fonts.**
 - **The rest of the screen:** minimap, objectives, damage indicators.
+
+## Animation controller
+
+vgui's `AnimationController` is linked into client.dll; HUD elements' `...OverTime` methods drive one global instance (0x1806b2c00). Ours: `pf-vgui/src/anim.rs`.
+
+- **Clock:** the HUD's controller is advanced with `Plat_FloatTime()` (real time, seconds), not game time (0x18038c880, 0x1806b22d0).
+- **Starting an animation** (0x1806afd50 colours, 0x1806afc80 numbers, 0x1806af9b0): any running animation of that variable on that panel is cancelled first; start = now + delay, end = start + duration; the start value is read from the panel when the start time comes.
+- **Cancelling** (0x1806ae2d0) removes only the **first** matching animation (same panel and variable).
+- **Each update** (0x1806adf00), in start order: skip one not started yet; drop one whose panel is gone; on its first run read the start value; past its end set the end value and drop it, otherwise set the interpolated value.
+- **Curves** (0x1806a9f50), t = (now − start) / (end − start) as a 32-bit float: 0 linear; 1 accel t²; 2 decel √t; 3 pulse (cos(2t·π·freq) + 1) / 2; 4 flicker 1 while a random number in 0..1 is below freq, else 0; 5 spline (3 − 2t)·t²; 6 bounce: below 0.33, 1 − sin(t·π·3.0303); below 0.67, ((1 − sin((t − 0.33)·π·2.9412)) + 1) / 2; else (1 − sin((t − 0.67)·π·3.0303))·0.2 + 0.8 (the trig in doubles; the exact constants are in anim.rs). Each component: (end − start)·t + start. The HUD methods always pass freq 1.
+- **Variables** (0x1806b1e50, names matched ignoring case): `position`, `size`, `fgcolor` (an image panel's draw colour), `bgcolor`, `xpos`, `ypos`, `wide`, `tall`. Positions and sizes are written as whole pixels (truncated), colours as truncated bytes (low 8 bits). Other names go to the panel as a named setting (not ported yet).
+- **The HUD methods** (masks from the registrations; the last interpolator is optional, 0 by default, "Invalid animation interpolator (N)." outside 0–6):
+  - `MoveOverTime( x, y, duration )` (0x180426200 → 0x180421ab0): x and y within ±32768 ("MoveOverTime: position (X, Y) is out of range (32768)"); cancels `xpos` and `ypos`, then runs `ypos` and `xpos`. `OffsetOverTime( dx, dy, … )` from the current position; `SetXOverTime`/`SetYOverTime`/`OffsetXOverTime`/`OffsetYOverTime` move one coordinate and animate the other to where it is; `ReturnToBasePosOverTime( duration, interp )` to the base position.
+  - `ScaleOverTime( sx, sy, duration )` (0x180421f90): `wide`/`tall` to the base size × scale; `ReturnToBaseScaleOverTime` scale 1.
+  - `ColorOverTime( r, g, b, a, duration )` and `ColorOverTimeDelayed( …, duration, delay )` (0x180426870): `FgColor`. `FadeOverTime( alpha, duration )`, `FadeOverTimeDelayed( alpha, duration, delay )` and `HideOverTime( duration )` (alpha 0): the current colour with the new alpha.
+- **Setters cancel:** `SetColor`, `SetAlpha`, `ReturnToBaseColor` cancel `fgcolor`; `SetColorBG` `bgcolor`; `SetPos`, `ReturnToBasePos` `xpos` and `ypos`; `SetSize` `wide` and `tall`; `SetWidth` `wide`; `SetHeight` `tall`; `ReturnToBaseSize` cancels `wide` and `tall` twice each.
+- **Not ported yet:** animation scripts (`RunAnimationScript`, hudanimations.txt events and their queued commands).
+
+## Auto text
+
+`SetAutoText( text, HATT_*, value )` (factory 0x1804163d0) makes a label rewrite itself every frame from game state; ours: `pf-clientvm/src/autotext.rs`.
+
+- Only a label gets one; setting a new one removes the old. HATT_NONE (0) clears it; an unknown number is "SetAutoText: Unsupported HATT type: N". `EnableAutoText`/`DisableAutoText` switch it ("…: No auto text currently set." if none).
+- Each frame (0x180414bb0) the enabled ones update, newest first. Most only rewrite when their values change.
+- **Numbers are printed into fixed buffers that cut them:** `%d` into 3 bytes keeps 2 digits, 5 bytes 4, 8 bytes 7, 10 bytes 9. So the milliseconds of a seconds.ms clock (`%03d` into 3 bytes) show two digits.
+- **Clocks:** uptime (time since value) and countdown (until value) are `#HudAutoText_Uptime`/`#HudAutoText_CountdownTime` with minutes (`%d`) and seconds (`%02d`), whole seconds rounded up. The localized countdowns (27–40; 27–33 on game time, 34–40 on real time) fill the script's text with: seconds; minutes, seconds; seconds (rounded down), thousandths; hours, minutes, seconds; days, hours, minutes, seconds; and the same two with two-digit fields. `HATT_GAME_COUNTDOWN_HOURS_MINUTES_SECONDS` (30) is built as the seconds.ms kind in the game. The evac clocks (20–24) are seconds or seconds.ms with their own texts.
+- **Teams:** the local player's team and the other one: name, score, round score, or "friendly vs enemy". **Weapons:** the active weapon's name or short name (in the script's text), clip ammo, clip size, magazines (ammo outside the clip ÷ clip size, 0 for a clip size of 0); the offhand weapons' names and ammo (with Titan or Pilot texts); no weapon shows `#HudAutoText_TitanNoWeaponName` or `…PilotNoWeaponName`.
+- **Not ported yet:** matchmaking search state/error (25, 26) and 41/42.
+
+## Other element methods
+
+- `SetClampToScreen( 0 | 1 | 2 )` (0x180420a20), "Invalid screen clamp type (N).". `SetRotation( degrees )` (0x1804214c0): image panels only ("No ImagePanel element with name 'X'.").
+- `SetADSFade`, `SetFOVFade`, `SetDistanceFade` (four numbers each, 0x18042c090 on): stored; the ADS fade is on while its first number is below 1, the others while their second is above 0. The fading itself is drawn by pf-game.
+- `SetBarProgressSource( PROGRESS_SOURCE_* )`, `SetBarProgressSourceEntity( ent )`, `SetBarProgressRemap( inLo, inHi, outLo, outHi )` (0x180420740, 0x1804207a0, 0x180420830): progress bars only ("Hud element is not a progress bar. (X)").
+- `Crosshair_SetState( CROSSHAIR_STATE_* )` (0x1802b5850): 0–2, else "Enum state value N does not index CROSSHAIR_STATE_COUNT".
+- **Entity creation callbacks** (0x1802fc260): new entities are queued and flushed (the local player first) as `ClientCodeCallback_OnEntityCreation( entity )`; the connect step flushes right after the connect callback. The pilot HUD is built from there (`CockpitHudInit` on the `titan_cockpit` entity).

@@ -1,0 +1,194 @@
+<title>Pilotframe Roadmap</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; a step ladder (R0–R10) as the spine, the current step opened up beneath it. */
+:root {
+  --bg: #f3f4f2;
+  --panel: #ffffff;
+  --fg: #1d2226;
+  --muted: #5e676d;
+  --line: #d9ddda;
+  --accent: #c2541a;      /* titan-orange, used sparingly */
+  --accent-soft: #f6e2d6;
+  --done: #2f7a4f;
+  --done-soft: #dcefe3;
+  --part: #9a6a00;
+  --part-soft: #f5ecd0;
+  --todo: #8a9399;
+  --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15191c; --panel: #1d2327; --fg: #e4e7e5; --muted: #98a2a8; --line: #2e363b;
+    --accent: #ec7a3c; --accent-soft: #3a261b; --done: #5cbf86; --done-soft: #1d3327;
+    --part: #e0b244; --part-soft: #362d17; --todo: #6f7a80; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15191c; --panel: #1d2327; --fg: #e4e7e5; --muted: #98a2a8; --line: #2e363b;
+  --accent: #ec7a3c; --accent-soft: #3a261b; --done: #5cbf86; --done-soft: #1d3327;
+  --part: #e0b244; --part-soft: #362d17; --todo: #6f7a80; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.6 var(--body); }
+.wrap { max-width: 860px; margin: 0 auto; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); padding-block: 40px 64px; display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.1; text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+h1 { font-size: clamp(2.4rem, 7vw, 3.6rem); text-transform: uppercase; }
+h2 { font-size: 1.7rem; text-transform: uppercase; }
+h3 { font-size: 1.25rem; }
+p { margin: 0; max-width: 65ch; }
+.eyebrow { font: 500 0.75rem/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.lede { color: var(--muted); font-size: 1.05rem; }
+header { display: grid; gap: 12px; }
+.goal { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; font-weight: 500; }
+section { display: grid; gap: 16px; }
+
+/* Progress bar across all steps */
+.bar { display: grid; grid-template-columns: repeat(13, 1fr); gap: 3px; }
+.bar span { height: 8px; border-radius: 2px; background: var(--line); }
+.bar .done { background: var(--done); }
+.bar .part { background: var(--part); }
+.bar .now { background: var(--accent); }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.8rem; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* Step ladder */
+.steps { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.step { display: grid; grid-template-columns: 56px 1fr auto; gap: 4px 16px; padding: 14px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+.step .id { font: 700 1.4rem/1 var(--display); color: var(--todo); font-variant-numeric: tabular-nums; }
+.step.done .id { color: var(--done); }
+.step.part .id { color: var(--part); }
+.step.now .id { color: var(--accent); }
+.step .what { min-width: 0; display: grid; gap: 4px; }
+.step .what strong { font-weight: 600; }
+.step .what small { color: var(--muted); font-size: 0.85rem; line-height: 1.5; }
+.step .src { grid-column: 2; font: 0.75rem/1.4 var(--mono); color: var(--muted); }
+.pill { font: 500 0.7rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 8px; border-radius: 3px; white-space: nowrap; background: var(--line); color: var(--muted); }
+.done .pill { background: var(--done-soft); color: var(--done); }
+.part .pill { background: var(--part-soft); color: var(--part); }
+.now .pill { background: var(--accent-soft); color: var(--accent); }
+.step.now { background: linear-gradient(90deg, var(--accent-soft), transparent 70%); margin-inline: -12px; padding-inline: 12px; }
+
+.phase { padding: 22px 0 8px; border-bottom: 1px solid var(--line); font: 700 1.15rem/1 var(--display); text-transform: uppercase; letter-spacing: 0.02em; }
+.phase span { font: 500 0.7rem/1 var(--mono); letter-spacing: 0.12em; color: var(--accent); margin-right: 10px; }
+
+/* Current focus */
+.focus { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 24px; display: grid; gap: 18px; }
+.track { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: s; }
+.track li { display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 10px 0; border-top: 1px dashed var(--line); }
+.track li:first-child { border-top: 0; }
+.track .mark { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--todo); display: grid; place-items: center; font: 700 0.7rem/1 var(--mono); color: var(--todo); margin-top: 1px; }
+.track .ok .mark { border-color: var(--done); background: var(--done); color: var(--panel); }
+.track .go .mark { border-color: var(--accent); color: var(--accent); }
+.track b { font-weight: 600; }
+.track p { color: var(--muted); font-size: 0.9rem; }
+
+/* Findings and asks */
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+.cols > div { min-width: 0; display: grid; gap: 10px; align-content: start; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
+ul.plain li::marker { color: var(--accent); }
+code { font: 0.85em var(--mono); background: var(--line); padding: 1px 5px; border-radius: 3px; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+footer { color: var(--muted); font-size: 0.8rem; border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 4px; }
+
+@media (max-width: 520px) {
+  .step { grid-template-columns: 40px 1fr; }
+  .step .pill { grid-column: 2; justify-self: start; }
+  .focus { padding: 18px; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Pilotframe · updated 17 Oct 2026</span>
+    <h1>Roadmap</h1>
+    <p class="lede">An unofficial Rust + Bevy rebuild of Titanfall (2014, PC) that runs from your own EA install. Not affiliated with EA or Respawn.</p>
+    <p class="goal">Goal: a 1:1 copy. Every system is ported from the game's own files and code, with no placeholders or guessed feel.</p>
+  </header>
+
+  <section aria-labelledby="overall">
+    <h2 id="overall">Where we are</h2>
+    <div class="bar" role="img" aria-label="2 steps done, 4 partly done, 1 in progress, 7 not started">
+      <span class="done"></span><span class="done"></span><span class="now"></span><span class="part"></span><span class="part"></span><span></span><span></span><span></span><span class="part"></span><span class="part"></span><span></span><span></span><span></span>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--done)"></i>Done</span>
+      <span><i style="background:var(--part)"></i>Partly ported</span>
+      <span><i style="background:var(--accent)"></i>Working on now</span>
+      <span><i style="background:var(--line)"></i>Not started</span>
+    </div>
+    <p class="lede">Order (your call, 14 Oct): gameplay perfected first, then maps, then menus, then the complicated systems. Step numbers are just names.</p>
+
+    <ol class="steps">
+      <li class="step done"><span class="id">R0</span><span class="what"><strong>Hard reset</strong><small>One source (the EA install), old sources archived, new plan and rules.</small></span><span class="pill">Done</span></li>
+      <li class="step done"><span class="id">R1</span><span class="what"><strong>Read the install directly</strong><small>VPKs mounted straight from the EA folder, no extraction step, plus a mods folder.</small></span><span class="pill">Done</span></li>
+      <li class="phase"><span>Phase 1</span>Gameplay, perfected</li>
+      <li class="step now"><span class="id">R5</span><span class="what"><strong>Script engine</strong><small>Leads the phase: the HUD, minimap and what each gun does when fired are the game's scripts. The client script VM now starts up cleanly on Colony. Next: the HUD scripts, then the R-101C's weapon script.</small></span><span class="pill">Now</span></li>
+      <li class="step part"><span class="id">R3</span><span class="what"><strong>Pilot movement</strong><small>Recorder and replay tools work. Gun speed modifier, real walk/sprint speeds and button bits ported. Open: the jump comes out 1% lower, per-frame timing, mantle, crouch.</small></span><span class="pill">Partly</span></li>
+      <li class="step part"><span class="id">R4</span><span class="what"><strong>Viewmodel</strong><small>Sway, recoil, spread, sight glow and the spring view are ported. Gun position sits lower and further right than the reference.</small></span><span class="pill">Partly</span></li>
+      <li class="step"><span class="id">R6</span><span class="what"><strong>Shooting</strong><small>The weapon scripts' fire code, bullet traces, impact effects and decals per surface, damage.</small></span><span class="pill">Next</span></li>
+      <li class="step"><span class="id">R7</span><span class="what"><strong>Sound</strong><small>Guns, reloads, footsteps, impacts, HUD sounds, ambience. First find where the EA install keeps working audio.</small></span><span class="pill">Next</span></li>
+      <li class="step"><span class="id">R8</span><span class="what"><strong>First-person animations</strong><small>Fire, reload variants, sprint, wall-run, hang, mantle.</small></span><span class="pill">Next</span></li>
+      <li class="step part"><span class="id">R11</span><span class="what"><strong>HUD and minimap</strong><small>Run by the game's own HUD scripts. The current hand-built HUD stays frozen until then.</small></span><span class="pill">Waiting</span></li>
+      <li class="phase"><span>Phase 2</span>Maps</li>
+      <li class="step part"><span class="id">R2</span><span class="what"><strong>Colony checked</strong><small>Geometry, textures, lightmaps, props, collision and sky load. Needs a check against the real map.</small></span><span class="pill">Re-check</span></li>
+      <li class="step"><span class="id">R12</span><span class="what"><strong>Every map</strong><small>All multiplayer maps, DLC included, to the same standard.</small></span><span class="pill">Later</span></li>
+      <li class="phase"><span>Phase 3</span>Menus</li>
+      <li class="step"><span class="id">R9</span><span class="what"><strong>Menus and front end</strong><small>Main menu, loadouts, settings, lobby, loading screens, from the game's UI files and scripts.</small></span><span class="pill">Later</span></li>
+      <li class="phase"><span>Phase 4</span>The complicated systems</li>
+      <li class="step"><span class="id">R10</span><span class="what"><strong>Titans, AI, multiplayer</strong><small>Titans, grunts and spectres, game modes, networking, campaign.</small></span><span class="pill">Later</span></li>
+    </ol>
+  </section>
+
+  <section class="focus" aria-labelledby="now">
+    <span class="eyebrow">Current focus</span>
+    <h2 id="now">R5 · Script engine</h2>
+    <p>The HUD, minimap, weapon behaviour, game rules and menus are scripts in the install. Running them in our own interpreter gives the exact behaviour without hand-copying anything, and nothing from the game is ever shipped.</p>
+    <ol class="track">
+      <li class="ok"><span class="mark">✓</span><div><b>Inventory</b><p>All <span class="num">1,615</span> engine functions scripts can call, the load order (<span class="num">168</span> client files, <span class="num">83</span> UI files) and the <span class="num">~97</span> engine callbacks.</p></div></li>
+      <li class="ok"><span class="mark">✓</span><div><b>Parser</b><p>Reads all <span class="num">481</span> game scripts, with the same error messages as the game.</p></div></li>
+      <li class="ok"><span class="mark">✓</span><div><b>Oracle</b><p><span class="num">146</span> test cases run in the real game. Our parser agrees with the game on every one.</p></div></li>
+      <li class="ok"><span class="mark">✓</span><div><b>The interpreter's internals</b><p>Read from launcher.dll: the string hash and table layout (our <code>foreach</code> order matches the game's), error chaining, argument rules, the sort.</p></div></li>
+      <li class="ok"><span class="mark">✓</span><div><b>Run scripts</b><p>Our compiler and VM. All <span class="num">146</span> oracle cases print exactly what the game printed, and all <span class="num">481</span> game scripts compile.</p></div></li>
+      <li class="ok"><span class="mark">✓</span><div><b>Threads and signals</b><p>launcher.dll's thread system ported: <code>thread</code>, <code>wait</code>, <code>Signal</code>, <code>WaitSignal</code>, <code>EndSignal</code>, <code>OnThreadEnd</code>, run frame by frame like the game.</p></div></li>
+      <li class="ok"><span class="mark">✓</span><div><b>Client VM starts cleanly</b><p>All client scripts load on Colony with no stand-ins and no script errors: entity classes, HUD elements, weapons, model effects, rumble, input callbacks, and the persistence enums the game used to get from its servers.</p></div></li>
+      <li class="ok"><span class="mark">✓</span><div><b>Player connect</b><p>The connect step runs and builds the HUD's own panel tree (the scoreboard included). It now waits on state only a server sends: the game state, the player's level.</p></div></li>
+      <li class="go"><span class="mark">9</span><div><b>The server's own scripts</b><p>Per your call, a second VM runs the game's server scripts. It starts and reaches its first entity; server-to-client calls already work. Next: the server's entity system, then players joining.</p></div></li>
+      <li><span class="mark">10</span><div><b>The pilot HUD</b><p>The HUD's animation controller and remaining element methods, then the real pilot HUD drawn from the game's own panels.</p></div></li>
+      <li><span class="mark">11</span><div><b>A gun</b><p>The R-101C's weapon script with its engine functions. Then shooting starts for real.</p></div></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="notes">
+    <h2 id="notes">Latest</h2>
+    <div class="cols">
+      <div>
+        <h3>Found this session</h3>
+        <ul class="plain">
+          <li>The saved-stats definition (maps, challenges, Titan decals, unlocks) was never on players' PCs: the servers sent it on connect. Per your call, our game rebuilds it from the game's own scripts.</li>
+          <li>The Titan models confirm the decal list: all 112 decals sit in the scripts' order in the models' 227 skins.</li>
+          <li>The engine checks every script call's argument types with Squirrel's own masks. Ported, with the game's error texts.</li>
+          <li>Console-command callbacks run on the next frame, not at once, and get the player. Fixed to match.</li>
+          <li>The PC game has no server code at all, only the server's scripts. Server functions are ported from client.dll's twins where they exist, and worked out from the scripts otherwise.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>When you have time</h3>
+        <ul class="plain">
+          <li>Oracle run 3: about <span class="num">73</span> script cases are queued (threads and signals, Vector maths, rounding, error texts). Same steps as last time.</li>
+          <li>One more movement recording: a couple of long wall-runs and some crouching.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Branch <code>r5/squirrel</code> · full plan in PLAN.md · per-system notes in docs/port/</span>
+    <span>Titanfall is a trademark of Electronic Arts Inc. Pilotframe is unofficial and not affiliated with EA or Respawn.</span>
+  </footer>
+</div>

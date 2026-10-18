@@ -183,6 +183,7 @@ fn aim(
 }
 
 /// One simulation tick.
+#[allow(clippy::too_many_arguments)]
 fn tick_movement(
     time: Res<Time>,
     tuning: Res<Tuning>,
@@ -191,6 +192,7 @@ fn tick_movement(
     spawn: Res<SpawnPoint>,
     keyboard: Res<ButtonInput<KeyCode>>,
     player: Single<(&mut Player, &ActionState<Action>)>,
+    viewmodel: Option<Single<&crate::viewmodel::Viewmodel>>,
 ) {
     // `let ... else` returns early if movement.ron hasn't finished loading.
     let Some(tuning) = tunings.get(&tuning.0) else {
@@ -216,6 +218,7 @@ fn tick_movement(
         zoom: actions.pressed(&Action::Zoom),
         pitch: player.pitch,
         key_pressed: false,
+        weapon_speed: viewmodel.map_or(1.0, |v| v.move_speed()),
     };
     // A newly pressed movement key (keyboard only) can turn a fresh jump.
     let keys = [KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD]

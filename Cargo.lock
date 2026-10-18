@@ -4388,6 +4388,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-clientvm"
+version = "0.0.1"
+dependencies = [
+ "pf-fmt-mdl",
+ "pf-fmt-ui",
+ "pf-gamefs",
+ "pf-squirrel",
+ "pf-vgui",
+]
+
+[[package]]
 name = "pf-fmt-bsp"
 version = "0.0.1"
 
@@ -4426,6 +4437,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-gamefs"
+version = "0.0.1"
+dependencies = [
+ "pf-fmt-vpk",
+ "pf-lzham",
+ "pf-vfs",
+]
+
+[[package]]
 name = "pf-lzham"
 version = "0.0.1"
 dependencies = [
@@ -4444,8 +4464,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-servervm"
+version = "0.0.1"
+dependencies = [
+ "pf-clientvm",
+ "pf-gamefs",
+ "pf-squirrel",
+]
+
+[[package]]
+name = "pf-squirrel"
+version = "0.0.1"
+dependencies = [
+ "pf-gamefs",
+]
+
+[[package]]
 name = "pf-vfs"
 version = "0.0.1"
+
+[[package]]
+name = "pf-vgui"
+version = "0.0.1"
+dependencies = [
+ "pf-fmt-ui",
+]
 
 [[package]]
 name = "pf-viewer"
@@ -4471,10 +4514,8 @@ dependencies = [
  "bevy",
  "pf-fmt-bsp",
  "pf-fmt-mdl",
- "pf-fmt-vpk",
  "pf-fmt-vtf",
- "pf-lzham",
- "pf-vfs",
+ "pf-gamefs",
 ]
 
 [[package]]

@@ -79,6 +79,7 @@ const FORWARD: MoveInput = MoveInput {
     zoom: false,
     pitch: 0.0,
     key_pressed: false,
+    weapon_speed: 1.0,
 };
 
 /// Run `seconds` of the same input, calling `each` after every tick.
@@ -599,6 +600,7 @@ const HOLD_FORWARD: MoveInput = MoveInput {
     zoom: false,
     pitch: 0.0,
     key_pressed: false,
+    weapon_speed: 1.0,
 };
 
 #[test]

@@ -59,6 +59,32 @@ pub fn body_groups(mdl: &[u8]) -> io::Result<Vec<(String, usize)>> {
         .collect()
 }
 
+/// The model's skin families: for each skin, the texture name used for
+/// each material slot (the header's texture list at 204/208 and the
+/// family table at 220 slots × 224 families from 228, 16-bit texture
+/// indices).
+pub fn skin_families(mdl: &[u8]) -> io::Result<Vec<Vec<String>>> {
+    let m = Reader::new(mdl, "mdl");
+    let (num_textures, texture_index) = (m.count(204)?, m.u32(208)? as usize);
+    let mut names = Vec::with_capacity(num_textures);
+    for i in 0..num_textures {
+        let tex = texture_index + i * 64; // mstudiotexture_t is 64 bytes
+        let name_at = tex as i64 + m.i32(tex)? as i64;
+        names.push(clean_path(&m.cstr(name_at as usize, 256)?));
+    }
+    let (slots, families, index) = (m.count(220)?, m.count(224)?, m.u32(228)? as usize);
+    (0..families)
+        .map(|f| {
+            (0..slots)
+                .map(|s| {
+                    let t = m.u16(index + (f * slots + s) * 2)? as usize;
+                    Ok(names.get(t).cloned().unwrap_or_default())
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// A named point on the model (`$attachment`), fixed to one bone.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attachment {

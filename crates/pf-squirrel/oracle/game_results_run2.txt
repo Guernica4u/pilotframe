@@ -1,0 +1,37 @@
+# What the real game printed for oracle/cases.txt (run 2, 2026-10-11):
+# R1Delta (original launcher.dll), client VM, via script_client, each case
+# compiled with compilestring and `}; ` turned into a line break. Only the
+# cases that differ from run 1 (or are new) are listed; the rest matched.
+O001|acbedgfh
+O002|1,0,3,2,5,4,7,6,9,8,10,11,15,14,13,12,19,18,17,16,
+O003|0,259,196,133,70,7,266,203,140,77,14,273,210,147,84,21,217,154,91,28,224,161,98,35,231,168,105,42,238,175,112,49,245,182,119,56,252,189,126,63,
+O004|banana,apple,kiwi,zebra,mango,
+O005|ERR|null cannot be used as index
+O006|k1,k3,k5,k7,k9,extra,
+O007|integer|11
+O008|integer|1
+O009|integer|1
+O010|ERR|the index 'b' does not exist
+O011|ERR|the index 'b' does not exist
+O012|integer|2
+O013|integer|2
+C001|integer|14
+C015|integer|4
+C016|ERR|function with default parameters cannot have variable number of parameters
+C002|integer|5
+C003|integer|6
+C004|integer|7
+C005|integer|1
+C006|C!
+C007|bool|true
+C008|integer|3
+C009|integer|4
+C010|integer|5
+C011|ERR|wrong number of parameters (calling (unnamed_function)): found 1, expected 2
+C012|ERR|wrong number of parameters (calling (unnamed_function)): found 3, expected 2
+C013|string|weakref
+C014|string|got_missing
+E006|ERR|null cannot be used as index
+X005|ERR|end of statement expected (; or lf)
+X006|integer|1
+X007|integer|1

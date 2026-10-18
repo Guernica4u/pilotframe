@@ -1,0 +1,215 @@
+# Oracle cases: Squirrel snippets run in the real game (R1Delta's console,
+# client VM) and in our interpreter; the outputs must match exactly.
+# Our own test code, written for this project (no game script text here).
+#
+# One case per line: ID<space>code. `}; ` is turned into `}` + a line break
+# when the case is compiled (the game rejects `};` followed by more code on
+# the same line). `code` is one line of Squirrel. `T(id, v)`
+# prints "id|<typeof v>|<v>"; `P(id, s)` prints "id|<s>". Errors are caught
+# and printed as "id|ERR|<message>". Lines starting with # are comments.
+#
+# --- integers ---
+I001 T("I001", 7 / 2)
+I002 T("I002", -7 / 2)
+I003 T("I003", 7 % -3)
+I004 T("I004", -7 % 3)
+I005 T("I005", 2147483647 + 1)
+I006 T("I006", -2147483647 - 2)
+I007 T("I007", 0x7fffffff * 2)
+I008 T("I008", 1 << 31)
+I009 T("I009", 1 << 32)
+I010 T("I010", 1 << 33)
+I011 T("I011", -1 >> 1)
+I012 T("I012", -1 >>> 1)
+I013 T("I013", ~0)
+I014 T("I014", 5 & -2)
+I015 T("I015", 0x10 | 0x01)
+I016 T("I016", 6 ^ 3)
+I017 T("I017", 3000000000)
+I018 T("I018", 'a')
+I019 T("I019", 1.0e3)
+I020 T("I020", 10 / 0.0)
+I021 P("I021", "" + (1 / 0))
+# --- floats and printing ---
+F001 T("F001", 1.0 / 3)
+F002 T("F002", 2.0 / 3)
+F003 T("F003", 0.1 + 0.2)
+F004 T("F004", 1.0)
+F005 T("F005", 100.0)
+F006 T("F006", 1.0e10)
+F007 T("F007", 1.0e-5)
+F008 T("F008", 123456789.0)
+F009 T("F009", -0.0)
+F010 T("F010", 3.14159265358979)
+F011 T("F011", 16777217.0)
+F012 T("F012", 7.0 % 2.5)
+F013 T("F013", -7.5 % 2)
+F014 T("F014", 5 / 2.0)
+F015 T("F015", (0.1).tostring())
+F016 T("F016", (1.0/3).tointeger())
+F017 T("F017", (-2.7).tointeger())
+F018 T("F018", (7).tofloat())
+F019 T("F019", floor(-2.5))
+F020 T("F020", ceil(-2.5))
+F021 T("F021", fabs(-3))
+F022 T("F022", sqrt(2))
+F023 T("F023", pow(2, 10))
+F024 T("F024", sin(1))
+F025 T("F025", atan2(1, 2))
+F026 T("F026", abs(-5))
+F027 T("F027", (0.1 * 3) == 0.3)
+F028 T("F028", 1 == 1.0)
+F029 T("F029", 2 > 1.5)
+F030 P("F030", format("%d|%f|%.2f|%s|%5.1f|%x|%i", 42, 1.5, 2.345, "s", 3.14159, 255, 7))
+F031 P("F031", format("%g|%e", 0.0001, 12345.678))
+F032 T("F032", "5".tointeger() + "2.5".tofloat())
+F033 T("F033", "abc".tointeger())
+# --- strings ---
+S001 T("S001", "abc" + 1)
+S002 T("S002", "abc" + 1.5)
+S003 T("S003", "abc" + null)
+S004 T("S004", "abc" + true)
+S005 T("S005", "hello".len())
+S006 T("S006", "hello".slice(1, 3))
+S007 T("S007", "hello".slice(-3))
+S008 T("S008", "hello".find("l"))
+S009 T("S009", "hello".find("z"))
+S010 T("S010", "HeLLo".tolower() + "HeLLo".toupper())
+S011 T("S011", "a" < "b")
+S012 T("S012", "abc" == "abc")
+S013 T("S013", "b" > "abc")
+S014 T("S014", "x"[0])
+S015 T("S015", "\x41\t|")
+S016 P("S016", split("a,b,,c", ",").len() + "|" + split("a,b,,c", ",")[2])
+S017 T("S017", strip("  a b  ") + "|")
+S018 T("S018", lstrip("  a ") + "|" + rstrip(" a  ") + "|")
+S019 T("S019", "abc".tostring())
+S020 T("S020", typeof "")
+# --- types and conversions ---
+Y001 P("Y001", typeof 1 + typeof 1.0 + typeof "s" + typeof null + typeof true + typeof [] + typeof {} + typeof print)
+Y002 P("Y002", typeof function(){} + "|" + typeof class{} + "|" + typeof (class{})())
+Y003 T("Y003", null == false)
+Y004 T("Y004", 0 == false)
+Y005 T("Y005", !0)
+Y006 T("Y006", !"")
+Y007 T("Y007", ![])
+Y008 T("Y008", null ? 1 : 2)
+Y009 T("Y009", 0.0 ? 1 : 2)
+Y010 T("Y010", (1).tostring() + (1.5).tostring() + (true).tostring())
+# --- tables: foreach order is what scripts see ---
+O001 local t = {}; foreach (k in ["a","b","c","d","e","f","g","h"]) t[k] <- 1; local s = ""; foreach (k, v in t) s += k; P("O001", s)
+O002 local t = {}; for (local i = 0; i < 20; i++) t["key" + i] <- i; local s = ""; foreach (k, v in t) s += v + ","; P("O002", s)
+O003 local t = {}; for (local i = 0; i < 40; i++) t[i * 7] <- i; local s = ""; foreach (k, v in t) s += k + ","; P("O003", s)
+O004 local t = { zebra = 1, apple = 2, mango = 3, kiwi = 4, banana = 5 }; local s = ""; foreach (k, v in t) s += k + ","; P("O004", s)
+O005 local t = {}; t[1.5] <- 1; t[2] <- 2; t["2"] <- 3; t[true] <- 4; t[null] <- 5; local s = ""; foreach (k, v in t) s += typeof k + ":" + v + ","; P("O005", s)
+O006 local t = {}; for (local i = 0; i < 10; i++) t["k" + i] <- i; for (local i = 0; i < 10; i += 2) delete t["k" + i]; t.extra <- 99; local s = ""; foreach (k, v in t) s += k + ","; P("O006", s)
+O007 local t = { a = 1 }; T("O007", t.len() + ("a" in t ? 10 : 0) + ("b" in t ? 100 : 0))
+O008 local t = { a = 1 }; T("O008", delete t.a)
+O009 local t = { a = 1 }; T("O009", t.rawget("a"))
+O010 local t = {}; T("O010", t.b)
+O011 local t = {}; t.b = 1
+O012 local t = {}; t.b <- 1; t.b <- 2; T("O012", t.b)
+O013 local t = { x = [1] }; local c = clone t; c.x.append(2); T("O013", t.x.len())
+# --- arrays ---
+A001 local a = [3, 1, 2]; a.sort(); P("A001", a[0] + "" + a[1] + a[2])
+A002 local a = [3, 1, 2, 1.5, -1]; a.sort(function(x, y) { return y > x ? 1 : (y < x ? -1 : 0) }); local s = ""; foreach (v in a) s += v + ","; P("A002", s)
+A003 local a = [1, 2, 3, 4]; a.remove(1); a.insert(0, 9); local s = ""; foreach (i, v in a) s += i + "=" + v + ","; P("A003", s)
+A004 local a = [1, 2, 3]; T("A004", a.top() + a.pop() + a.len())
+A005 local a = []; a.resize(3); P("A005", typeof a[2] + a.len())
+A006 local a = [1, 2, 3]; a.reverse(); P("A006", a[0] + "" + a[2])
+A007 local a = [1, 2, 3, 4, 5]; P("A007", a.slice(1, -1).len() + "|" + a.slice(2)[0])
+A008 local a = [1]; T("A008", a[5])
+A009 local a = ["b", "a", "c", "B"]; a.sort(); local s = ""; foreach (v in a) s += v; P("A009", s)
+A010 local a = [1, 2]; a.extend([3, 4]); T("A010", a.len())
+A011 local a = [5, 1, 4]; T("A011", a.find(4))
+A012 local a = array(3, 7); T("A012", a[1] + a.len())
+# --- functions, closures, classes ---
+C001 local f = function(a, b = 10) { return a + b }; T("C001", f(1) + f(1, 2))
+C015 local f = function(a, ...) { return a + vargc }; T("C015", f(1) + f(1, 2, 3))
+C016 T("C016", (function(a, b = 10, ...) { return 1 })())
+C002 local x = 5; local f = function() : (x) { return x }; x = 6; T("C002", f())
+C003 local f = function(...) { local s = 0; for (local i = 0; i < vargc; i++) s += vargv[i]; return s }; T("C003", f(1, 2, 3))
+C004 local C = class { v = 1; constructor(a) { v = a } function get() { return v } }; T("C004", C(7).get())
+C005 local C = class { v = [] }; local a = C(); local b = C(); a.v.append(1); T("C005", b.v.len())
+C006 local C = class { function _tostring() { return "C!" } }; P("C006", "" + C())
+C007 local C = class { x = 1 }; local o = C(); T("C007", o instanceof C)
+C008 local f = function() { return this.q }; local t = { q = 3 }; T("C008", f.call(t))
+C009 local t = { q = 4 }; local f = (function() { return q }).bindenv(t); T("C009", f())
+C010 local f = function(a, b) { return a - b }; T("C010", f.acall([null, 9, 4]))
+C011 local f = function(a) { return a }; T("C011", f())
+C012 local f = function(a) { return a }; T("C012", f(1, 2))
+C013 local t = {}; local w = t.weakref(); T("C013", typeof w)
+C014 local d = { _get = function(k) { return "got_" + k } }; local t = delegate d : {}; T("C014", t.missing)
+# --- errors and messages (exact text matters for scripts that catch them) ---
+E001 local n = null; n.x
+E002 local a = 1 + []
+E003 local s = "a" - 1
+E004 throw "custom"
+E005 undefined_name_xyz
+E006 local t = {}; t[null] <- 1; T("E006", t.len())
+E007 local f = 5; f()
+E008 try { throw { code = 3 } } catch (e) { T("E008", e.code) }
+# --- forms the game's compiler rejects (each case is compiled separately) ---
+X001 T("X001", 1e3)
+X002 T("X002", 10 <=> 3)
+X003 local f = @(a) a + 1; T("X003", f(1))
+X004 T("X004", @"verbatim")
+X005 local g = function() { yield 1 }; T("X005", typeof g)
+X006 local C = class { static s = 1 }; T("X006", C.s)
+X007 local B = class { x = 1 }; local C = class extends B { }; T("X007", C().x)
+# --- misc built-ins ---
+M001 T("M001", getroottable() == ::getroottable())
+M002 T("M002", typeof getconsttable())
+M003 P("M003", "" + RAND_MAX + "|" + PI)
+M004 T("M004", (1).tochar())
+M005 T("M005", "%".len())
+M006 T("M006", type(1))
+# --- run 3 (pending): compiler quirks, rounding, error details ---
+Q001 local b = 5; local a = 0 + b -= 2; P("Q001", a + "|" + b)
+Q002 local b = 5; local a = 1 + b = 7; P("Q002", a + "|" + b)
+F034 P("F034", format("%.0f|%.1f|%.2f|%.0f", 0.5, 0.25, 0.125, 1.5))
+F035 P("F035", "" + (0.0 / 0.0) + "|" + (-1.0 / 0.0))
+F036 P("F036", format("%5.2f|%-6d|%06.1f|%+d", 1.005, 42, -3.14159, 7))
+S021 P("S021", format("%s|%s", 5, 1.5))
+E009 try { throw { a = 1 } } catch (e) { }; local x = 1 + []
+E010 print()
+E011 local t = {}; delete t.y
+E012 local a = [1]; a[5] = 2
+E013 local a = [1]; a.x <- 2
+E014 local C = class { x = 1 }; local o = C(); o.y <- 1
+E015 local C = class { x = 1 }; local o = C(); C.z <- 2
+E016 local s = "abc"; s.x
+E017 (5).foo
+E018 local f = function(a, b = 1) { return a }; f(1, 2, 3)
+A013 local a = [3, 1, 3, 2, 3]; a.sort(function(x, y) { return 0 }); local s = ""; foreach (v in a) s += v; P("A013", s)
+A014 local a = [{ k = 2, n = "a" }, { k = 1, n = "b" }, { k = 2, n = "c" }, { k = 1, n = "d" }]; a.sort(function(x, y) { return x.k - y.k }); local s = ""; foreach (v in a) s += v.n; P("A014", s)
+# --- run 3 (pending): threads and signals (results print a few frames later) ---
+T001 ::t1 <- ""; foreach (n in ["a", "b", "c"]) thread (function(n) { wait 0.05; ::t1 += n })(n); thread (function() { wait 0.05; ::t1 += "|"; wait 0.2; P("T001", ::t1) })()
+T002 RegisterSignal("pfT2"); ::o2 <- {}; thread (function() { local r = WaitSignal(::o2, "pfT2"); local k = []; foreach (kk, v in r) k.append(kk); k.sort(); local s = ""; foreach (x in k) s += x + ","; P("T002", s) })(); Signal(::o2, "pfT2", { a = 1 })
+T004 RegisterSignal("pfT4"); ::o4 <- {}; ::s4 <- ""; thread (function() { EndSignal(::o4, "pfT4"); OnThreadEnd(function() { ::s4 += "end," }); waitthread (function() { OnThreadEnd(function() { ::s4 += "child," }); wait 10 })() })(); thread (function() { wait 0.1; Signal(::o4, "pfT4"); P("T004", ::s4) })()
+T005 RegisterSignal("pfT5"); ::o5 <- {}; ::s5 <- ""; thread (function() { WaitSignal(::o5, "pfT5"); ::s5 += "w," })(); thread (function() { wait 0.1; ::s5 += "a,"; Signal(::o5, "pfT5"); ::s5 += "b,"; wait 0.1; P("T005", ::s5) })()
+T006 RegisterSignal("pfT6a"); RegisterSignal("pfT6b"); ::o6 <- {}; thread (function() { local r = WaitSignal(::o6, "pfT6a", "pfT6b"); P("T006", r.signal) })(); Signal(::o6, "pfT6b")
+T007 thread (function() { local v = waitthread (function() { return 5 })(); P("T007", "" + v) })()
+T008 try { wait 1 } catch (e) { P("T008", e) }
+T009 try { Signal({}, "pfNope9") } catch (e) { P("T009", e) }
+T010 ::t10 <- { n = "obj", function F() { P("T010", ("n" in this) ? this.n : "root") } }; thread ::t10.F()
+T011 ::s11 <- ""; thread (function() { ::s11 += "1"; waitthreadsolo (function() { ::s11 += "2"; wait 0.05; ::s11 += "4" })(); ::s11 += "5"; P("T011", ::s11) })(); ::s11 += "3"
+# --- run 3 (pending): Vector (launcher.dll's class); 9 digits to catch rounding ---
+V001 P("V001", "" + Vector(1, 2.5, -3))
+V002 T("V002", typeof Vector(1, 2, 3))
+V003 local v = Vector(3, 4, 0); P("V003", format("%.9g|%.9g|%.9g|%.9g", v.Length(), v.Norm(), v.x, v.y))
+V004 local f = Vector(10, 20, 30).AnglesToForward(); P("V004", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V005 local f = Vector(10, 20, 30).AnglesToRight(); P("V005", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V006 local f = Vector(10, 20, 30).AnglesToUp(); P("V006", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V007 local f = Vector(10, 20, 30).AnglesCompose(Vector(5, -40, 15)); P("V007", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V008 local f = Vector(10, 20, 30).AnglesLerp(Vector(50, -60, 0), 0.25); P("V008", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V009 local f = Vector(1, 2, 3).RotateAngles(Vector(10, 90, 20)); P("V009", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V010 local f = Vector(1, 1, 1).GetAngles(); P("V010", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V011 local f = Vector(10, 20, 30).AnglesInverse(); P("V011", format("%.9g|%.9g|%.9g", f.x, f.y, f.z))
+V012 local s = ""; foreach (k, x in Vector(1, 2, 3)) s += k + "=" + x + ","; P("V012", s)
+V013 try { Vector(1, 2, 3).w } catch (e) { P("V013", e) }
+V014 P("V014", Vector(1, 2, 3).ToKVString())
+V015 T("V015", Vector(1, 2, 3) == Vector(1, 2, 3))
+V016 local v = Vector(1, 2, 3) * 2 + Vector(0.5, 0, 0) - Vector(0, 1, 0); P("V016", format("%.9g|%.9g|%.9g", v.x, v.y, v.z))
+V017 local c = Vector(1, 0, 0).Cross(Vector(0, 1, 0)); P("V017", c.x + "|" + c.y + "|" + c.z + "|" + Vector(1, 2, 3).Dot(Vector(4, 5, 6)))
+V018 local v = Vector(); P("V018", v.x + "|" + v.y + "|" + v.z)

@@ -14,6 +14,9 @@
 //!   Corners: 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right, 4 top
 //!   centre, 5 right centre, 6 bottom centre, 7 left centre, 8 centre.
 //! - `auto_wide_tocontents`: as wide as its text, which the caller measures.
+//! - A *proportional* panel (the HUD's own root) has its numbers in units of
+//!   a 480-tall screen: every plain number (not a percentage) is scaled by
+//!   screen height / 480 (`layout_proportional`).
 
 use crate::kv::Node;
 use std::collections::HashMap;
@@ -55,6 +58,17 @@ pub fn layout(
     screen: (f32, f32),
     content_wide: impl Fn(&Node) -> Option<f32>,
 ) -> HashMap<String, Rect> {
+    layout_proportional(root, screen, 1.0, content_wide)
+}
+
+/// `layout` with every plain number scaled by `scale` (a proportional
+/// panel: screen height / 480).
+pub fn layout_proportional(
+    root: &Node,
+    screen: (f32, f32),
+    scale: f32,
+    content_wide: impl Fn(&Node) -> Option<f32>,
+) -> HashMap<String, Rect> {
     let elements: HashMap<String, &Node> = root
         .children()
         .iter()
@@ -64,6 +78,7 @@ pub fn layout(
     let mut solver = Solver {
         elements,
         screen,
+        scale,
         content_wide,
         done: HashMap::new(),
         busy: Vec::new(),
@@ -78,6 +93,8 @@ pub fn layout(
 struct Solver<'a, F> {
     elements: HashMap<String, &'a Node>,
     screen: (f32, f32),
+    /// Plain numbers are multiplied by this.
+    scale: f32,
     content_wide: F,
     done: HashMap<String, Rect>,
     /// Elements being solved right now, to stop pin cycles.
@@ -96,8 +113,9 @@ impl<F: Fn(&Node) -> Option<f32>> Solver<'_, F> {
         }
         self.busy.push(key.clone());
         let (sw, sh) = self.screen;
-        let mut w = size(node.text("wide"), sw);
-        let h = size(node.text("tall"), sh);
+        let k = self.scale;
+        let mut w = size(node.text("wide"), sw, k);
+        let h = size(node.text("tall"), sh, k);
         if node.text("auto_wide_tocontents") == Some("1")
             && let Some(cw) = (self.content_wide)(node)
         {
@@ -112,8 +130,8 @@ impl<F: Fn(&Node) -> Option<f32>> Solver<'_, F> {
                 let (sx, sy) = corner_fraction(sib_corner);
                 let out = |f: f32| if f == 0.0 { -1.0 } else { 1.0 };
                 let (fx, fy) = corner_fraction(num("pin_corner_to_sibling").unwrap_or(0));
-                let dx = plain(node.text("xpos"));
-                let dy = plain(node.text("ypos"));
+                let dx = plain(node.text("xpos")) * k;
+                let dy = plain(node.text("ypos")) * k;
                 Rect {
                     x: px - w * fx + dx * out(sx),
                     y: py - h * fy + dy * out(sy),
@@ -122,8 +140,8 @@ impl<F: Fn(&Node) -> Option<f32>> Solver<'_, F> {
                 }
             }
             None => Rect {
-                x: position(node.text("xpos"), sw),
-                y: position(node.text("ypos"), sh),
+                x: position(node.text("xpos"), sw, k),
+                y: position(node.text("ypos"), sh, k),
                 w,
                 h,
             },
@@ -139,33 +157,36 @@ fn plain(v: Option<&str>) -> f32 {
     v.and_then(|s| s.trim().parse().ok()).unwrap_or(0.0)
 }
 
-fn position(v: Option<&str>, extent: f32) -> f32 {
+/// A number from a layout value, 0 if it doesn't parse.
+fn number(s: &str) -> f32 {
+    s.trim().parse().unwrap_or(0.0)
+}
+
+fn position(v: Option<&str>, extent: f32, scale: f32) -> f32 {
     let Some(s) = v.map(str::trim) else {
         return 0.0;
     };
-    let n = |rest: &str| rest.trim().parse::<f32>().unwrap_or(0.0);
     if let Some(rest) = s.strip_prefix(['c', 'C']) {
-        extent / 2.0 + n(rest)
+        extent / 2.0 + number(rest) * scale
     } else if let Some(rest) = s.strip_prefix(['r', 'R']) {
-        extent - n(rest)
+        extent - number(rest) * scale
     } else if let Some(rest) = s.strip_prefix('%') {
-        extent * n(rest) / 100.0
+        extent * number(rest) / 100.0
     } else {
-        n(s)
+        number(s) * scale
     }
 }
 
-fn size(v: Option<&str>, extent: f32) -> f32 {
+fn size(v: Option<&str>, extent: f32, scale: f32) -> f32 {
     let Some(s) = v.map(str::trim) else {
         return 0.0;
     };
-    let n = |rest: &str| rest.trim().parse::<f32>().unwrap_or(0.0);
     if let Some(rest) = s.strip_prefix('%') {
-        extent * n(rest) / 100.0
+        extent * number(rest) / 100.0
     } else if let Some(rest) = s.strip_prefix(['f', 'F']) {
-        extent - n(rest)
+        extent - number(rest) * scale
     } else {
-        n(s)
+        number(s) * scale
     }
 }
 
@@ -228,5 +249,13 @@ mod tests {
         let file = parse("s { A { wide 1 pin_to_sibling B } B { wide 1 pin_to_sibling A } }");
         let r = layout(&file.nodes[0], (10.0, 10.0), |_| None);
         assert_eq!(r.len(), 2);
+    }
+
+    #[test]
+    fn proportional_scales_numbers_not_percentages() {
+        let file = parse(r#"r { A { xpos r10 ypos 20 wide %50 tall 40 } }"#);
+        let r = layout_proportional(&file.nodes[0], (1920.0, 1080.0), 1080.0 / 480.0, |_| None);
+        let a = r["a"];
+        assert_eq!((a.x, a.y, a.w, a.h), (1920.0 - 22.5, 45.0, 960.0, 90.0));
     }
 }

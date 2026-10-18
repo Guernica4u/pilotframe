@@ -22,6 +22,7 @@ mod map;
 mod matproxy;
 mod player;
 mod recoil;
+mod replay;
 mod self_illum;
 mod settings;
 mod shell;
@@ -36,7 +37,7 @@ use bevy::prelude::*;
 
 /// Simulation ticks per second. Placeholder: PLAN §2 says to check what tick rate
 /// the original used.
-const TICK_HZ: f64 = 60.0;
+pub const TICK_HZ: f64 = 60.0;
 
 /// Which screen the game is on.
 #[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,6 +50,9 @@ pub enum Screen {
 
 fn main() {
     data::mount();
+    if replay::run_if_requested() {
+        return;
+    }
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {

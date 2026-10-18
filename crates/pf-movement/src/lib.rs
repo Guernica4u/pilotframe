@@ -107,7 +107,7 @@ impl MovementState {
 
 /// One tick of player intent. The input layer (keyboard, controller, replay, network)
 /// builds this; movement never sees raw buttons.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MoveInput {
     /// x = strafe right, y = forwards. Length up to 1 (a half-tilted stick gives less).
     pub wish: Vec2,
@@ -125,6 +125,28 @@ pub struct MoveInput {
     pub crouch: bool,
     /// Aim down sights is held. On a wall, this hangs on it.
     pub zoom: bool,
+    /// The held weapon's `move_speed_modifier` (its script file; 1 with no
+    /// weapon). Ported: the game's top ground speed is the settings speed times
+    /// this (client.dll's max-speed function).
+    pub weapon_speed: f32,
+}
+
+// Rust note: written by hand rather than derived so a default input moves at
+// full speed (a derived `Default` would set `weapon_speed` to 0).
+impl Default for MoveInput {
+    fn default() -> Self {
+        Self {
+            wish: Vec2::ZERO,
+            yaw: 0.0,
+            pitch: 0.0,
+            key_pressed: false,
+            jump: false,
+            sprint: false,
+            crouch: false,
+            zoom: false,
+            weapon_speed: 1.0,
+        }
+    }
 }
 
 /// Advance one fixed tick of `dt` seconds.
@@ -504,7 +526,7 @@ fn wish_velocity(input: &MoveInput, tuning: &MovementTuning, crouched: bool) -> 
     } else {
         tuning.walk_speed
     };
-    (right * wish.x + forward * wish.y) * speed
+    (right * wish.x + forward * wish.y) * speed * input.weapon_speed
 }
 
 /// Ground slowdown: the part of the velocity along the wished direction, up to the
