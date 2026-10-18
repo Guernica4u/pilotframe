@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pilotframe Progress</title>
+<meta name="description" content="Pilotframe: an unofficial Rust rebuild of Titanfall (2014, PC) that runs from your own copy. Progress by system.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column; a status banner, then system groups as rows with a meter each, then the FAQ. */
+:root {
+  --bg: #f3f4f2; --panel: #ffffff; --fg: #1d2226; --muted: #5e676d; --line: #d9ddda;
+  --accent: #c2541a; --accent-soft: #f6e2d6;
+  --done: #2f7a4f; --done-soft: #dcefe3; --part: #9a6a00; --part-soft: #f5ecd0; --todo: #8a9399;
+  --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15191c; --panel: #1d2327; --fg: #e4e7e5; --muted: #98a2a8; --line: #2e363b;
+    --accent: #ec7a3c; --accent-soft: #3a261b; --done: #5cbf86; --done-soft: #1d3327;
+    --part: #e0b244; --part-soft: #362d17; --todo: #6f7a80; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 var(--body); }
+.wrap { max-width: 920px; margin: 0 auto; padding: 40px max(16px, env(safe-area-inset-left, 0px)) 64px max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.1; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(2.6rem, 8vw, 4rem); text-transform: uppercase; letter-spacing: 0.01em; }
+h2 { font-size: 1.7rem; text-transform: uppercase; }
+h3 { font-size: 1.2rem; }
+p { margin: 0; max-width: 68ch; }
+a { color: var(--accent); }
+code { font: 0.85em var(--mono); background: var(--line); padding: 1px 5px; border-radius: 3px; }
+.eyebrow { font: 500 0.75rem/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.lede { color: var(--muted); font-size: 1.05rem; }
+header { display: grid; gap: 12px; }
+.links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.links a { font: 600 0.85rem/1 var(--body); padding: 10px 14px; border: 1px solid var(--line); border-radius: 4px; text-decoration: none; color: var(--fg); background: var(--panel); }
+.links a.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.banner { border-left: 4px solid var(--done); background: var(--done-soft); padding: 14px 16px; border-radius: 0 4px 4px 0; display: grid; gap: 4px; }
+.banner strong { font-size: 1.05rem; }
+section { display: grid; gap: 14px; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.8rem; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+table { width: 100%; border-collapse: collapse; }
+.tablewrap { overflow-x: auto; }
+th { text-align: left; font: 500 0.72rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); }
+td { padding: 11px 10px 11px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.name { width: 30%; font-weight: 600; }
+td.name small { display: block; font-weight: 400; color: var(--muted); font-size: 0.8rem; }
+td.note { color: var(--muted); font-size: 0.9rem; }
+.meter { display: grid; gap: 5px; min-width: 150px; }
+.bar { height: 8px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.bar span { display: block; height: 100%; }
+.done .bar span { background: var(--done); }
+.part .bar span { background: var(--part); }
+.todo .bar span { background: var(--todo); }
+.num { font: 500 0.8rem/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.pill { display: inline-block; font: 500 0.68rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 7px; border-radius: 3px; }
+.done .pill { background: var(--done-soft); color: var(--done); }
+.part .pill { background: var(--part-soft); color: var(--part); }
+.todo .pill { background: var(--line); color: var(--muted); }
+.faq { display: grid; gap: 18px; }
+.faq div { display: grid; gap: 6px; }
+.faq h3 { font-family: var(--body); font-size: 1rem; font-weight: 600; }
+.layers { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.layer { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 14px; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.layer b { font-family: var(--display); font-size: 1.15rem; text-transform: uppercase; }
+.layer p { font-size: 0.9rem; color: var(--muted); }
+footer { color: var(--muted); font-size: 0.8rem; border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 4px; }
+@media (max-width: 560px) { td.name { width: auto; } .meter { min-width: 110px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Pilotframe · progress · 18 Oct 2026</span>
+    <h1>Pilotframe</h1>
+    <p class="lede">An unofficial rebuild of <b>Titanfall (2014, PC)</b> in Rust and Bevy. It runs from your own copy of the game: every map, model, texture and script is read from your EA install, and none of it is in this project. Not affiliated with, endorsed by, or connected to Electronic Arts or Respawn Entertainment.</p>
+    <div class="links">
+      <a class="primary" href="https://github.com/Guernica4u/pilotframe/releases/latest">Latest release</a>
+      <a href="https://github.com/Guernica4u/pilotframe">Source code</a>
+      <a href="https://github.com/Guernica4u/pilotframe/tree/main/docs/port">How each system was ported</a>
+    </div>
+  </header>
+
+  <div class="banner">
+    <strong>The only system perfected so far is pilot movement.</strong>
+    <p>Movement (ground, air, double jump, wall-run, wall-hang, mantle) is ported from the game's own code and values and checked against recordings of the real game. Everything else below is work in progress: you can walk a map, but there is no shooting, sound, HUD, Titans, AI or multiplayer yet.</p>
+  </div>
+
+  <section aria-labelledby="systems">
+    <h2 id="systems">Systems</h2>
+    <div class="legend">
+      <span><i style="background:var(--done)"></i>Done, checked against the real game</span>
+      <span><i style="background:var(--part)"></i>In progress</span>
+      <span><i style="background:var(--todo)"></i>Not started</span>
+    </div>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th>System</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr class="done"><td class="name">Pilot movement<small>client.dll movement code</small></td><td><div class="meter"><span class="pill">Done</span><div class="bar"><span style="width:100%"></span></div></div></td><td class="note">Values and rules from the game, replayed against real-game recordings.</td></tr>
+        <tr class="done"><td class="name">Reading the install<small>VPK, LZHAM</small></td><td><div class="meter"><span class="pill">Done</span><div class="bar"><span style="width:100%"></span></div></div></td><td class="note">Files read straight from the EA install's VPKs; nothing is extracted.</td></tr>
+        <tr class="part"><td class="name">Maps<small>BSP, materials, props</small></td><td><div class="meter"><span class="pill">Colony loads</span><div class="bar"><span style="width:55%"></span></div></div></td><td class="note">Geometry, textures, lightmaps, props, collision and sky load; not yet checked against the real map.</td></tr>
+        <tr class="part"><td class="name">First-person weapon<small>viewmodel</small></td><td><div class="meter"><span class="pill">Partly</span><div class="bar"><span style="width:45%"></span></div></div></td><td class="note">Sway, recoil, spread and aiming ported; position still off.</td></tr>
+        <tr class="part"><td class="name">Script engine<small>Squirrel 2.2, ours in Rust</small></td><td><div class="meter"><span class="pill">Runs the game's scripts</span><div class="bar"><span style="width:70%"></span></div></div></td><td class="note">See the coverage table below.</td></tr>
+        <tr class="part"><td class="name">HUD<small>the game's own HUD scripts</small></td><td><div class="meter"><span class="pill">In progress</span><div class="bar"><span style="width:35%"></span></div></div></td><td class="note">The pilot HUD's set-up runs in our script engine; drawing it in the game comes next.</td></tr>
+        <tr class="todo"><td class="name">Shooting<small>weapon scripts, impacts</small></td><td><div class="meter"><span class="pill">Next</span><div class="bar"><span style="width:0%"></span></div></div></td><td class="note">Waits on the script engine.</td></tr>
+        <tr class="todo"><td class="name">Sound</td><td><div class="meter"><span class="pill">Not started</span><div class="bar"><span style="width:0%"></span></div></div></td><td class="note"></td></tr>
+        <tr class="todo"><td class="name">First-person animations</td><td><div class="meter"><span class="pill">Not started</span><div class="bar"><span style="width:0%"></span></div></div></td><td class="note"></td></tr>
+        <tr class="todo"><td class="name">Menus and front end</td><td><div class="meter"><span class="pill">Not started</span><div class="bar"><span style="width:0%"></span></div></div></td><td class="note">The game's UI layouts already load for the HUD.</td></tr>
+        <tr class="todo"><td class="name">Titans, AI, game modes, multiplayer</td><td><div class="meter"><span class="pill">Not started</span><div class="bar"><span style="width:0%"></span></div></div></td><td class="note"></td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="coverage">
+    <h2 id="coverage">Script engine coverage</h2>
+    <p class="lede">In Titanfall the HUD, weapons' behaviour, game modes and menus are Squirrel scripts. Pilotframe runs those scripts, unchanged, from your install, in its own interpreter. What's left is the engine functions the scripts call, each ported by hand.</p>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th>Part</th><th>Ported</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr class="done"><td class="name">Squirrel language<small>parser, compiler, VM</small></td><td><div class="meter"><span class="num">481 / 481 scripts compile</span><div class="bar"><span style="width:100%"></span></div></div></td><td class="note">146 / 146 test cases print exactly what the real game printed.</td></tr>
+        <tr class="done"><td class="name">launcher.dll VM functions<small>threads, signals, Vector, base library</small></td><td><div class="meter"><span class="num">118 / 131</span><div class="bar"><span style="width:90%"></span></div></div></td><td class="note">wait, thread, Signal, WaitSignal, EndSignal, OnThreadEnd.</td></tr>
+        <tr class="done"><td class="name">Engine constants</td><td><div class="meter"><span class="num">202 / 202</span><div class="bar"><span style="width:100%"></span></div></div></td><td class="note"></td></tr>
+        <tr class="part"><td class="name">client.dll global functions</td><td><div class="meter"><span class="num">183 / 1,201</span><div class="bar"><span style="width:15%"></span></div></div></td><td class="note">Enough for the client's start-up to run with none missing.</td></tr>
+        <tr class="part"><td class="name">client.dll entity &amp; HUD methods</td><td><div class="meter"><span class="num">about 175 / 709</span><div class="bar"><span style="width:25%"></span></div></div></td><td class="note">HUD elements 70 / 146, players 44 / 162, base entity 37 / 94, weapons 0 / 88.</td></tr>
+        <tr class="part"><td class="name">HUD animation &amp; auto text</td><td><div class="meter"><span class="num">ported</span><div class="bar"><span style="width:80%"></span></div></div></td><td class="note">The game's animation controller and its self-updating labels.</td></tr>
+        <tr class="todo"><td class="name">Server functions</td><td><div class="meter"><span class="num">started</span><div class="bar"><span style="width:5%"></span></div></div></td><td class="note">The PC game has no server code; see below.</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="faq">
+    <h2 id="faq">Questions</h2>
+    <div class="faq">
+      <div>
+        <h3>Once the script engine is done, is the whole game "decompiled" and easy to add?</h3>
+        <p>Not all of it. It helps to split the game into layers:</p>
+      </div>
+      <div class="layers">
+        <div class="layer"><b>Scripts</b><p>HUD, weapon behaviour, game modes, menus. These run as they are, from your install. Once their engine functions exist, they behave like the original by construction.</p></div>
+        <div class="layer"><b>client.dll</b><p>The game's client code. It has been decompiled for reference, but nothing from it is copied: each function is read, written up, and rewritten in Rust. About 1,900 script functions, ported one by one.</p></div>
+        <div class="layer"><b>Server</b><p>The PC game never shipped its server code (matches ran on Respawn's servers). Its scripts are in the install, but the engine functions under them have to be worked out from the client's matching code and from how the scripts use them.</p></div>
+        <div class="layer"><b>Engine</b><p>Rendering, physics, animation, sound, particles, networking. These are Bevy plus our own code, checked against the real game by screenshots and recordings.</p></div>
+      </div>
+      <div>
+        <p>So the script engine removes the biggest guesswork (how the HUD, guns and modes behave is in the scripts), and the remaining work is steady porting rather than reinventing. It's still a lot of work, and the server side is the hardest part.</p>
+      </div>
+      <div>
+        <h3>Do I need the game?</h3>
+        <p>Yes. Pilotframe ships no game files. Point it at your own EA install of Titanfall (final patch). Without it, only a grey test map runs.</p>
+      </div>
+      <div>
+        <h3>Is any original code in here?</h3>
+        <p>No. All code is written for this project, under GPL-3.0. The game's files are read from your install at run time and never copied into the project or its releases.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Pilotframe is unofficial and not affiliated with, endorsed by, or connected to Electronic Arts or Respawn Entertainment. Titanfall is a trademark of Electronic Arts Inc.</span>
+    <span>Code licensed GPL-3.0-only.</span>
+  </footer>
+</div>
+</body>
+</html>

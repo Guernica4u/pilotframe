@@ -47,7 +47,7 @@ Order set by the owner (2026-10-14): **gameplay perfected first**, then maps, th
 | **Phase 4** | **The complicated systems** | | |
 | R10+ | Titans, AI (grunts, spectres), game modes, multiplayer, campaign | — | |
 
-**Public:** the repo stays private until you can start the game, pick a map and walk it with real pilot movement.
+**Public:** the repo went public on 2026-10-18 (owner's decision), with a progress page at https://guernica4u.github.io/pilotframe/ (`docs/index.html`, served by GitHub Pages from `main`). Only pilot movement is called perfected; update the page at milestones.
 
 ## Rules
 
