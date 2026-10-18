@@ -6,7 +6,7 @@ What we know about how Titanfall runs its Squirrel scripts, from the scripts in 
 
 - **The scripts:** 481 `.nut` files (7.3 MB) under `scripts/vscripts/` in `englishclient_mp_common.bsp.pak000_dir.vpk`, plus 75 `.menu` and the `.res` layouts.
 - **The interpreter:** **Squirrel 2.2.3 stable** (its version string), built into `launcher.dll`. `dedicated.dll` carries a copy.
-- **No server code:** the PC game ships no `server.dll` (multiplayer ran on Respawn's servers), so the server VM's native functions aren't in the install. Where server scripts need one, its behaviour has to be worked out from the scripts and the client's matching code.
+- **No server code:** the PC game ships no `server.dll` (multiplayer ran on Respawn's servers), so the server VM's native functions aren't in the install. Where server scripts need one, its behaviour has to be worked out from the scripts and the client's matching code. We run the server scripts ourselves (owner's decision 2026-10-17): see [server.md](server.md).
 
 ## R1Delta as a reference
 

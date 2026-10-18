@@ -4464,6 +4464,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pf-servervm"
+version = "0.0.1"
+dependencies = [
+ "pf-clientvm",
+ "pf-gamefs",
+ "pf-squirrel",
+]
+
+[[package]]
 name = "pf-squirrel"
 version = "0.0.1"
 dependencies = [

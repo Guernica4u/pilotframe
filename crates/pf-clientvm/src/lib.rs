@@ -250,6 +250,8 @@ pub struct ClientVm {
     pub model_fx: Option<modelfx::Shared>,
     /// Rumble graphs and play params (set up by `start`).
     pub rumble: Option<rumble::Shared>,
+    /// The functions the server may call (set up by `start`).
+    pub remote: Option<remote::Shared>,
 }
 
 impl ClientVm {
@@ -265,6 +267,7 @@ impl ClientVm {
             input: None,
             model_fx: None,
             rumble: None,
+            remote: None,
         }
     }
 

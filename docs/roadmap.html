@@ -157,8 +157,10 @@ footer { color: var(--muted); font-size: 0.8rem; border-top: 1px solid var(--lin
       <li class="ok"><span class="mark">✓</span><div><b>Run scripts</b><p>Our compiler and VM. All <span class="num">146</span> oracle cases print exactly what the game printed, and all <span class="num">481</span> game scripts compile.</p></div></li>
       <li class="ok"><span class="mark">✓</span><div><b>Threads and signals</b><p>launcher.dll's thread system ported: <code>thread</code>, <code>wait</code>, <code>Signal</code>, <code>WaitSignal</code>, <code>EndSignal</code>, <code>OnThreadEnd</code>, run frame by frame like the game.</p></div></li>
       <li class="ok"><span class="mark">✓</span><div><b>Client VM starts cleanly</b><p>All client scripts load on Colony with no stand-ins and no script errors: entity classes, HUD elements, weapons, model effects, rumble, input callbacks, and the persistence enums the game used to get from its servers.</p></div></li>
-      <li class="go"><span class="mark">8</span><div><b>Player connect and the HUD</b><p>The connect step now runs and builds the client scripts. Next: the engine functions it reaches, the HUD's animation controller, then the real pilot HUD drawn from the game's own panels.</p></div></li>
-      <li><span class="mark">9</span><div><b>A gun</b><p>The R-101C's weapon script with its engine functions. Then shooting starts for real.</p></div></li>
+      <li class="ok"><span class="mark">✓</span><div><b>Player connect</b><p>The connect step runs and builds the HUD's own panel tree (the scoreboard included). It now waits on state only a server sends: the game state, the player's level.</p></div></li>
+      <li class="go"><span class="mark">9</span><div><b>The server's own scripts</b><p>Per your call, a second VM runs the game's server scripts. It starts and reaches its first entity; server-to-client calls already work. Next: the server's entity system, then players joining.</p></div></li>
+      <li><span class="mark">10</span><div><b>The pilot HUD</b><p>The HUD's animation controller and remaining element methods, then the real pilot HUD drawn from the game's own panels.</p></div></li>
+      <li><span class="mark">11</span><div><b>A gun</b><p>The R-101C's weapon script with its engine functions. Then shooting starts for real.</p></div></li>
     </ol>
   </section>
 
@@ -172,6 +174,7 @@ footer { color: var(--muted); font-size: 0.8rem; border-top: 1px solid var(--lin
           <li>The Titan models confirm the decal list: all 112 decals sit in the scripts' order in the models' 227 skins.</li>
           <li>The engine checks every script call's argument types with Squirrel's own masks. Ported, with the game's error texts.</li>
           <li>Console-command callbacks run on the next frame, not at once, and get the player. Fixed to match.</li>
+          <li>The PC game has no server code at all, only the server's scripts. Server functions are ported from client.dll's twins where they exist, and worked out from the scripts otherwise.</li>
         </ul>
       </div>
       <div>
