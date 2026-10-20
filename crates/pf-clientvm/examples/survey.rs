@@ -176,4 +176,55 @@ fn main() {
     }
     println!("== script output ==");
     print!("{}", log.borrow());
+
+    // PF_DUMP_HUD=1: every panel under the HUD root and the screens, with
+    // its rectangle in its root's pixels; "-" marks a hidden one (it or a
+    // parent).
+    if std::env::var_os("PF_DUMP_HUD").is_some()
+        && let Some(hud) = &cvm.hud
+    {
+        let h = hud.borrow();
+        let ui = &h.ui;
+        let mut roots: Vec<(String, usize)> = Vec::new();
+        if let Some(r) = ui.hud_root {
+            roots.push(("hud".into(), r));
+        }
+        for s in &ui.screens {
+            roots.push((format!("screen {}", s.name), s.root));
+        }
+        for (label, root) in roots {
+            println!("== {label} ==");
+            dump(ui, root, 0.0, 0.0, true, 0);
+        }
+    }
+}
+
+fn dump(ui: &pf_vgui::Ui, id: usize, ox: f32, oy: f32, shown: bool, depth: usize) {
+    let Some(p) = ui.panel(id) else { return };
+    let shown = shown && p.visible;
+    let (x, y) = (ox + p.x, oy + p.y);
+    let mut what = String::new();
+    if let Some(i) = &p.image {
+        what += &format!(" image={i}");
+    }
+    if !p.text.is_empty() {
+        what += &format!(" text={:?}", p.text);
+    }
+    if p.control == pf_vgui::Control::ProgressBar {
+        what += &format!(" bar={:.2}", p.bar_progress);
+    }
+    println!(
+        "{}{} {} {:?} [{x:.0},{y:.0} {:.0}x{:.0}] fg={:?} a={:.0}{what}",
+        "  ".repeat(depth),
+        if shown { "+" } else { "-" },
+        p.name,
+        p.control,
+        p.w,
+        p.h,
+        p.fg_color,
+        p.panel_alpha,
+    );
+    for &c in &p.children {
+        dump(ui, c, x, y, shown, depth + 1);
+    }
 }
