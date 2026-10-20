@@ -86,6 +86,32 @@ pub fn install(cvm: &mut ClientVm) {
         Ok(Value::Null)
     });
 
+    // clamp( value, a, b ) (0x1802c42c0): the bounds swapped if out of
+    // order, then the value held between them.
+    vm.register_checked("clamp", 4, ".nnn", |_, a| {
+        let f = |i: usize| match a[i] {
+            Value::Int(n) => n as f32,
+            Value::Float(x) => x,
+            _ => 0.0,
+        };
+        let (v, mut lo, mut hi) = (f(1), f(2), f(3));
+        if lo > hi {
+            std::mem::swap(&mut lo, &mut hi);
+        }
+        Ok(Value::Float(if v < lo {
+            lo
+        } else if v > hi {
+            hi
+        } else {
+            v
+        }))
+    });
+    // SmartGlass_StartCountdown( name, time ) (0x180471a40): does nothing
+    // on PC.
+    vm.register_checked("SmartGlass_StartCountdown", 3, ".sn", |_, _| {
+        Ok(Value::Null)
+    });
+
     // IsWatchingKillReplay (0x1802b5970).
     let host = cvm.host.clone();
     vm.register_checked("IsWatchingKillReplay", 1, ".", move |_, _| {

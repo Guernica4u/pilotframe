@@ -81,6 +81,10 @@ pub struct Entities {
     pub script_menu_on: std::collections::HashSet<EntityId>,
     /// Movement parents client script set (`SetParentRaw`).
     pub parents: HashMap<EntityId, Parent>,
+    /// Offsets from the parent's attachment (`SetAttachOffsetOrigin`,
+    /// `SetAttachOffsetAngles`; client.dll +0x180 and its angle twin).
+    pub attach_origin: HashMap<EntityId, [f32; 3]>,
+    pub attach_angles: HashMap<EntityId, [f32; 3]>,
 }
 
 /// A movement parent set from client script.
@@ -382,6 +386,8 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
         health_callbacks: Default::default(),
         crosshair_names_hidden: Default::default(),
         script_menu_on: Default::default(),
+        attach_origin: Default::default(),
+        attach_angles: Default::default(),
         destroy_callbacks: Default::default(),
         capture_before_viewmodels: Default::default(),
         parents: HashMap::new(),
@@ -787,7 +793,101 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
             })
         }),
     );
+    // GetOffhandWeapon( slot ) (0x18001bd50): slots 0–3.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    player_members.insert(
+        Value::str("GetOffhandWeapon"),
+        pf_squirrel::native_checked("GetOffhandWeapon", 2, ".n", move |vm, a| {
+            let e = this(&sh, &*host, a, "GetOffhandWeapon")?;
+            let slot = match a[1] {
+                Value::Int(n) => n,
+                Value::Float(x) => x as i32,
+                _ => 0,
+            };
+            if !(0..4).contains(&slot) {
+                return Err(throw(format!(
+                    "Invalid offhand index [{slot}].  Range is [0, 3]"
+                )));
+            }
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let _ = e;
+            Ok(match host.offhand_weapon_entity(id, slot) {
+                Some(w) => Entities::instance(&sh, vm, &*host, w),
+                None => Value::Null,
+            })
+        }),
+    );
+    // GetOrdnanceWeapon (0x18001ce00).
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    player_members.insert(
+        Value::str("GetOrdnanceWeapon"),
+        native("GetOrdnanceWeapon", 1, move |vm, a| {
+            this(&sh, &*host, a, "GetOrdnanceWeapon")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            Ok(match host.ordnance_weapon(id) {
+                Some(w) => Entities::instance(&sh, vm, &*host, w),
+                None => Value::Null,
+            })
+        }),
+    );
+    // GetCrosshairPos (0x18008a980): [x, y], fractions of the screen.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    player_members.insert(
+        Value::str("GetCrosshairPos"),
+        native("GetCrosshairPos", 1, move |_, a| {
+            this(&sh, &*host, a, "GetCrosshairPos")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let (x, y) = host.crosshair_pos(id);
+            Ok(Value::Array(new_ref(vec![
+                Value::Float(x),
+                Value::Float(y),
+            ])))
+        }),
+    );
     members_of.insert("C_BasePlayer", player_members);
+    // LookupAttachment( name ) (0x1802f0970): the model's attachment id.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    members_of.entry("C_BaseAnimating").or_default().insert(
+        Value::str("LookupAttachment"),
+        pf_squirrel::native_checked("LookupAttachment", 2, ".s", move |_, a| {
+            this(&sh, &*host, a, "LookupAttachment")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let name = match &a[1] {
+                Value::Str(s) => s.to_string_lossy(),
+                _ => String::new(),
+            };
+            Ok(Value::Int(host.lookup_attachment(id, &name)))
+        }),
+    );
+    // SetAttachOffsetOrigin / SetAttachOffsetAngles( vector ) (0x1802f84f0,
+    // 0x1802f8580): client-only entities with a parent only.
+    for (name, angles) in [
+        ("SetAttachOffsetOrigin", false),
+        ("SetAttachOffsetAngles", true),
+    ] {
+        let (host, sh) = (cvm.host.clone(), shared.clone());
+        members_of.entry("C_BaseEntity").or_default().insert(
+            Value::str(name),
+            pf_squirrel::native_checked(name, 2, ".x", move |_, a| {
+                let e = this(&sh, &*host, a, name)?;
+                if !e.client_only {
+                    return Err(throw("Only valid with client-only entities."));
+                }
+                let id = entity_id(&a[0]).unwrap_or_default();
+                if !sh.borrow().parents.contains_key(&id) {
+                    return Err(throw("This entity is not parented."));
+                }
+                let v = pf_squirrel::vector::get(&a[1]).unwrap_or_default();
+                let mut s = sh.borrow_mut();
+                if angles {
+                    s.attach_angles.insert(id, v);
+                } else {
+                    s.attach_origin.insert(id, v);
+                }
+                Ok(Value::Null)
+            }),
+        );
+    }
     for &(class, name, kind) in FIELDS {
         let (host, sh) = (cvm.host.clone(), shared.clone());
         members_of.entry(class).or_default().insert(
@@ -845,6 +945,32 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
         let players: Vec<Value> = host
             .players()
             .into_iter()
+            .map(|id| Entities::instance(&s, vm, &*host, id))
+            .filter(|v| !v.is_null())
+            .collect();
+        Ok(Value::Array(new_ref(players)))
+    });
+    // GetPlayerArrayOfTeam( team ) (0x1802c41d0 -> 0x1802c3fa0): -1 every
+    // player, -2 (the default) every player not on team 1, else that team.
+    let host = cvm.host.clone();
+    let s = shared.clone();
+    cvm.vm.register("GetPlayerArrayOfTeam", 0, move |vm, a| {
+        let team = match a.get(1) {
+            Some(Value::Int(n)) => *n,
+            Some(Value::Float(x)) => *x as i32,
+            _ => -2,
+        };
+        let players: Vec<Value> = host
+            .players()
+            .into_iter()
+            .filter(|&id| {
+                let t = Entities::info(&s, &*host, id).map_or(0, |e| e.team);
+                match team {
+                    -1 => true,
+                    -2 => t != 1,
+                    _ => t == team,
+                }
+            })
             .map(|id| Entities::instance(&s, vm, &*host, id))
             .filter(|v| !v.is_null())
             .collect();

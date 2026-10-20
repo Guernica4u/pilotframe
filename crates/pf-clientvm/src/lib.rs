@@ -234,6 +234,31 @@ pub trait Host {
         let _ = path;
         None
     }
+    /// The weapon entity in a player's offhand slot (0–3), if any.
+    fn offhand_weapon_entity(&self, player: EntityId, slot: i32) -> Option<EntityId> {
+        let _ = (player, slot);
+        None
+    }
+    /// The player's ordnance: client.dll (0x18001c280) takes the first of
+    /// the four main weapon slots holding an ordnance-type weapon the
+    /// player can use.
+    fn ordnance_weapon(&self, player: EntityId) -> Option<EntityId> {
+        let _ = player;
+        None
+    }
+    /// Where the player's aim crosses the screen, as fractions of its size
+    /// (client.dll 0x18008a830 projects the aim through the view). The
+    /// default is the centre, where the aim and the view agree.
+    fn crosshair_pos(&self, player: EntityId) -> (f32, f32) {
+        let _ = player;
+        (0.5, 0.5)
+    }
+    /// An attachment on an entity's model by name: its id, counting from 1;
+    /// 0 if the model has none by that name (scripts test `<= 0`).
+    fn lookup_attachment(&self, id: EntityId, name: &str) -> i32 {
+        let _ = (id, name);
+        0
+    }
     /// The game window's size in pixels (`Hud.GetScreenSize()`).
     fn screen_size(&self) -> (i32, i32) {
         (1920, 1080)

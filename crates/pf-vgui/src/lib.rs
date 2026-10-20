@@ -82,13 +82,50 @@ pub struct Panel {
     pub font: Option<String>,
     pub scale: [f32; 2],
     pub rotation: f32,
-    /// Progress bars: 0–1.
+    /// Progress bars: the value set by script, and how it moves on its own
+    /// (client.dll 0x18041b8c0, 0x18041b930): `rate` per second from
+    /// `start` until `end`, on game time ([`Panel::bar_value`]).
     pub bar_progress: f32,
+    pub bar_rate: f32,
+    pub bar_start: f32,
+    pub bar_end: f32,
+    /// Which way the bar fills (`SetBarProgressDirection`): 0 left to
+    /// right, 1 right to left, 2 bottom to top, 3 top to bottom.
+    pub bar_direction: i32,
+    /// `SetBarSegmentInfo( gap, size )`: a segmented bar's gap and segment
+    /// size (stored; segmented painting isn't ported yet).
+    pub bar_segments: Option<(i32, i32)>,
+    /// Spherical warp on (`WarpEnable`, client.dll +0x104 bit 0x10).
+    pub warp: bool,
     /// Progress bars: where the value comes from (`SetBarProgressSource*`,
     /// `SetBarProgressRemap`).
     pub bar: BarSource,
     /// The HUD element wrapping it, if a script made one.
     pub element: Option<usize>,
+}
+
+impl Panel {
+    /// A progress bar's value at game time `now` (client.dll 0x18041cc80):
+    /// the script's value moved by its rate between start and end, then
+    /// remapped, clamped to 0..1 on both sides. Values read from entities
+    /// (PROGRESS_SOURCE_* other than 0) aren't ported yet and read 0.
+    pub fn bar_value(&self, now: f32) -> f32 {
+        let raw = if self.bar.source == 0 {
+            let t = now.max(self.bar_start).min(self.bar_end);
+            (t - self.bar_start) * self.bar_rate + self.bar_progress
+        } else {
+            0.0
+        };
+        // The remap as client.dll stores it (0x18041bbd0): in-low, 1 / in
+        // range, out-low, out range; an empty in range gives out-low.
+        let (in_lo, in_scale, out_lo, out_range) = match self.bar.remap {
+            Some([a, b, c, _]) if a == b => (0.0, 1.0, c, 0.0),
+            Some([a, b, c, d]) => (a, 1.0 / (b - a), c, d - c),
+            None => (0.0, 1.0, 0.0, 1.0),
+        };
+        let v = ((raw - in_lo) * in_scale).clamp(0.0, 1.0);
+        (v * out_range + out_lo).clamp(0.0, 1.0)
+    }
 }
 
 /// A progress bar's source: PROGRESS_SOURCE_* (0 = set by script), the
@@ -370,6 +407,12 @@ impl Panel {
             scale: [1.0, 1.0],
             rotation: 0.0,
             bar_progress: 0.0,
+            bar_rate: 0.0,
+            bar_start: 0.0,
+            bar_end: 0.0,
+            bar_direction: 0,
+            bar_segments: None,
+            warp: false,
             bar: BarSource::default(),
             element: None,
         }

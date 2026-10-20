@@ -335,6 +335,8 @@ fn draw(
     let Some(root) = ui
         .screens
         .iter()
+        // The scripts' own copy (`Create_PilotHud`) is the newest.
+        .rev()
         .find(|s| s.name.eq_ignore_ascii_case(PILOT_SCREEN))
         .map(|s| s.root)
     else {
@@ -429,7 +431,7 @@ fn draw(
                     i.color = rgba(p.bg_color, alpha);
                 }
                 let Some(fill) = d.inner else { continue };
-                let progress = p.bar_progress.clamp(0.0, 1.0);
+                let progress = p.bar_value(hud.host.time.get());
                 let circular = bar_materials.get(fill).ok().map(|m| m.0.clone());
                 if let Ok(mut node) = nodes.get_mut(fill) {
                     node.left = base.left;
