@@ -252,6 +252,17 @@ Ported from `client.dll`; `pf-game/src/cockpit_sway.rs` builds the cockpit's set
 - **`shadowglow` on fonts.**
 - **The rest of the screen:** minimap, objectives, damage indicators.
 
+## The script-run HUD (`PF_SCRIPT_HUD=1`)
+
+pf-game can run the client scripts and draw the helmet screen they build (`pf-game/src/script_hud.rs`); the hand-built screen above stays the default until this one matches.
+
+- **How the pilot HUD gets built:** `CockpitHudInit` takes the pilot path only if the cockpit's model is `models/weapons/arms/human_pov_cockpit.mdl` (`IsHumanCockpitModelName`); every pilot class's `.set` file gives that `cockpitmodel`. `PilotMainHud` → `Create_PilotHud` makes its **own** `vgui_fullscreen_pilot` screen (852/2 × 480/2, 208 units ahead of the cockpit's `CAMERA_BASE` attachment) and fills it; that copy is the one drawn.
+- **Drawn so far:** image panels, labels (localised, `%s1`… arguments, key names, `allcaps`, alignment and insets), straight and circular progress bars with their timed values. Not yet: segmented bars, the minimap, damage indicators, glow fonts.
+- **Progress bars** (client.dll 0x18041cc80, 0x18041c880): value = progress + rate × (now held between start and end − start), on game time, for the script source; then the remap: ((v − inLo) × 1/(inHi − inLo)) held to 0..1, × (outHi − outLo) + outLo, held to 0..1 (an empty in range gives outLo). `SetBarProgress` stops the motion; `SetBarProgressAndRate( v, rate )` runs for 1/|rate| s; `SetBarProgressOverTime( from, to, duration )` (no duration: `to` at once). Direction 0 left→right, 1 right→left, 2 bottom→top, 3 top→bottom (anything else 0). `SetBarSegmentInfo( gap, size )`: segment count = (length − 2·inset + gap) / (gap + size) (paint 0x18041bf50; painting not ported). Values from entities (PROGRESS_SOURCE_* 1–8) aren't ported yet.
+- `SetScaleX( s )`: image panels scale their image across; others take base width × s and their base height, cancelling `wide`. `WarpEnable`/`WarpDisable`: the panel's warp flag. `WarpGlobalSettings( xWarp, xScale, yWarp, yScale, viewDist )`: the warps held to 1–89° (NaN → 1), stored in radians.
+- **Checked against R1Delta** (`hip` pose, compare.py, 2026-10-20): everything sits 1–4% of the screen off, pulled in and up. The hand-built screen is within ~0.5%. The cause: the scripts resize `SafeArea` (`MainHud_InitAspectRatio`: 766 × 432), but pf-vgui doesn't redo pin-to-sibling layout afterwards, so panels pinned to it stay where they were first laid out. **Next:** port VGUI's pin layout from client.dll and run it as the game does.
+- **Stand-in state still differing from the reference shot:** the local team (reference Militia, ours IMC), the Titan meter (reference building, ours ready), the offhands and d-pad weapons (the host has no weapon entities yet).
+
 ## Animation controller
 
 vgui's `AnimationController` is linked into client.dll; HUD elements' `...OverTime` methods drive one global instance (0x1806b2c00). Ours: `pf-vgui/src/anim.rs`.

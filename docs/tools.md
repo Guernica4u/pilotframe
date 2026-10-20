@@ -15,6 +15,7 @@
   | `PF_DEV_FIRE=1` | hold fire |
   | `PF_DEV_TURN=<deg/s>` | turn by itself |
   | `PF_DEV_PITCH=<deg>` | hold the view at a pitch (up is positive) |
+  | `PF_SCRIPT_HUD=1` | draw the helmet screen the game's HUD scripts build, instead of the hand-built one (`PF_SCRIPT_HUD_DEBUG=1` also logs every panel once) |
   | `PF_REPLAY=game.csv` | headless: run a real-game movement recording's inputs through our movement (test map, or Colony with `PF_MAP=colony`) and write `game.ours.csv`, then exit |
 
   Running the exe directly needs `BEVY_ASSET_ROOT=crates/pf-game`.
@@ -57,6 +58,7 @@ These read decompiled code or game data, so they live in gitignored `Resources/r
   - `script_calls.py`: calls the scripts make that aren't found yet, per VM.
   - `include_graph.py`: which scripts each VM loads, in order.
   - `lang_survey.py`: which language features the scripts use.
+- **Client VM survey:** `cargo run -p pf-clientvm --release --example survey [map] [frames]` starts the client scripts from the install and lists every missing engine function and method. With `PF_DUMP_HUD=1` it also prints every HUD and screen panel after the frames run (`+` shown, `-` hidden; rectangle, colour, image, text, bar value).
 - **The script corpus:** `Resources/re/corpus/` (extracted with `PF_READ_SCRIPTS=1 pf-vpk extract … scripts/`), for these tools only.
 - **Full decompiles:** client.dll, engine.dll (33,277 functions) and launcher.dll (3,377), each under `Resources/re/full/<dll>/`.
 
