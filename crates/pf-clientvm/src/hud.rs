@@ -1335,6 +1335,8 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         ".nnnnn",
         Box::new(move |_, a| {
             let rad = |v: f32| {
+                // Not `clamp`: the game's tests send NaN to 1.
+                #[allow(clippy::manual_clamp)]
                 let v = if v < 1.0 {
                     1.0
                 } else if v > 89.0 {
