@@ -55,6 +55,8 @@ impl Host for SurveyHost {
                 signifier: "titan_cockpit".into(),
                 ent_index: 2,
                 team: 2,
+                // A pilot class's `cockpitmodel` (scripts/players/mp/*.set).
+                model: "models/weapons/arms/human_pov_cockpit.mdl".into(),
                 ..Default::default()
             });
         }

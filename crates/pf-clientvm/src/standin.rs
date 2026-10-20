@@ -73,5 +73,22 @@ impl ClientVm {
             self.standin_set_server_var("gameState", RemoteArg::Int(playing));
         }
         self.standin_set_server_var("gameStartTime", RemoteArg::Float(now));
+        // The end: now plus the mode's time limit in minutes, as the shared
+        // scripts' `GetTimeLimit_ForGameMode()` reads it from the playlist.
+        // (How the real server sets `gameEndTime` isn't in the PC scripts.)
+        let root = Value::Table(self.vm.root.clone());
+        let f = self
+            .vm
+            .try_get(&root, &Value::str("GetTimeLimit_ForGameMode"))
+            .ok()
+            .flatten();
+        let minutes = match f.map(|f| self.vm.call(&f, root.clone(), &[])) {
+            Some(Ok(Value::Int(n))) => Some(n as f32),
+            Some(Ok(Value::Float(x))) => Some(x),
+            _ => None,
+        };
+        if let Some(m) = minutes {
+            self.standin_set_server_var("gameEndTime", RemoteArg::Float(now + m * 60.0));
+        }
     }
 }

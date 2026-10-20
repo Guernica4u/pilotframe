@@ -53,6 +53,14 @@ impl Plugin for HudPlugin {
     }
 }
 
+/// The helmet screen's two flat UI layers (normal and `$additive`), for
+/// other modules to draw into.
+#[derive(Resource, Clone, Copy)]
+pub(crate) struct HelmetLayers {
+    pub normal: Entity,
+    pub additive: Entity,
+}
+
 /// An element's rectangle on the helmet screen.
 #[derive(Component)]
 struct HudBox(layout::Rect);
@@ -323,7 +331,7 @@ fn shows_bar(weapon: &WeaponScript) -> bool {
 /// The key bound to each command in the game's default PC key binds
 /// (`cfg/config_default_pc.cfg`), e.g. `+offhand1` -> `F`. The first key wins
 /// when a command has more than one.
-fn default_binds() -> HashMap<String, String> {
+pub(crate) fn default_binds() -> HashMap<String, String> {
     let text = crate::data::read_text("cfg/config_default_pc.cfg").unwrap_or_default();
     parse_binds(&text)
 }
@@ -345,7 +353,7 @@ fn parse_binds(text: &str) -> HashMap<String, String> {
 
 /// A label's `%command%` key-binding tokens replaced by their keys (`+name`
 /// first, then `name`), the way labels with key-binding icons show them.
-fn bind_text(text: &str, binds: &HashMap<String, String>) -> String {
+pub(crate) fn bind_text(text: &str, binds: &HashMap<String, String>) -> String {
     let mut parts = text.split('%');
     let mut out = parts.next().unwrap_or_default().to_string();
     let rest: Vec<&str> = parts.collect();
@@ -412,7 +420,7 @@ fn key_icon(key: &str) -> Option<(String, Rect, bool)> {
 
 /// Where a VGUI label puts its text in its box (`textAlignment`; labels
 /// default to `west`): (across, down).
-fn text_alignment(name: Option<&str>) -> (JustifyContent, AlignItems) {
+pub(crate) fn text_alignment(name: Option<&str>) -> (JustifyContent, AlignItems) {
     use {AlignItems as V, JustifyContent as H};
     match name.unwrap_or("west").to_ascii_lowercase().as_str() {
         "north-west" | "northwest" => (H::FlexStart, V::FlexStart),
@@ -451,7 +459,7 @@ fn load_res(path: &str) -> Option<kv::Node> {
 
 /// The English text for a `#TOKEN`, from `resource/r1_english.txt` (UTF-16).
 /// The file is read once and kept.
-fn localise(token: &str) -> String {
+pub(crate) fn localise(token: &str) -> String {
     // Bevy note: not Bevy at all; `OnceLock` is a static filled on first use.
     static TOKENS: std::sync::OnceLock<HashMap<String, String>> = std::sync::OnceLock::new();
     let tokens = TOKENS.get_or_init(|| {
@@ -481,13 +489,13 @@ fn localise(token: &str) -> String {
 }
 
 /// A scheme font: its file and its size (`tall`) in helmet-screen units.
-struct SchemeFont {
-    handle: Handle<Font>,
-    tall: f32,
+pub(crate) struct SchemeFont {
+    pub handle: Handle<Font>,
+    pub tall: f32,
 }
 
 /// The HUD fonts named in `hudscriptedscheme.res`, loaded from their `.vfont`s.
-fn load_fonts(fonts: &mut Assets<Font>) -> HashMap<String, SchemeFont> {
+pub(crate) fn load_fonts(fonts: &mut Assets<Font>) -> HashMap<String, SchemeFont> {
     let mut by_file: HashMap<String, Handle<Font>> = HashMap::new();
     let mut out = HashMap::new();
     let Some(scheme) = crate::data::read_text("resource/hudscriptedscheme.res")
@@ -543,7 +551,7 @@ fn color(v: Option<&str>) -> Color {
 }
 
 /// A HUD texture, and whether its material is `$additive`.
-fn hud_image(images: &mut Assets<Image>, name: &str) -> Option<(Handle<Image>, bool)> {
+pub(crate) fn hud_image(images: &mut Assets<Image>, name: &str) -> Option<(Handle<Image>, bool)> {
     let material = format!("vgui/{}", name.replace('\\', "/").to_ascii_lowercase());
     let loaded = pf_world::load_material(&material)?;
     let additive = loaded.additive;
@@ -585,7 +593,7 @@ fn hud_node(rect: &layout::Rect) -> Node {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn spawn(
+pub(crate) fn spawn(
     mut commands: Commands,
     time: Res<Time>,
     mut bar_materials: ResMut<Assets<CircularBar>>,
@@ -648,6 +656,10 @@ fn spawn(
             Pickable::IGNORE,
         ))
         .id();
+    commands.insert_resource(HelmetLayers {
+        normal: layers.normal,
+        additive: layers.additive,
+    });
     let layer = |additive: bool| {
         if additive {
             layers.additive
@@ -656,7 +668,14 @@ fn spawn(
         }
     };
 
-    for (name, fill) in elements(&loadout) {
+    // With the script-run HUD on, the scripts' panels fill the helmet
+    // screen instead (`crate::script_hud`).
+    let hand_built = if crate::script_hud::enabled() {
+        Vec::new()
+    } else {
+        elements(&loadout)
+    };
+    for (name, fill) in hand_built {
         let (Some(node), Some(rect)) = (root.get(&name), rects.get(&name.to_ascii_lowercase()))
         else {
             continue;

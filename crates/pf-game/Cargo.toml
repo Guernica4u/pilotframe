@@ -16,6 +16,8 @@ pf-world = { path = "../pf-world" }
 pf-fmt-mdl = { path = "../pf-fmt-mdl" }
 pf-fmt-vtf = { path = "../pf-fmt-vtf" }
 pf-fmt-ui = { path = "../pf-fmt-ui" }
+pf-clientvm = { path = "../pf-clientvm" }
+pf-vgui = { path = "../pf-vgui" }
 serde.workspace = true
 
 [lints]
