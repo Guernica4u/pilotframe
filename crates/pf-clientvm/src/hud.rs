@@ -1126,6 +1126,48 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
             Ok(Value::Null)
         }),
     );
+    // SetBaseSize( w, h ) (0x1804258f0): the new base size becomes the
+    // panel's size, and running wide and tall animations are cancelled.
+    let h2 = hud.clone();
+    add_checked(
+        "SetBaseSize",
+        3,
+        ".nn",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            let b = (int_at(a, 1) as f32, int_at(a, 2) as f32);
+            if let Some(e) = h2.borrow_mut().elements[i].as_mut() {
+                e.base_size = b;
+            }
+            with_panel(&h2, i, |p| (p.w, p.h) = b);
+            cancel(&h2, i, &[Var::Wide, Var::Tall]);
+            Ok(Value::Null)
+        }),
+    );
+    // RunAnimationCommand( var, value, delay, duration, interpolator, param )
+    // (0x180422120 -> controller 0x1806afc80): animate any panel variable by
+    // name to a number. The controller cancels a running one of that
+    // variable first (inside `anim.run`).
+    let h2 = hud.clone();
+    add_checked(
+        "RunAnimationCommand",
+        7,
+        ".snnnnn",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            let c = curve(int_at(a, 5))?;
+            let var = match &a[1] {
+                Value::Str(s) => Var::from_name(&s.to_string_lossy()),
+                _ => Var::from_name(""),
+            };
+            let mut h = h2.borrow_mut();
+            let panel = h.elements[i].as_ref().map(|e| e.panel).unwrap_or(0);
+            let end = [num_arg(a, 2), 0.0, 0.0, 0.0];
+            let (delay, dur, param) = (num_arg(a, 3), num_arg(a, 4), num_arg(a, 6));
+            h.anim.run(panel, var, end, delay, dur, c, param);
+            Ok(Value::Null)
+        }),
+    );
 
     // SetBarProgress( fraction ) (0x180420390): progress bars only.
     let h2 = hud.clone();
