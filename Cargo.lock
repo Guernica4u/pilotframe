@@ -4427,10 +4427,12 @@ version = "0.0.1"
 dependencies = [
  "bevy",
  "leafwing-input-manager",
+ "pf-clientvm",
  "pf-fmt-mdl",
  "pf-fmt-ui",
  "pf-fmt-vtf",
  "pf-movement",
+ "pf-vgui",
  "pf-world",
  "ron",
  "serde",

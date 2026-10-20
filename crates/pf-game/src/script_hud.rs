@@ -341,7 +341,7 @@ fn draw(
         return;
     };
     let all = place(ui, root);
-    if std::env::var_os("PF_SCRIPT_HUD_DEBUG").is_some() && hud.drawn.len() > 0 && !hud.debugged {
+    if std::env::var_os("PF_SCRIPT_HUD_DEBUG").is_some() && !hud.drawn.is_empty() && !hud.debugged {
         hud.debugged = true;
         for pl in &all {
             if let Some(p) = ui.panel(pl.id) {
