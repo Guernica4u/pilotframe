@@ -250,11 +250,21 @@ struct Placed {
     shown: bool,
 }
 
-/// Every panel under `root`, parents before children, in screen units.
+/// Every panel under `root`, parents before children, in screen units,
+/// where the game's layout puts it this frame (`Ui::solve`).
 fn place(ui: &Ui, root: PanelId) -> Vec<Placed> {
-    fn walk(ui: &Ui, id: PanelId, origin: Vec2, shown: bool, out: &mut Vec<Placed>) {
+    let solved = ui.solve();
+    fn walk(
+        ui: &Ui,
+        solved: &[(f32, f32)],
+        id: PanelId,
+        origin: Vec2,
+        shown: bool,
+        out: &mut Vec<Placed>,
+    ) {
         let Some(p) = ui.panel(id) else { return };
-        let min = origin + Vec2::new(p.x, p.y);
+        let (x, y) = solved.get(id).copied().unwrap_or_default();
+        let min = origin + Vec2::new(x, y);
         let shown = shown && p.visible;
         out.push(Placed {
             id,
@@ -262,11 +272,11 @@ fn place(ui: &Ui, root: PanelId) -> Vec<Placed> {
             shown,
         });
         for &c in &p.children {
-            walk(ui, c, min, shown, out);
+            walk(ui, solved, c, min, shown, out);
         }
     }
     let mut out = Vec::new();
-    walk(ui, root, Vec2::ZERO, true, &mut out);
+    walk(ui, &solved, root, Vec2::ZERO, true, &mut out);
     out
 }
 

@@ -27,7 +27,7 @@
 
 These read decompiled code or game data, so they live in gitignored `Resources/re/scripts/`:
 
-- **`DecompileAll.java`** (Ghidra headless): decompiles every function of a DLL into `Resources/re/full/<dll>/functions_NNN.c` with an `index.tsv`. client.dll (38,284 functions) takes about 15 minutes.
+- **`DecompileAll.java`** (Ghidra headless): decompiles every function of a DLL into `Resources/re/full/<dll>/functions_NNN.c` with an `index.tsv`. client.dll (38,284 functions) takes about 15 minutes. Done so far: client, engine, launcher, vgui2 (the VGUI panel layout; 2026-10-20). Run it with `JAVA_HOME` set to the JDK under `C:\Users\Guern\Tools`, and from the main checkout's path: Ghidra refuses paths with a folder starting with `.` (the worktrees' `.claude`).
 - **`fn.py`**: looks things up in that decompile, in about a second.
   - `python -I fn.py client <addr>` prints the function at an address.
   - `-s "<text>"` lists the functions containing a string.

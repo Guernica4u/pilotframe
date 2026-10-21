@@ -196,15 +196,24 @@ fn main() {
         }
         for (label, root) in roots {
             println!("== {label} ==");
-            dump(ui, root, 0.0, 0.0, true, 0);
+            dump(ui, &ui.solve(), root, 0.0, 0.0, true, 0);
         }
     }
 }
 
-fn dump(ui: &pf_vgui::Ui, id: usize, ox: f32, oy: f32, shown: bool, depth: usize) {
+fn dump(
+    ui: &pf_vgui::Ui,
+    solved: &[(f32, f32)],
+    id: usize,
+    ox: f32,
+    oy: f32,
+    shown: bool,
+    depth: usize,
+) {
     let Some(p) = ui.panel(id) else { return };
     let shown = shown && p.visible;
-    let (x, y) = (ox + p.x, oy + p.y);
+    let (sx, sy) = solved.get(id).copied().unwrap_or_default();
+    let (x, y) = (ox + sx, oy + sy);
     let mut what = String::new();
     if let Some(i) = &p.image {
         what += &format!(" image={i}");
@@ -227,6 +236,6 @@ fn dump(ui: &pf_vgui::Ui, id: usize, ox: f32, oy: f32, shown: bool, depth: usize
         p.panel_alpha,
     );
     for &c in &p.children {
-        dump(ui, c, x, y, shown, depth + 1);
+        dump(ui, solved, c, x, y, shown, depth + 1);
     }
 }
