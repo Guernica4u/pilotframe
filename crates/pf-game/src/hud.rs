@@ -124,15 +124,20 @@ const FRIENDLY_TEAM_ICON: &str = "../ui/scoreboard_mcorp_logo";
 
 /// A value from the first playlist's `vars` (`playlists.txt`).
 fn playlist_var(key: &str) -> Option<f32> {
+    playlist_text(key)?.trim().parse().ok()
+}
+
+/// A value from the first playlist's `vars` (`playlists.txt`), as written.
+pub(crate) fn playlist_text(key: &str) -> Option<String> {
     let text = crate::data::read_text("playlists.txt")?;
     let root = kv::parse(&text).nodes.into_iter().next()?;
     let vars = root.get("rotation")?.get("vars")?;
-    vars.text(key)?.trim().parse().ok()
+    vars.text(key).map(str::to_string)
 }
 
 /// The playlist's `titan_build_time` (`playlists.txt`, the first playlist's
 /// `vars`); the script's own default is 340.
-fn titan_build_time() -> f32 {
+pub(crate) fn titan_build_time() -> f32 {
     playlist_var("titan_build_time").unwrap_or(340.0)
 }
 
@@ -382,7 +387,7 @@ pub(crate) fn bind_text(text: &str, binds: &HashMap<String, String>) -> String {
 /// (keys of one or two letters, and `;` `'` `,` `.`) or `icon_key_wide`, with
 /// the key's name on top. Returns the sprite's file, its rectangle in pixels,
 /// and whether the key's name is drawn on it.
-fn key_icon(key: &str) -> Option<(String, Rect, bool)> {
+pub(crate) fn key_icon(key: &str) -> Option<(String, Rect, bool)> {
     let upper = key.to_ascii_uppercase();
     let (sprite, text) = match upper.as_str() {
         "MOUSE1" => ("icon_mouseLeft", false),
@@ -1151,6 +1156,7 @@ mod tests {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
+            ..Default::default()
         };
         assert!(!shows_bar(&weapon(&[("fire_mode", "offhand")])));
         assert!(shows_bar(&weapon(&[

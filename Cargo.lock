@@ -4432,6 +4432,7 @@ dependencies = [
  "pf-fmt-ui",
  "pf-fmt-vtf",
  "pf-movement",
+ "pf-squirrel",
  "pf-vgui",
  "pf-world",
  "ron",

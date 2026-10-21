@@ -77,6 +77,10 @@ fn parse_preset(text: &str, name: &str) -> Option<Loadout> {
 #[derive(Clone, Debug, Default)]
 pub struct WeaponScript {
     pub values: HashMap<String, String>,
+    /// The mods the file defines (as spelled there, in its order), and the
+    /// ones applied (lowercased).
+    pub mods_defined: Vec<String>,
+    pub mods_active: Vec<String>,
 }
 
 impl WeaponScript {
@@ -93,16 +97,25 @@ impl WeaponScript {
         };
         let mut values: HashMap<String, String> = texts(&root).collect();
         let defined = root.get("Mods");
+        let mods_defined: Vec<String> = defined
+            .map(|d| d.children().iter().map(|n| n.key.clone()).collect())
+            .unwrap_or_default();
+        let mut mods_active = Vec::new();
         for m in mods {
             let Some(block) = defined.and_then(|d| d.get(m)) else {
                 continue;
             };
+            mods_active.push(m.to_ascii_lowercase());
             for (key, value) in texts(block) {
                 let new = apply_mod(values.get(&key).map(String::as_str), &value);
                 values.insert(key, new);
             }
         }
-        Self { values }
+        Self {
+            values,
+            mods_defined,
+            mods_active,
+        }
     }
 
     pub fn text(&self, key: &str) -> Option<&str> {

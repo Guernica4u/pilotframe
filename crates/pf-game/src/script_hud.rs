@@ -8,9 +8,12 @@
 //! until then the hand-built helmet screen (`crate::hud`) is the default.
 //!
 //! Stand-ins (ours, marked): there is no server yet, so the game state comes
-//! from `pf-clientvm`'s stand-in server (the match playing, Attrition, the
-//! local pilot on IMC), and every persistent variable reads 0. The weapon
-//! the HUD shows is the viewmodel's.
+//! from `pf-clientvm`'s stand-in server (the match playing, Attrition) and
+//! from here: the local pilot on the Militia (as in the R1Delta reference
+//! shots), carrying the game's first preset loadout as weapon entities, with
+//! the first Titan building from the match's start for the playlist's
+//! `titan_build_time`. Every persistent variable reads 0. The active
+//! weapon's ammo is the viewmodel's.
 //!
 //! Bevy note: the VM uses `Rc`, so it can't move between threads; it lives
 //! in a *non-send* resource, which Bevy only hands to systems on the main
@@ -24,13 +27,14 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use pf_clientvm::autotext::WeaponHud;
 use pf_clientvm::persistence::PersistenceDef;
-use pf_clientvm::{ClientVm, EntityId, EntityInfo, Host, PersistentValue};
+use pf_clientvm::{ClientVm, EntityId, EntityInfo, FieldValue, Host, PersistentValue};
 use pf_vgui::{Control, PanelId, Ui};
 
 use crate::Screen;
 use crate::hud::{self, HelmetLayers, SchemeFont};
 use crate::hudbar::CircularBar;
 use crate::hudwarp::PIXELS_PER_UNIT;
+use crate::loadout::{DEFAULT_PRESET, Loadout, WeaponScript};
 use crate::viewmodel::Viewmodel;
 
 /// The helmet screen the scripts fill.
@@ -39,6 +43,45 @@ const PILOT_SCREEN: &str = "vgui_fullscreen_pilot";
 /// The local player and its cockpit, as the stand-in game numbers them.
 const PLAYER: EntityId = 1;
 const COCKPIT: EntityId = 2;
+/// The loadout's weapons: main slots (primary, anti-Titan, sidearm), then
+/// the offhands (slot 0 the ordnance, slot 1 the special ability).
+const WEAPONS: EntityId = 10;
+/// Stand-in team: the Militia (`TEAM_MILITIA`).
+const TEAM: i32 = 3;
+
+/// A weapon the stand-in pilot carries: its file as written and with its
+/// mods (the attachment, the passives) applied.
+struct GameWeapon {
+    name: String,
+    raw: WeaponScript,
+    modded: WeaponScript,
+}
+
+/// The preset loadout's weapons, in `WEAPONS` order.
+fn loadout_weapons() -> Vec<GameWeapon> {
+    let loadout = Loadout::preset(DEFAULT_PRESET).unwrap_or_default();
+    let passives: Vec<&str> = loadout.passives.iter().map(String::as_str).collect();
+    let mut primary_mods = passives.clone();
+    if let Some(a) = &loadout.primary_attachment {
+        primary_mods.insert(0, a);
+    }
+    [
+        (&loadout.primary, primary_mods),
+        (&loadout.secondary, passives.clone()),
+        (&loadout.sidearm, passives.clone()),
+        (&loadout.ordnance, passives.clone()),
+        (&loadout.special, passives.clone()),
+    ]
+    .into_iter()
+    .filter_map(|(name, mods)| {
+        Some(GameWeapon {
+            name: name.clone(),
+            raw: WeaponScript::load(name, &[])?,
+            modded: WeaponScript::load(name, &mods)?,
+        })
+    })
+    .collect()
+}
 
 /// Whether the script-run HUD is on (`PF_SCRIPT_HUD`).
 pub fn enabled() -> bool {
@@ -72,7 +115,17 @@ struct GameHost {
     frame_time: Cell<f32>,
     screen: Cell<(i32, i32)>,
     weapon: RefCell<Option<WeaponHud>>,
+    weapons: Vec<GameWeapon>,
+    /// The first Titan's build time (`GetTitanBuildTime`).
+    titan_build: f32,
     pdef: Rc<PersistenceDef>,
+}
+
+impl GameHost {
+    fn weapon(&self, id: EntityId) -> Option<&GameWeapon> {
+        let i = id.checked_sub(WEAPONS)? as usize;
+        self.weapons.get(i)
+    }
 }
 
 impl Host for GameHost {
@@ -102,8 +155,18 @@ impl Host for GameHost {
                 classname: "titan_cockpit".into(),
                 signifier: "titan_cockpit".into(),
                 ent_index: 2,
-                team: 2,
+                team: TEAM,
                 model: self.cockpit_model.clone(),
+                ..Default::default()
+            });
+        }
+        if let Some(w) = self.weapon(id) {
+            return Some(EntityInfo {
+                script_class: "C_WeaponX".into(),
+                classname: w.name.clone(),
+                signifier: "weapon".into(),
+                ent_index: id as i32,
+                team: TEAM,
                 ..Default::default()
             });
         }
@@ -112,13 +175,106 @@ impl Host for GameHost {
             classname: "player".into(),
             signifier: "player".into(),
             ent_index: 1,
-            team: 2,
+            team: TEAM,
             health: 200,
             max_health: 200,
             is_player: true,
             cockpit: Some(COCKPIT),
+            // Building since the match started (game time 0).
+            next_titan_respawn_available: self.titan_build,
             ..Default::default()
         })
+    }
+    fn entity_field(&self, id: EntityId, method: &str) -> Option<FieldValue> {
+        (id == PLAYER && method == "GetTitanBuildTime")
+            .then_some(FieldValue::Float(self.titan_build))
+    }
+    fn entities(&self) -> Vec<EntityId> {
+        let mut ids = vec![PLAYER, COCKPIT];
+        ids.extend((0..self.weapons.len()).map(|i| WEAPONS + i as EntityId));
+        ids
+    }
+    fn main_weapons(&self, player: EntityId) -> Vec<EntityId> {
+        if player != PLAYER {
+            return Vec::new();
+        }
+        (0..self.weapons.len().min(3))
+            .map(|i| WEAPONS + i as EntityId)
+            .collect()
+    }
+    fn offhand_weapon_entity(&self, player: EntityId, slot: i32) -> Option<EntityId> {
+        let id = WEAPONS + 3 + slot as EntityId;
+        (player == PLAYER && (0..2).contains(&slot) && self.weapon(id).is_some()).then_some(id)
+    }
+    /// An offhand's HUD numbers: a full clip, nothing spent yet.
+    fn offhand_weapon(&self, slot: usize) -> Option<WeaponHud> {
+        let id = WEAPONS + 3 + slot as EntityId;
+        let w = self.weapon(id)?;
+        let text = |k: &str| w.modded.text(k).unwrap_or_default().to_string();
+        let clip = w.modded.num("ammo_clip_size").unwrap_or(0.0) as i32;
+        Some(WeaponHud {
+            id,
+            print_name: text("printname"),
+            short_print_name: text("shortprintname"),
+            clip_ammo: clip,
+            clip_size: clip,
+            reserve_ammo: 0,
+        })
+    }
+    fn weapon_info_field(&self, weapon: EntityId, key: &str) -> Option<String> {
+        self.weapon(weapon)?.raw.text(key).map(str::to_string)
+    }
+    fn weapon_mod_defined(&self, weapon: EntityId, name: &str) -> bool {
+        self.weapon(weapon).is_some_and(|w| {
+            w.modded
+                .mods_defined
+                .iter()
+                .any(|m| m.eq_ignore_ascii_case(name))
+        })
+    }
+    /// The active weapon's clip is the viewmodel's; the rest are full.
+    fn weapon_clip_ammo(&self, weapon: EntityId) -> i32 {
+        if let Some(w) = self.weapon.borrow().as_ref().filter(|w| w.id == weapon) {
+            return w.clip_ammo;
+        }
+        self.weapon(weapon)
+            .and_then(|w| w.modded.num("ammo_clip_size"))
+            .unwrap_or(0.0) as i32
+    }
+    fn weapon_mods(&self, weapon: EntityId) -> Vec<String> {
+        let Some(w) = self.weapon(weapon) else {
+            return Vec::new();
+        };
+        w.modded
+            .mods_defined
+            .iter()
+            .filter(|m| w.modded.mods_active.contains(&m.to_ascii_lowercase()))
+            .cloned()
+            .collect()
+    }
+    fn weapon_mod_active(&self, weapon: EntityId, name: &str) -> bool {
+        let name = name.to_ascii_lowercase();
+        self.weapon(weapon)
+            .is_some_and(|w| w.modded.mods_active.contains(&name))
+    }
+    fn weapon_mod_setting(&self, weapon: EntityId, key: &str) -> Option<String> {
+        self.weapon(weapon)?.modded.text(key).map(str::to_string)
+    }
+    /// Stand-in team names: the game's own localization tokens (the server
+    /// names the teams in the real game).
+    fn team(&self, index: i32) -> pf_clientvm::TeamInfo {
+        let name = match index {
+            2 => "#TEAM_IMC",
+            3 => "#TEAM_MCOR",
+            _ => "",
+        };
+        pf_clientvm::TeamInfo {
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+    fn playlist_var(&self, name: &str) -> Option<String> {
+        hud::playlist_text(name)
     }
     fn players(&self) -> Vec<EntityId> {
         vec![PLAYER]
@@ -161,6 +317,8 @@ struct Drawn {
     main: Entity,
     /// A label's text, or a bar's fill.
     inner: Option<Entity>,
+    /// A key-binding label's key cap.
+    cap: Option<Entity>,
     /// The image (or bar image) it was made with; a change remakes it.
     made_with: Option<String>,
 }
@@ -189,10 +347,42 @@ fn start(world: &mut World) {
         frame_time: Cell::new(1.0 / 60.0),
         screen: Cell::new(window),
         weapon: RefCell::new(None),
+        weapons: loadout_weapons(),
+        titan_build: hud::titan_build_time().max(1.0),
         pdef: Rc::new(pdef),
     });
     let mut cvm = ClientVm::new(host.clone());
     cvm.vm.out = Box::new(|s| eprint!("{s}"));
+    // PF_SCRIPT_HUD_DEBUG: log each engine function or method the scripts
+    // use that isn't ported yet, once, and stand in a function returning
+    // null so the run goes on (as pf-clientvm's survey does).
+    if std::env::var_os("PF_SCRIPT_HUD_DEBUG").is_some() {
+        let seen = Rc::new(RefCell::new(std::collections::HashSet::new()));
+        let h = host.clone();
+        cvm.vm.missing_hook = Some(Box::new(move |obj, key| {
+            let pf_squirrel::Value::Str(k) = key else {
+                return None;
+            };
+            let k = k.to_string_lossy();
+            let name = match obj {
+                pf_squirrel::Value::Instance(_) => format!(
+                    "{}.{k}",
+                    pf_clientvm::entities::entity_id(obj)
+                        .and_then(|id| h.entity(id))
+                        .map(|e| e.script_class)
+                        .unwrap_or_default()
+                ),
+                pf_squirrel::Value::Table(_) => k.clone(),
+                _ => return None,
+            };
+            if seen.borrow_mut().insert(name.clone()) {
+                warn!("script HUD: missing {name}");
+            }
+            Some(pf_squirrel::native(&k, 0, |_, _| {
+                Ok(pf_squirrel::Value::Null)
+            }))
+        }));
+    }
     if let Err(e) = cvm.start() {
         error!("client scripts' start-up failed: {e}");
         return;
@@ -223,7 +413,7 @@ fn feed(time: Res<Time>, hud: Option<NonSend<ScriptHud>>, weapon: Option<Single<
     hud.host.time.set(time.elapsed_secs() - hud.start);
     hud.host.frame_time.set(time.delta_secs());
     *hud.host.weapon.borrow_mut() = weapon.map(|w| WeaponHud {
-        id: 0,
+        id: WEAPONS,
         print_name: w.short_name().to_string(),
         short_print_name: w.short_name().to_string(),
         clip_ammo: w.ammo() as i32,
@@ -374,9 +564,16 @@ fn draw(
         };
         let alpha = p.panel_alpha / 255.0;
         // The image this panel draws with: an image panel's, a bar's fill.
+        // A label with key-binding icons on (`EnableKeyBindingIcons`) is
+        // drawn as the key's cap, remade when the key changes.
+        let key_icons = p
+            .element
+            .and_then(|e| state.elements.get(e)?.as_ref())
+            .is_some_and(|e| e.key_binding_icons);
         let image_name = match p.control {
             Control::ImagePanel => p.image.clone(),
             Control::ProgressBar => p.settings.text("fg_image").map(str::to_string),
+            Control::Label if key_icons => Some(format!("key:{}", label_text(p, &hud.binds))),
             _ => None,
         };
         // Remake it if its image changed (the layer may differ).
@@ -430,10 +627,17 @@ fn draw(
                     && let Ok((mut text, mut color)) = texts.get_mut(inner)
                 {
                     let t = label_text(p, &hud.binds);
-                    if text.0 != t {
+                    // A key cap's text is the key, set when it was made.
+                    if !key_icons && text.0 != t {
                         text.0 = t;
                     }
                     color.0 = rgba(p.fg_color, alpha);
+                }
+                if key_icons
+                    && let Some(cap) = d.cap
+                    && let Ok(mut i) = image_nodes.get_mut(cap)
+                {
+                    i.color = Color::srgba(1.0, 1.0, 1.0, p.fg_color[3] as f32 / 255.0 * alpha);
                 }
             }
             Control::ProgressBar => {
@@ -526,6 +730,7 @@ fn make(
             Some(Drawn {
                 main,
                 inner: None,
+                cap: None,
                 made_with: image_name,
             })
         }
@@ -535,8 +740,14 @@ fn make(
                 .clone()
                 .or_else(|| p.settings.text("font").map(str::to_string))
                 .map(|f| f.to_ascii_lowercase());
-            let font = font_name.as_ref().and_then(|f| hud.fonts.get(f));
-            let tall = font.map_or(12.0, |f| f.tall);
+            let font = font_name
+                .as_ref()
+                .and_then(|f| hud.fonts.get(f))
+                .map(|f| SchemeFont {
+                    handle: f.handle.clone(),
+                    tall: f.tall,
+                });
+            let tall = font.as_ref().map_or(12.0, |f| f.tall);
             let (across, down) = hud::text_alignment(p.settings.text("textAlignment"));
             let main = commands
                 .spawn((
@@ -563,6 +774,67 @@ fn make(
                 _ => 0.0,
             };
             let right = across == JustifyContent::FlexEnd;
+            // Key-binding icons (the text image's paint, client.dll
+            // 0x180726870; as the hand-built screen draws them): the key cap
+            // is 1.5 × the font's height, as wide as its sprite's shape, with
+            // the key's name centred on it, shrunk to fit the cap less one
+            // character's share of padding.
+            let key = image_name.as_deref().and_then(|n| n.strip_prefix("key:"));
+            if let Some(key) = key
+                && let Some((file, sprite, with_text)) = hud::key_icon(key)
+                && let Some((cap_image, _)) = image(hud, images, &file)
+            {
+                let height = 1.5 * tall * PIXELS_PER_UNIT;
+                let width = sprite.width() / sprite.height() * height;
+                let cap = commands
+                    .spawn((
+                        Node {
+                            left: Val::Px(inset_x),
+                            top: Val::Px(inset("textinsety")),
+                            width: Val::Px(width),
+                            height: Val::Px(height),
+                            flex_shrink: 0.0,
+                            display: Display::Flex,
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        ImageNode {
+                            rect: Some(sprite),
+                            ..ImageNode::new(cap_image)
+                        },
+                        ChildOf(main),
+                    ))
+                    .id();
+                let mut inner = None;
+                if with_text {
+                    // Glyph widths aren't measured: about 0.6 of the font's
+                    // height each.
+                    let chars = key.chars().count().max(1) as f32;
+                    let text_width = chars * 0.6 * tall * PIXELS_PER_UNIT;
+                    let fit = (width / (text_width / chars + text_width)).min(1.0);
+                    let mut t = commands.spawn((
+                        Text::new(key.to_string()),
+                        TextColor(Color::NONE),
+                        TextLayout::justify(Justify::Center).with_no_wrap(),
+                        ChildOf(cap),
+                    ));
+                    if let Some(f) = &font {
+                        t.insert(TextFont {
+                            font: FontSource::Handle(f.handle.clone()),
+                            font_size: FontSize::Px(tall * PIXELS_PER_UNIT * fit),
+                            ..default()
+                        });
+                    }
+                    inner = Some(t.id());
+                }
+                return Some(Drawn {
+                    main,
+                    inner,
+                    cap: Some(cap),
+                    made_with: image_name,
+                });
+            }
             let mut text = commands.spawn((
                 Node {
                     left: Val::Px(inset_x),
@@ -575,7 +847,7 @@ fn make(
                     .with_no_wrap(),
                 ChildOf(main),
             ));
-            if let Some(f) = font {
+            if let Some(f) = &font {
                 text.insert(TextFont {
                     font: FontSource::Handle(f.handle.clone()),
                     font_size: FontSize::Px(tall * PIXELS_PER_UNIT),
@@ -586,6 +858,7 @@ fn make(
             Some(Drawn {
                 main,
                 inner: Some(inner),
+                cap: None,
                 made_with: image_name,
             })
         }
@@ -624,6 +897,7 @@ fn make(
             Some(Drawn {
                 main,
                 inner,
+                cap: None,
                 made_with: image_name,
             })
         }

@@ -15,7 +15,7 @@
   | `PF_DEV_FIRE=1` | hold fire |
   | `PF_DEV_TURN=<deg/s>` | turn by itself |
   | `PF_DEV_PITCH=<deg>` | hold the view at a pitch (up is positive) |
-  | `PF_SCRIPT_HUD=1` | draw the helmet screen the game's HUD scripts build, instead of the hand-built one (`PF_SCRIPT_HUD_DEBUG=1` also logs every panel once) |
+  | `PF_SCRIPT_HUD=1` | draw the helmet screen the game's HUD scripts build, instead of the hand-built one (`PF_SCRIPT_HUD_DEBUG=1` also logs every panel once, and each engine function or method the scripts use that isn't ported yet, standing in null as the survey does) |
   | `PF_REPLAY=game.csv` | headless: run a real-game movement recording's inputs through our movement (test map, or Colony with `PF_MAP=colony`) and write `game.ours.csv`, then exit |
 
   Running the exe directly needs `BEVY_ASSET_ROOT=crates/pf-game`.

@@ -18,6 +18,7 @@ pf-fmt-vtf = { path = "../pf-fmt-vtf" }
 pf-fmt-ui = { path = "../pf-fmt-ui" }
 pf-clientvm = { path = "../pf-clientvm" }
 pf-vgui = { path = "../pf-vgui" }
+pf-squirrel = { path = "../pf-squirrel" }
 serde.workspace = true
 
 [lints]

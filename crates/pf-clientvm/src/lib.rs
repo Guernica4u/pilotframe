@@ -239,11 +239,46 @@ pub trait Host {
         let _ = (player, slot);
         None
     }
-    /// The player's ordnance: client.dll (0x18001c280) takes the first of
-    /// the four main weapon slots holding an ordnance-type weapon the
-    /// player can use.
-    fn ordnance_weapon(&self, player: EntityId) -> Option<EntityId> {
+    /// The weapons in a player's four main weapon slots, in slot order.
+    fn main_weapons(&self, player: EntityId) -> Vec<EntityId> {
         let _ = player;
+        Vec::new()
+    }
+    /// A weapon's value for `key` in its weapon file's `WeaponData` block,
+    /// as written (no mods), or None if the file doesn't have it.
+    fn weapon_info_field(&self, weapon: EntityId, key: &str) -> Option<String> {
+        let _ = (weapon, key);
+        None
+    }
+    /// Whether a weapon's file defines a mod by this name (`Mods` block).
+    fn weapon_mod_defined(&self, weapon: EntityId, name: &str) -> bool {
+        let _ = (weapon, name);
+        false
+    }
+    /// Whether a mod is active on a weapon.
+    fn weapon_mod_active(&self, weapon: EntityId, name: &str) -> bool {
+        let _ = (weapon, name);
+        false
+    }
+    /// The mods active on a weapon, in the order its file defines them and
+    /// spelled as there.
+    fn weapon_mods(&self, weapon: EntityId) -> Vec<String> {
+        let _ = weapon;
+        Vec::new()
+    }
+    /// The ammo loaded in a weapon's clip.
+    fn weapon_clip_ammo(&self, weapon: EntityId) -> i32 {
+        let _ = weapon;
+        0
+    }
+    /// When a weapon may next fire (game time); 0 if it never fired.
+    fn weapon_next_attack_time(&self, weapon: EntityId) -> f32 {
+        let _ = weapon;
+        0.0
+    }
+    /// A weapon's current value for a setting, with its mods applied.
+    fn weapon_mod_setting(&self, weapon: EntityId, key: &str) -> Option<String> {
+        let _ = (weapon, key);
         None
     }
     /// Where the player's aim crosses the screen, as fractions of its size
