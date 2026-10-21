@@ -23,6 +23,7 @@ mod matproxy;
 mod player;
 mod recoil;
 mod replay;
+mod script_hud;
 mod self_illum;
 mod settings;
 mod shell;
@@ -73,6 +74,7 @@ fn main() {
             player::PlayerPlugin,
             viewmodel::ViewmodelPlugin,
             hud::HudPlugin,
+            script_hud::ScriptHudPlugin,
             shell::ShellPlugin,
             dev::DevPlugin,
         ))

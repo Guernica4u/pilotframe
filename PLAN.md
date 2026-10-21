@@ -23,6 +23,9 @@ The **EA install, final patch v1.0.10.1** (locally `Resources/titan fall/.../tit
 
 ## Roadmap
 
+**On hold (owner, 2026-10-21):** paused until the owner says to restart. Where it stopped: the script-run HUD () matches the R1Delta hip shot; progress-bar entity sources (PROGRESS_SOURCE 1–8) are ported in pf-clientvm but the game host doesn't answer the weapon charge, ready-to-fire and stockpile queries yet, so the cloak's charge bar is still unchecked.
+
+
 Order set by the owner (2026-10-14): **gameplay perfected first**, then maps, then menus, then the complicated systems. Step numbers are names, not order (branches use them); the table is in working order.
 
 **Why the script engine leads phase 1:** in Titanfall the HUD, minimap, menus and what each weapon does when fired are Squirrel scripts, not engine code. Hand-building those would be thrown away once the scripts run. The engine-side parts (bullet traces, sound playback, animation, effects) are ported from client.dll alongside.

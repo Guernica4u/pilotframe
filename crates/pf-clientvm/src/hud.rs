@@ -67,6 +67,8 @@ pub struct HudState {
     pub auto_text_order: Vec<usize>,
     /// `Crosshair_SetState` (CROSSHAIR_STATE_*).
     pub crosshair_state: i32,
+    /// `WarpGlobalSettings` (client.dll 0x1804256a0).
+    pub warp_global: Option<WarpSettings>,
     pub elements: Vec<Option<Element>>,
     class: Option<Ref<Class>>,
     /// Screen entity → its screen in `ui`, and the element of its root.
@@ -74,6 +76,17 @@ pub struct HudState {
 }
 
 pub type SharedHud = Rc<RefCell<HudState>>;
+
+/// The HUD's global spherical warp: x and y warp in radians (each held to
+/// 1°–89° first), the scales, the view distance.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WarpSettings {
+    pub x_warp: f32,
+    pub x_scale: f32,
+    pub y_warp: f32,
+    pub y_scale: f32,
+    pub view_dist: f32,
+}
 
 fn element_index(v: &Value) -> Option<usize> {
     crate::classes::user_of::<HudHandle>(v).map(|h| h.0)
@@ -216,6 +229,7 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         anim: Controller::default(),
         auto_text_order: Vec::new(),
         crosshair_state: 0,
+        warp_global: None,
         elements: Vec::new(),
         class: None,
         screens: Vec::new(),
@@ -1126,6 +1140,48 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
             Ok(Value::Null)
         }),
     );
+    // SetBaseSize( w, h ) (0x1804258f0): the new base size becomes the
+    // panel's size, and running wide and tall animations are cancelled.
+    let h2 = hud.clone();
+    add_checked(
+        "SetBaseSize",
+        3,
+        ".nn",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            let b = (int_at(a, 1) as f32, int_at(a, 2) as f32);
+            if let Some(e) = h2.borrow_mut().elements[i].as_mut() {
+                e.base_size = b;
+            }
+            with_panel(&h2, i, |p| (p.w, p.h) = b);
+            cancel(&h2, i, &[Var::Wide, Var::Tall]);
+            Ok(Value::Null)
+        }),
+    );
+    // RunAnimationCommand( var, value, delay, duration, interpolator, param )
+    // (0x180422120 -> controller 0x1806afc80): animate any panel variable by
+    // name to a number. The controller cancels a running one of that
+    // variable first (inside `anim.run`).
+    let h2 = hud.clone();
+    add_checked(
+        "RunAnimationCommand",
+        7,
+        ".snnnnn",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            let c = curve(int_at(a, 5))?;
+            let var = match &a[1] {
+                Value::Str(s) => Var::from_name(&s.to_string_lossy()),
+                _ => Var::from_name(""),
+            };
+            let mut h = h2.borrow_mut();
+            let panel = h.elements[i].as_ref().map(|e| e.panel).unwrap_or(0);
+            let end = [num_arg(a, 2), 0.0, 0.0, 0.0];
+            let (delay, dur, param) = (num_arg(a, 3), num_arg(a, 4), num_arg(a, 6));
+            h.anim.run(panel, var, end, delay, dur, c, param);
+            Ok(Value::Null)
+        }),
+    );
 
     // SetBarProgress( fraction ) (0x180420390): progress bars only.
     let h2 = hud.clone();
@@ -1147,16 +1203,161 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
                 )));
             }
             p.bar_progress = v;
+            (p.bar_rate, p.bar_start, p.bar_end) = (0.0, 0.0, 0.0);
             Ok(Value::Null)
         }),
     );
-    let h2 = hud.clone();
+    // GetBarProgress (0x1804204e0): the value as drawn, remap included.
+    let (h2, host) = (hud.clone(), cvm.host.clone());
     add(
         "GetBarProgress",
         1,
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
-            Ok(Value::Float(read_panel(&h2, i, |p| p.bar_progress)))
+            let now = host.time();
+            let bar = read_panel(&h2, i, |p| p.bar.clone());
+            let source = bar_source_value(&*host, &bar);
+            Ok(Value::Float(read_panel(&h2, i, |p| {
+                p.bar_value_from(now, source)
+            })))
+        }),
+    );
+    // SetBarProgressAndRate( value, rate ) (0x1804203f0 -> 0x18041b8c0):
+    // moves at `rate` per second for 1 / |rate| seconds.
+    let (h2, host) = (hud.clone(), cvm.host.clone());
+    add_checked(
+        "SetBarProgressAndRate",
+        3,
+        ".nn",
+        Box::new(move |_, a| {
+            let (v, rate, now) = (num_arg(a, 1), num_arg(a, 2), host.time());
+            bar_call(&h2, a, |p| {
+                p.bar_progress = v;
+                p.bar_rate = rate;
+                if rate == 0.0 {
+                    (p.bar_start, p.bar_end) = (0.0, 0.0);
+                } else {
+                    p.bar_start = now;
+                    p.bar_end = 1.0 / rate.abs() + now;
+                }
+            })
+        }),
+    );
+    // SetBarProgressOverTime( from, to, duration ) (0x180420460 ->
+    // 0x18041b930): no duration sets `to` at once.
+    let (h2, host) = (hud.clone(), cvm.host.clone());
+    add_checked(
+        "SetBarProgressOverTime",
+        4,
+        ".nnn",
+        Box::new(move |_, a| {
+            let (from, to, dur) = (num_arg(a, 1), num_arg(a, 2), num_arg(a, 3));
+            let now = host.time();
+            bar_call(&h2, a, |p| {
+                if dur <= 0.0 {
+                    p.bar_progress = to;
+                    (p.bar_rate, p.bar_start, p.bar_end) = (0.0, 0.0, 0.0);
+                } else {
+                    p.bar_progress = from;
+                    p.bar_rate = (to - from) / dur;
+                    p.bar_start = now;
+                    p.bar_end = now + dur;
+                }
+            })
+        }),
+    );
+    // SetBarProgressDirection( n ) (0x180420660): 0–3, anything else 0.
+    let h2 = hud.clone();
+    add_checked(
+        "SetBarProgressDirection",
+        2,
+        ".n",
+        Box::new(move |_, a| {
+            let d = int_at(a, 1);
+            bar_call(&h2, a, |p| {
+                p.bar_direction = if (0..=3).contains(&d) { d } else { 0 }
+            })
+        }),
+    );
+    // SetBarSegmentInfo( gap, size ) (0x180420530 -> 0x18041b400).
+    let h2 = hud.clone();
+    add_checked(
+        "SetBarSegmentInfo",
+        3,
+        ".nn",
+        Box::new(move |_, a| {
+            let (gap, size) = (int_at(a, 1), int_at(a, 2));
+            bar_call(&h2, a, |p| p.bar_segments = Some((gap, size)))
+        }),
+    );
+    // SetScaleX( scale ) (0x180421910): an image panel scales its image
+    // across; any other panel takes base width × scale and its base
+    // height, cancelling a running `wide` animation.
+    let h2 = hud.clone();
+    add_checked(
+        "SetScaleX",
+        2,
+        ".n",
+        Box::new(move |_, a| {
+            let i = this_element(&h2, a)?;
+            let s = num_arg(a, 1);
+            let base = h2.borrow().elements[i]
+                .as_ref()
+                .map(|e| e.base_size)
+                .unwrap_or_default();
+            if read_panel(&h2, i, |p| p.control == Control::ImagePanel) {
+                with_panel(&h2, i, |p| p.scale[0] = s);
+            } else {
+                with_panel(&h2, i, |p| {
+                    (p.w, p.h) = ((base.0 * s) as i32 as f32, base.1)
+                });
+                cancel(&h2, i, &[Var::Wide]);
+            }
+            Ok(Value::Null)
+        }),
+    );
+    // WarpEnable() (0x180422500) and WarpDisable() (0x180422510): the
+    // panel's warp flag.
+    for (name, on) in [("WarpEnable", true), ("WarpDisable", false)] {
+        let h2 = hud.clone();
+        add(
+            name,
+            1,
+            Box::new(move |_, a| {
+                let i = this_element(&h2, a)?;
+                with_panel(&h2, i, |p| p.warp = on);
+                Ok(Value::Null)
+            }),
+        );
+    }
+    // WarpGlobalSettings( xWarp, xScale, yWarp, yScale, viewDist )
+    // (0x1804256a0): the warps in degrees, each held to 1–89.
+    let h2 = hud.clone();
+    add_checked(
+        "WarpGlobalSettings",
+        6,
+        ".nnnnn",
+        Box::new(move |_, a| {
+            let rad = |v: f32| {
+                // Not `clamp`: the game's tests send NaN to 1.
+                #[allow(clippy::manual_clamp)]
+                let v = if v < 1.0 {
+                    1.0
+                } else if v > 89.0 {
+                    89.0
+                } else {
+                    v
+                };
+                v * 0.017_453_292
+            };
+            h2.borrow_mut().warp_global = Some(WarpSettings {
+                x_warp: rad(num_arg(a, 1)),
+                x_scale: num_arg(a, 2),
+                y_warp: rad(num_arg(a, 3)),
+                y_scale: num_arg(a, 4),
+                view_dist: num_arg(a, 5),
+            });
+            Ok(Value::Null)
         }),
     );
 
@@ -1249,6 +1450,102 @@ fn cancel(hud: &SharedHud, i: usize, vars: &[Var]) {
     for v in vars {
         h.anim.cancel(panel, v);
     }
+}
+
+/// A bar's value from its source (client.dll 0x18041c880; PROGRESS_SOURCE_*
+/// in `_consts.nut`), read from the source entity:
+/// - 1 entity health: health / max health;
+/// - 2 player suit power: the player's suit power × 0.01;
+/// - 3, 4 friendly / enemy team score: the score of the entity's team, or
+///   the other team's;
+/// - 5 weapon charge fraction: the charge, held to 0..1 (0 for a weapon
+///   without a charge fire mode, where the game reports
+///   "Weapon does not have a charge fire mode");
+/// - 6 weapon ready-to-fire fraction (the host's answer);
+/// - 7 weapon clip ammo fraction: clip / clip size, or with no clip size,
+///   ammo outside the clip / its most;
+/// - 8 weapon remaining ammo fraction: ammo outside the clip / its most,
+///   for weapons with a clip (0 otherwise).
+///
+/// For 7 and 8 a player stands for its active weapon. No entity reads 0.
+pub fn bar_source_value(host: &dyn crate::Host, bar: &pf_vgui::BarSource) -> f32 {
+    let Some(id) = bar.source_entity else {
+        return 0.0;
+    };
+    let ratio = |a: i32, b: i32| a as f32 / b as f32;
+    match bar.source {
+        1 => host
+            .entity(id)
+            .map_or(0.0, |e| ratio(e.health, e.max_health)),
+        2 => match host.entity_field(id, "GetSuitPower") {
+            Some(crate::FieldValue::Float(v)) => v * 0.01,
+            _ => 0.0,
+        },
+        3 | 4 => {
+            let Some(team) = host.entity(id).map(|e| e.team) else {
+                return 0.0;
+            };
+            let team = if bar.source == 4 {
+                host.other_team(team)
+            } else {
+                team
+            };
+            host.team(team).score as f32
+        }
+        5 => host
+            .weapon_charge_fraction(id)
+            .map_or(0.0, |f| f.clamp(0.0, 1.0)),
+        6 => host.weapon_ready_fraction(id),
+        7 | 8 => {
+            let is_player = host.entity(id).is_some_and(|e| e.is_player);
+            let weapon = if is_player {
+                match host.active_weapon() {
+                    Some(w) if Some(id) == host.local_player() => w.id,
+                    _ => return 0.0,
+                }
+            } else {
+                id
+            };
+            let clip_size = host
+                .weapon_mod_setting(weapon, "ammo_clip_size")
+                .and_then(|v| v.trim().parse::<f32>().ok())
+                .map_or(0, |v| v as i32)
+                .max(0);
+            let (stock, most) = host.weapon_stockpile(weapon);
+            let most = most.max(0);
+            if bar.source == 7 && clip_size > 0 {
+                ratio(host.weapon_clip_ammo(weapon), clip_size)
+            } else if (bar.source == 7 || clip_size > 0) && most != 0 {
+                ratio(stock, most)
+            } else {
+                0.0
+            }
+        }
+        _ => 0.0,
+    }
+}
+
+/// Run `f` on the element's panel if it's a progress bar, else the game's
+/// error (every bar method checks the same way).
+fn bar_call(
+    hud: &SharedHud,
+    a: &[Value],
+    f: impl FnOnce(&mut pf_vgui::Panel),
+) -> Result<Value, NativeError> {
+    let i = this_element(hud, a)?;
+    let mut h = hud.borrow_mut();
+    let panel = h.elements[i].as_ref().map(|e| e.panel).unwrap_or(0);
+    let p =
+        h.ui.panel_mut(panel)
+            .ok_or_else(|| throw("invalid panel"))?;
+    if p.control != Control::ProgressBar {
+        return Err(throw(format!(
+            "Hud element is not a progress bar. ({})",
+            p.name
+        )));
+    }
+    f(p);
+    Ok(Value::Null)
 }
 
 /// An interpolator number from script, or the game's error.
@@ -1500,6 +1797,12 @@ impl ClientVm {
             let mut h = hud.borrow_mut();
             let h = &mut *h;
             h.anim.update(&mut h.ui, real_time);
+            // Bars fed from the game: their values, read now.
+            for p in h.ui.panels.iter_mut().flatten() {
+                if p.control == Control::ProgressBar && p.bar.source != 0 {
+                    p.bar.value = bar_source_value(&*self.host, &p.bar);
+                }
+            }
         }
     }
 }

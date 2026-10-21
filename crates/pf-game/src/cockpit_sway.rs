@@ -14,7 +14,14 @@ use pf_fmt_ui::kv;
 use crate::sway::{self, Dir};
 
 /// The pilot class the cockpit's settings come from.
-const PILOT_CLASS: &str = "scripts/players/mp/pilot_male_br.set";
+pub(crate) const PILOT_CLASS: &str = "scripts/players/mp/pilot_male_br.set";
+
+/// The pilot class's cockpit model (`cockpitmodel` in its `global` block).
+pub fn cockpit_model() -> Option<String> {
+    let root =
+        crate::data::read_text(PILOT_CLASS).and_then(|t| kv::parse(&t).nodes.into_iter().next())?;
+    root.get("global")?.text("cockpitmodel").map(str::to_string)
+}
 
 /// The player-class settings the cockpit sway uses.
 #[derive(Clone, Copy, Debug, PartialEq)]

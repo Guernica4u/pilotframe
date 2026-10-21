@@ -63,8 +63,14 @@ pub struct Panel {
     /// Its block from the `.res` file.
     pub settings: Node,
     /// Position and size in the parent's units (a HUD screen is 852 × 480).
+    /// The position is the panel's own (`GetPos`/`SetPos`, vgui2.dll VPanel
+    /// +0x4c): for a panel pinned to a sibling it's the offset from the
+    /// pin; where it ends up is [`Ui::solve`]'s answer.
     pub x: f32,
     pub y: f32,
+    /// `pin_to_sibling`: the sibling's name, our corner, the sibling's
+    /// corner (VPanel +0x80, +0x88, +0x89).
+    pub pin: Option<Pin>,
     pub w: f32,
     pub h: f32,
     pub zpos: i32,
@@ -82,13 +88,82 @@ pub struct Panel {
     pub font: Option<String>,
     pub scale: [f32; 2],
     pub rotation: f32,
-    /// Progress bars: 0–1.
+    /// Progress bars: the value set by script, and how it moves on its own
+    /// (client.dll 0x18041b8c0, 0x18041b930): `rate` per second from
+    /// `start` until `end`, on game time ([`Panel::bar_value`]).
     pub bar_progress: f32,
+    pub bar_rate: f32,
+    pub bar_start: f32,
+    pub bar_end: f32,
+    /// Which way the bar fills (`SetBarProgressDirection`): 0 left to
+    /// right, 1 right to left, 2 bottom to top, 3 top to bottom.
+    pub bar_direction: i32,
+    /// `SetBarSegmentInfo( gap, size )`: a segmented bar's gap and segment
+    /// size (stored; segmented painting isn't ported yet).
+    pub bar_segments: Option<(i32, i32)>,
+    /// Spherical warp on (`WarpEnable`, client.dll +0x104 bit 0x10).
+    pub warp: bool,
     /// Progress bars: where the value comes from (`SetBarProgressSource*`,
     /// `SetBarProgressRemap`).
     pub bar: BarSource,
     /// The HUD element wrapping it, if a script made one.
     pub element: Option<usize>,
+}
+
+impl Panel {
+    /// A progress bar's value at game time `now` (client.dll 0x18041cc80):
+    /// the script's value moved by its rate between start and end, then
+    /// remapped, clamped to 0..1 on both sides. Other sources read the
+    /// value the client last read from the game (`BarSource::value`).
+    pub fn bar_value(&self, now: f32) -> f32 {
+        self.bar_value_from(now, self.bar.value)
+    }
+
+    /// [`Panel::bar_value`] with the source's value given.
+    pub fn bar_value_from(&self, now: f32, source_value: f32) -> f32 {
+        let raw = if self.bar.source == 0 {
+            let t = now.max(self.bar_start).min(self.bar_end);
+            (t - self.bar_start) * self.bar_rate + self.bar_progress
+        } else {
+            source_value
+        };
+        // The remap as client.dll stores it (0x18041bbd0): in-low, 1 / in
+        // range, out-low, out range; an empty in range gives out-low.
+        let (in_lo, in_scale, out_lo, out_range) = match self.bar.remap {
+            Some([a, b, c, _]) if a == b => (0.0, 1.0, c, 0.0),
+            Some([a, b, c, d]) => (a, 1.0 / (b - a), c, d - c),
+            None => (0.0, 1.0, 0.0, 1.0),
+        };
+        let v = ((raw - in_lo) * in_scale).clamp(0.0, 1.0);
+        (v * out_range + out_lo).clamp(0.0, 1.0)
+    }
+}
+
+/// A panel pinned to a sibling (`pin_to_sibling`, `pin_corner_to_sibling`,
+/// `pin_to_sibling_corner`). Corners: 0 top-left, 1 top-right,
+/// 2 bottom-left, 3 bottom-right, 4 top centre, 5 right centre, 6 bottom
+/// centre, 7 left centre, 8 centre.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pin {
+    pub sibling: String,
+    pub corner: u8,
+    pub sibling_corner: u8,
+}
+
+/// A corner's place across and down a rectangle (vgui2.dll's table at
+/// 0x1800c1ee0); out of range reads as the top-left.
+fn corner_fraction(corner: u8) -> (f32, f32) {
+    match corner {
+        1 => (1.0, 0.0),
+        2 => (0.0, 1.0),
+        3 => (1.0, 1.0),
+        4 => (0.5, 0.0),
+        5 => (1.0, 0.5),
+        6 => (0.5, 1.0),
+        7 => (0.0, 0.5),
+        8 => (0.5, 0.5),
+        _ => (0.0, 0.0),
+    }
 }
 
 /// A progress bar's source: PROGRESS_SOURCE_* (0 = set by script), the
@@ -98,6 +173,9 @@ pub struct BarSource {
     pub source: i32,
     pub source_entity: Option<u32>,
     pub remap: Option<[f32; 4]>,
+    /// The source's value (PROGRESS_SOURCE_* other than 0), read from the
+    /// game by the client each frame (pf-clientvm `bar_source_value`).
+    pub value: f32,
 }
 
 /// A screen made from `vgui_screens.txt`.
@@ -267,6 +345,27 @@ impl Ui {
             if let Some(r) = rects.get(&n.key.to_ascii_lowercase()) {
                 (p.x, p.y, p.w, p.h) = (r.x, r.y, r.w, r.h);
             }
+            // A pinned panel keeps its offset from the pin; `solve` places
+            // it (the layout file's numbers, scaled like any other).
+            if let Some(sibling) = n.text("pin_to_sibling") {
+                let num = |k: &str| {
+                    n.text(k)
+                        .and_then(|v| v.trim().parse::<f32>().ok())
+                        .unwrap_or(0.0)
+                };
+                let corner = |k: &str| {
+                    n.text(k)
+                        .and_then(|v| v.trim().parse::<i32>().ok())
+                        .unwrap_or(0) as u8
+                };
+                p.x = num("xpos") * scale;
+                p.y = num("ypos") * scale;
+                p.pin = Some(Pin {
+                    sibling: sibling.to_string(),
+                    corner: corner("pin_corner_to_sibling"),
+                    sibling_corner: corner("pin_to_sibling_corner"),
+                });
+            }
             self.apply_settings(&mut p);
             let nested = (p.control == Control::NestedPanel)
                 .then(|| {
@@ -337,6 +436,75 @@ impl Ui {
 
     /// A child of `parent` by name (case-insensitive), searching only its
     /// direct children (as `HudElement` does).
+    /// Where every panel is, relative to its parent, as vgui2.dll's
+    /// `VPanel::Solve` (0x1800358e0) places it each frame: a panel's own
+    /// position, or for a pinned one, the sibling's corner less our corner
+    /// (each side truncated to whole pixels) plus the offset, which points
+    /// left from a left corner (0, 2, 7) and up from a top one (0, 1, 4).
+    /// Indexed by `PanelId`.
+    ///
+    /// The game solves panels in tree order, so a panel pinned to a later
+    /// sibling uses that sibling's place from the frame before; this solves
+    /// the sibling first, which gives the same places once nothing moves.
+    pub fn solve(&self) -> Vec<(f32, f32)> {
+        let mut out: Vec<Option<(f32, f32)>> = vec![None; self.panels.len()];
+        let mut busy = vec![false; self.panels.len()];
+        for id in 0..self.panels.len() {
+            self.solve_one(id, &mut out, &mut busy);
+        }
+        out.into_iter().map(Option::unwrap_or_default).collect()
+    }
+
+    fn solve_one(
+        &self,
+        id: PanelId,
+        out: &mut [Option<(f32, f32)>],
+        busy: &mut [bool],
+    ) -> (f32, f32) {
+        if let Some(v) = out[id] {
+            return v;
+        }
+        let Some(p) = self.panel(id) else {
+            return (0.0, 0.0);
+        };
+        let own = (p.x.trunc(), p.y.trunc());
+        let sibling = p.pin.as_ref().and_then(|pin| {
+            let parent = p.parent?;
+            let s = self.find_child(parent, &pin.sibling)?;
+            (s != id).then_some((pin, s))
+        });
+        let place = match sibling {
+            // A pin cycle: the cycle's first panel keeps its own position.
+            Some(_) if busy[id] => own,
+            Some((pin, s)) => {
+                busy[id] = true;
+                let (sx, sy) = self.solve_one(s, out, busy);
+                busy[id] = false;
+                let sib = self
+                    .panel(s)
+                    .map_or((0.0, 0.0), |q| (q.w.trunc(), q.h.trunc()));
+                let (fx, fy) = corner_fraction(pin.sibling_corner);
+                let (mx, my) = corner_fraction(pin.corner);
+                let out_x = if matches!(pin.sibling_corner, 0 | 2 | 7) {
+                    -1.0
+                } else {
+                    1.0
+                };
+                let out_y = if matches!(pin.sibling_corner, 0 | 1 | 4) {
+                    -1.0
+                } else {
+                    1.0
+                };
+                let x = ((sib.0 * fx + sx) as i32 as f32 - p.w.trunc() * mx) as i32 as f32;
+                let y = ((sib.1 * fy + sy) as i32 as f32 - p.h.trunc() * my) as i32 as f32;
+                (own.0 * out_x + x, own.1 * out_y + y)
+            }
+            None => own,
+        };
+        out[id] = Some(place);
+        place
+    }
+
     pub fn find_child(&self, parent: PanelId, name: &str) -> Option<PanelId> {
         self.panel(parent)?.children.iter().copied().find(|&c| {
             self.panel(c)
@@ -355,6 +523,7 @@ impl Panel {
             settings,
             x: 0.0,
             y: 0.0,
+            pin: None,
             w: 0.0,
             h: 0.0,
             zpos: 0,
@@ -370,6 +539,12 @@ impl Panel {
             scale: [1.0, 1.0],
             rotation: 0.0,
             bar_progress: 0.0,
+            bar_rate: 0.0,
+            bar_start: 0.0,
+            bar_end: 0.0,
+            bar_direction: 0,
+            bar_segments: None,
+            warp: false,
             bar: BarSource::default(),
             element: None,
         }
@@ -463,5 +638,44 @@ mod tests {
         assert_eq!(p.text, "#HP");
         let screen = ui.find_child(root, "Screen").unwrap();
         assert_eq!(ui.panel(screen).unwrap().fg_color, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn pinned_panels_follow_their_sibling_each_solve() {
+        let pin = |sibling: &str, corner, sibling_corner| {
+            Some(Pin {
+                sibling: sibling.into(),
+                corner,
+                sibling_corner,
+            })
+        };
+        let mut ui = Ui::default();
+        let root = ui.add_test_panel();
+        let mut child = |name: &str, x, y, w, h, pin: Option<Pin>| {
+            let mut p = Panel::new(name, Control::Panel, Some(root), Node::block(name));
+            (p.x, p.y, p.w, p.h, p.pin) = (x, y, w, h, pin);
+            let id = ui.add(p);
+            ui.panels[root].as_mut().unwrap().children.push(id);
+            id
+        };
+        let safe = child("Safe", 61.0, 40.0, 730.0, 400.0, None);
+        // Bottom-right to bottom-right, 20 in and 8 down from it.
+        let right = child("Right", 20.0, -8.0, 72.0, 66.0, pin("Safe", 3, 3));
+        // Bottom-left to bottom-left: the offset points left and down.
+        let left = child("Left", 20.0, -8.0, 72.0, 66.0, pin("Safe", 2, 2));
+        // Pinned to a pinned panel: its top-right on the other's top-left.
+        let side = child("Side", 0.0, 0.0, 108.0, 66.0, pin("Right", 1, 0));
+        let at = ui.solve();
+        assert_eq!(
+            at[right],
+            (61.0 + 730.0 - 72.0 + 20.0, 40.0 + 400.0 - 66.0 - 8.0)
+        );
+        assert_eq!(at[left], (61.0 - 20.0, 40.0 + 400.0 - 66.0 - 8.0));
+        assert_eq!(at[side], (at[right].0 - 108.0, at[right].1));
+        // The script grows the safe area: everything pinned moves with it.
+        ui.panels[safe].as_mut().unwrap().w = 766.0;
+        let at = ui.solve();
+        assert_eq!(at[right].0, 61.0 + 766.0 - 72.0 + 20.0);
+        assert_eq!(at[side].0, at[right].0 - 108.0);
     }
 }

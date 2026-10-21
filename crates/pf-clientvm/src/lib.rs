@@ -234,6 +234,85 @@ pub trait Host {
         let _ = path;
         None
     }
+    /// The weapon entity in a player's offhand slot (0–3), if any.
+    fn offhand_weapon_entity(&self, player: EntityId, slot: i32) -> Option<EntityId> {
+        let _ = (player, slot);
+        None
+    }
+    /// The weapons in a player's four main weapon slots, in slot order.
+    fn main_weapons(&self, player: EntityId) -> Vec<EntityId> {
+        let _ = player;
+        Vec::new()
+    }
+    /// A weapon's value for `key` in its weapon file's `WeaponData` block,
+    /// as written (no mods), or None if the file doesn't have it.
+    fn weapon_info_field(&self, weapon: EntityId, key: &str) -> Option<String> {
+        let _ = (weapon, key);
+        None
+    }
+    /// Whether a weapon's file defines a mod by this name (`Mods` block).
+    fn weapon_mod_defined(&self, weapon: EntityId, name: &str) -> bool {
+        let _ = (weapon, name);
+        false
+    }
+    /// Whether a mod is active on a weapon.
+    fn weapon_mod_active(&self, weapon: EntityId, name: &str) -> bool {
+        let _ = (weapon, name);
+        false
+    }
+    /// The mods active on a weapon, in the order its file defines them and
+    /// spelled as there.
+    fn weapon_mods(&self, weapon: EntityId) -> Vec<String> {
+        let _ = weapon;
+        Vec::new()
+    }
+    /// A charging weapon's charge, as client.dll's charge fraction
+    /// (0x18048b100) gives it; None for a weapon without a charge fire mode
+    /// (no `charge_time`).
+    fn weapon_charge_fraction(&self, weapon: EntityId) -> Option<f32> {
+        let _ = weapon;
+        None
+    }
+    /// How far a weapon is from being ready to fire again, 0..1
+    /// (client.dll 0x18048eec0, docs/port/hud.md "Bar sources").
+    fn weapon_ready_fraction(&self, weapon: EntityId) -> f32 {
+        let _ = weapon;
+        0.0
+    }
+    /// A weapon's ammo outside the clip and its most (client.dll +0x2328,
+    /// +0x271c).
+    fn weapon_stockpile(&self, weapon: EntityId) -> (i32, i32) {
+        let _ = weapon;
+        (0, 0)
+    }
+    /// The ammo loaded in a weapon's clip.
+    fn weapon_clip_ammo(&self, weapon: EntityId) -> i32 {
+        let _ = weapon;
+        0
+    }
+    /// When a weapon may next fire (game time); 0 if it never fired.
+    fn weapon_next_attack_time(&self, weapon: EntityId) -> f32 {
+        let _ = weapon;
+        0.0
+    }
+    /// A weapon's current value for a setting, with its mods applied.
+    fn weapon_mod_setting(&self, weapon: EntityId, key: &str) -> Option<String> {
+        let _ = (weapon, key);
+        None
+    }
+    /// Where the player's aim crosses the screen, as fractions of its size
+    /// (client.dll 0x18008a830 projects the aim through the view). The
+    /// default is the centre, where the aim and the view agree.
+    fn crosshair_pos(&self, player: EntityId) -> (f32, f32) {
+        let _ = player;
+        (0.5, 0.5)
+    }
+    /// An attachment on an entity's model by name: its id, counting from 1;
+    /// 0 if the model has none by that name (scripts test `<= 0`).
+    fn lookup_attachment(&self, id: EntityId, name: &str) -> i32 {
+        let _ = (id, name);
+        0
+    }
     /// The game window's size in pixels (`Hud.GetScreenSize()`).
     fn screen_size(&self) -> (i32, i32) {
         (1920, 1080)

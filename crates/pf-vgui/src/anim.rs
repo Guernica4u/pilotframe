@@ -26,6 +26,9 @@ pub enum Var {
     YPos,
     Wide,
     Tall,
+    /// The panel's own alpha: every panel's "alpha" animation variable
+    /// (client.dll 0x18069b040 registers it as the float `m_flAlpha`).
+    Alpha,
     /// Any other name: a panel setting by name (not ported yet; such
     /// animations run but change nothing).
     Other(String),
@@ -43,6 +46,7 @@ impl Var {
             "ypos" => Var::YPos,
             "wide" => Var::Wide,
             "tall" => Var::Tall,
+            "alpha" => Var::Alpha,
             other => Var::Other(other.to_string()),
         }
     }
@@ -282,6 +286,7 @@ pub fn get_value(ui: &Ui, panel: PanelId, var: &Var) -> [f32; 4] {
         Var::YPos => [p.y.trunc(), 0.0, 0.0, 0.0],
         Var::Wide => [p.w.trunc(), 0.0, 0.0, 0.0],
         Var::Tall => [p.h.trunc(), 0.0, 0.0, 0.0],
+        Var::Alpha => [p.panel_alpha, 0.0, 0.0, 0.0],
         Var::Other(_) => [0.0; 4],
     }
 }
@@ -308,6 +313,7 @@ pub fn set_value(ui: &mut Ui, panel: PanelId, var: &Var, v: [f32; 4]) {
         Var::YPos => p.y = whole(v[0]),
         Var::Wide => p.w = whole(v[0]),
         Var::Tall => p.h = whole(v[0]),
+        Var::Alpha => p.panel_alpha = v[0],
         Var::Other(_) => {}
     }
 }

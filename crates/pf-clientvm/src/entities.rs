@@ -81,6 +81,10 @@ pub struct Entities {
     pub script_menu_on: std::collections::HashSet<EntityId>,
     /// Movement parents client script set (`SetParentRaw`).
     pub parents: HashMap<EntityId, Parent>,
+    /// Offsets from the parent's attachment (`SetAttachOffsetOrigin`,
+    /// `SetAttachOffsetAngles`; client.dll +0x180 and its angle twin).
+    pub attach_origin: HashMap<EntityId, [f32; 3]>,
+    pub attach_angles: HashMap<EntityId, [f32; 3]>,
 }
 
 /// A movement parent set from client script.
@@ -382,6 +386,8 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
         health_callbacks: Default::default(),
         crosshair_names_hidden: Default::default(),
         script_menu_on: Default::default(),
+        attach_origin: Default::default(),
+        attach_angles: Default::default(),
         destroy_callbacks: Default::default(),
         capture_before_viewmodels: Default::default(),
         parents: HashMap::new(),
@@ -787,7 +793,259 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
             })
         }),
     );
+    // GetOffhandWeapon( slot ) (0x18001bd50): slots 0–3.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    player_members.insert(
+        Value::str("GetOffhandWeapon"),
+        pf_squirrel::native_checked("GetOffhandWeapon", 2, ".n", move |vm, a| {
+            let e = this(&sh, &*host, a, "GetOffhandWeapon")?;
+            let slot = match a[1] {
+                Value::Int(n) => n,
+                Value::Float(x) => x as i32,
+                _ => 0,
+            };
+            if !(0..4).contains(&slot) {
+                return Err(throw(format!(
+                    "Invalid offhand index [{slot}].  Range is [0, 3]"
+                )));
+            }
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let _ = e;
+            Ok(match host.offhand_weapon_entity(id, slot) {
+                Some(w) => Entities::instance(&sh, vm, &*host, w),
+                None => Value::Null,
+            })
+        }),
+    );
+    // GetOrdnanceWeapon (0x18001ce00 -> 0x18001c280): the first of the four
+    // main weapon slots whose weapon file sets `ordnance 1` (its info +0x461,
+    // read by 0x180481f20). (The game also asks the player whether it can
+    // use the weapon; ours always can.)
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    player_members.insert(
+        Value::str("GetOrdnanceWeapon"),
+        native("GetOrdnanceWeapon", 1, move |vm, a| {
+            this(&sh, &*host, a, "GetOrdnanceWeapon")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let found = host.main_weapons(id).into_iter().take(4).find(|&w| {
+                host.weapon_info_field(w, "ordnance")
+                    .and_then(|v| v.trim().parse::<i32>().ok())
+                    .is_some_and(|n| n != 0)
+            });
+            Ok(match found {
+                Some(w) => Entities::instance(&sh, vm, &*host, w),
+                None => Value::Null,
+            })
+        }),
+    );
+    // GetWeaponAmmoLoaded( weapon ) (0x18001af10): the weapon's clip; the
+    // local player only.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    player_members.insert(
+        Value::str("GetWeaponAmmoLoaded"),
+        native("GetWeaponAmmoLoaded", 2, move |_, a| {
+            this(&sh, &*host, a, "GetWeaponAmmoLoaded")?;
+            let weapon = entity_id(&a[1])
+                .filter(|&w| {
+                    Entities::info(&sh, &*host, w).is_some_and(|e| e.script_class == "C_WeaponX")
+                })
+                .ok_or_else(|| throw("Argument is not a valid weapon"))?;
+            if entity_id(&a[0]) != host.local_player() {
+                return Err(throw("Cannot be called on non-local players"));
+            }
+            Ok(Value::Int(host.weapon_clip_ammo(weapon)))
+        }),
+    );
+    // GetCrosshairPos (0x18008a980): [x, y], fractions of the screen.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    player_members.insert(
+        Value::str("GetCrosshairPos"),
+        native("GetCrosshairPos", 1, move |_, a| {
+            this(&sh, &*host, a, "GetCrosshairPos")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let (x, y) = host.crosshair_pos(id);
+            Ok(Value::Array(new_ref(vec![
+                Value::Float(x),
+                Value::Float(y),
+            ])))
+        }),
+    );
     members_of.insert("C_BasePlayer", player_members);
+    // Weapons.
+    let weapon_members = members_of.entry("C_WeaponX").or_default();
+    // GetWeaponInfoFileKeyField( key ) (0x1804824b0 -> 0x1802e86f0): the
+    // value in the weapon file's block as its KeyValues type (string, int,
+    // float), or null. The weapon files quote every value, so they read as
+    // strings.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    weapon_members.insert(
+        Value::str("GetWeaponInfoFileKeyField"),
+        pf_squirrel::native_checked("GetWeaponInfoFileKeyField", 2, ".s", move |_, a| {
+            this(&sh, &*host, a, "GetWeaponInfoFileKeyField")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let key = match &a[1] {
+                Value::Str(s) => s.to_string_lossy(),
+                _ => String::new(),
+            };
+            Ok(host
+                .weapon_info_field(id, &key)
+                .map_or(Value::Null, |v| Value::str(&v)))
+        }),
+    );
+    // GetWeaponModSetting( key ) (0x180483270 -> 0x1802edae0): a modable
+    // setting with the weapon's mods applied. The game checks the key
+    // against its table of modable settings and returns it typed by that
+    // table (int, float, bool, string); the table's names are filled in at
+    // run time and aren't read yet, so here the type comes from the text
+    // (a marked placeholder), and an absent setting reads null.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    weapon_members.insert(
+        Value::str("GetWeaponModSetting"),
+        pf_squirrel::native_checked("GetWeaponModSetting", 2, ".s", move |_, a| {
+            this(&sh, &*host, a, "GetWeaponModSetting")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let key = match &a[1] {
+                Value::Str(s) => s.to_string_lossy(),
+                _ => String::new(),
+            };
+            let Some(v) = host.weapon_mod_setting(id, &key) else {
+                return Ok(Value::Null);
+            };
+            let t = v.trim();
+            Ok(if let Ok(n) = t.parse::<i32>() {
+                Value::Int(n)
+            } else if let Ok(x) = t.parse::<f32>() {
+                Value::Float(x)
+            } else {
+                Value::str(&v)
+            })
+        }),
+    );
+    // HasModDefined( name ) (0x180483220) and HasMod( name ) (0x18048bae0):
+    // an empty name is "Null string for modname" (false); HasMod on a mod
+    // the weapon doesn't define is an error naming both.
+    for (name, active) in [("HasModDefined", false), ("HasMod", true)] {
+        let (host, sh) = (cvm.host.clone(), shared.clone());
+        weapon_members.insert(
+            Value::str(name),
+            pf_squirrel::native_checked(name, 2, ".s", move |_, a| {
+                let e = this(&sh, &*host, a, name)?;
+                let id = entity_id(&a[0]).unwrap_or_default();
+                let m = match &a[1] {
+                    Value::Str(s) => s.to_string_lossy(),
+                    _ => String::new(),
+                };
+                if m.is_empty() {
+                    return Err(throw("Null string for modname"));
+                }
+                let defined = host.weapon_mod_defined(id, &m);
+                if !active {
+                    return Ok(Value::Bool(defined));
+                }
+                if !defined {
+                    return Err(throw(format!(
+                        "Undefined mod name '{m}' requested on weapon '{}'.",
+                        e.classname
+                    )));
+                }
+                Ok(Value::Bool(host.weapon_mod_active(id, &m)))
+            }),
+        );
+    }
+    // GetMods (0x18048bb70): the active mods' names, in the file's order.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    weapon_members.insert(
+        Value::str("GetMods"),
+        native("GetMods", 1, move |_, a| {
+            this(&sh, &*host, a, "GetMods")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let mods = host.weapon_mods(id).iter().map(|m| Value::str(m)).collect();
+            Ok(Value::Array(new_ref(mods)))
+        }),
+    );
+    // IsReadyToFire (0x180487270): the next allowed attack time (+0x230c)
+    // has come.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    weapon_members.insert(
+        Value::str("IsReadyToFire"),
+        native("IsReadyToFire", 1, move |_, a| {
+            this(&sh, &*host, a, "IsReadyToFire")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            Ok(Value::Bool(host.weapon_next_attack_time(id) <= host.time()))
+        }),
+    );
+    // GetWeaponPrintName (0x180020c90): the weapon's `printname`; the
+    // game's default for a weapon without one is
+    // "!!! Missing printname on weapon" (its modable settings table).
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    weapon_members.insert(
+        Value::str("GetWeaponPrintName"),
+        native("GetWeaponPrintName", 1, move |_, a| {
+            this(&sh, &*host, a, "GetWeaponPrintName")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let name = host
+                .weapon_mod_setting(id, "printname")
+                .unwrap_or_else(|| "!!! Missing printname on weapon".into());
+            Ok(Value::str(&name))
+        }),
+    );
+    // LookupAttachment( name ) (0x1802f0970): the model's attachment id.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    members_of.entry("C_BaseAnimating").or_default().insert(
+        Value::str("LookupAttachment"),
+        pf_squirrel::native_checked("LookupAttachment", 2, ".s", move |_, a| {
+            this(&sh, &*host, a, "LookupAttachment")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let name = match &a[1] {
+                Value::Str(s) => s.to_string_lossy(),
+                _ => String::new(),
+            };
+            Ok(Value::Int(host.lookup_attachment(id, &name)))
+        }),
+    );
+    // GetParent (0x18002c5b0): the movement parent, or null.
+    let (host, sh) = (cvm.host.clone(), shared.clone());
+    members_of.entry("C_BaseEntity").or_default().insert(
+        Value::str("GetParent"),
+        native("GetParent", 1, move |vm, a| {
+            this(&sh, &*host, a, "GetParent")?;
+            let id = entity_id(&a[0]).unwrap_or_default();
+            let parent = sh.borrow().parents.get(&id).map(|p| p.parent);
+            Ok(match parent {
+                Some(p) => Entities::instance(&sh, vm, &*host, p),
+                None => Value::Null,
+            })
+        }),
+    );
+    // SetAttachOffsetOrigin / SetAttachOffsetAngles( vector ) (0x1802f84f0,
+    // 0x1802f8580): client-only entities with a parent only.
+    for (name, angles) in [
+        ("SetAttachOffsetOrigin", false),
+        ("SetAttachOffsetAngles", true),
+    ] {
+        let (host, sh) = (cvm.host.clone(), shared.clone());
+        members_of.entry("C_BaseEntity").or_default().insert(
+            Value::str(name),
+            pf_squirrel::native_checked(name, 2, ".x", move |_, a| {
+                let e = this(&sh, &*host, a, name)?;
+                if !e.client_only {
+                    return Err(throw("Only valid with client-only entities."));
+                }
+                let id = entity_id(&a[0]).unwrap_or_default();
+                if !sh.borrow().parents.contains_key(&id) {
+                    return Err(throw("This entity is not parented."));
+                }
+                let v = pf_squirrel::vector::get(&a[1]).unwrap_or_default();
+                let mut s = sh.borrow_mut();
+                if angles {
+                    s.attach_angles.insert(id, v);
+                } else {
+                    s.attach_origin.insert(id, v);
+                }
+                Ok(Value::Null)
+            }),
+        );
+    }
     for &(class, name, kind) in FIELDS {
         let (host, sh) = (cvm.host.clone(), shared.clone());
         members_of.entry(class).or_default().insert(
@@ -845,6 +1103,32 @@ pub fn install(cvm: &mut ClientVm) -> Shared {
         let players: Vec<Value> = host
             .players()
             .into_iter()
+            .map(|id| Entities::instance(&s, vm, &*host, id))
+            .filter(|v| !v.is_null())
+            .collect();
+        Ok(Value::Array(new_ref(players)))
+    });
+    // GetPlayerArrayOfTeam( team ) (0x1802c41d0 -> 0x1802c3fa0): -1 every
+    // player, -2 (the default) every player not on team 1, else that team.
+    let host = cvm.host.clone();
+    let s = shared.clone();
+    cvm.vm.register("GetPlayerArrayOfTeam", 0, move |vm, a| {
+        let team = match a.get(1) {
+            Some(Value::Int(n)) => *n,
+            Some(Value::Float(x)) => *x as i32,
+            _ => -2,
+        };
+        let players: Vec<Value> = host
+            .players()
+            .into_iter()
+            .filter(|&id| {
+                let t = Entities::info(&s, &*host, id).map_or(0, |e| e.team);
+                match team {
+                    -1 => true,
+                    -2 => t != 1,
+                    _ => t == team,
+                }
+            })
             .map(|id| Entities::instance(&s, vm, &*host, id))
             .filter(|v| !v.is_null())
             .collect();
