@@ -8,6 +8,9 @@ An unofficial rebuild of **Titanfall (2014, PC)** in Rust and [Bevy](https://bev
 
 ## Status
 
+> **On hold (21 Oct 2026).** Development is paused until the owner restarts it. The code here is the latest state.
+
+
 **The only system perfected so far is pilot movement** (ground, air, double jump, wall-run, wall-hang, mantle), ported from the game's own code and values and checked against recordings of the real game.
 
 Everything else is work in progress. You can walk the Colony map with real pilot movement; there is no shooting, sound, working HUD, Titans, AI or multiplayer yet. The script engine (our own Squirrel interpreter) runs the game's client scripts, and the HUD comes next. See [PLAN.md](PLAN.md) for the roadmap.

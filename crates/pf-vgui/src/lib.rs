@@ -113,14 +113,19 @@ pub struct Panel {
 impl Panel {
     /// A progress bar's value at game time `now` (client.dll 0x18041cc80):
     /// the script's value moved by its rate between start and end, then
-    /// remapped, clamped to 0..1 on both sides. Values read from entities
-    /// (PROGRESS_SOURCE_* other than 0) aren't ported yet and read 0.
+    /// remapped, clamped to 0..1 on both sides. Other sources read the
+    /// value the client last read from the game (`BarSource::value`).
     pub fn bar_value(&self, now: f32) -> f32 {
+        self.bar_value_from(now, self.bar.value)
+    }
+
+    /// [`Panel::bar_value`] with the source's value given.
+    pub fn bar_value_from(&self, now: f32, source_value: f32) -> f32 {
         let raw = if self.bar.source == 0 {
             let t = now.max(self.bar_start).min(self.bar_end);
             (t - self.bar_start) * self.bar_rate + self.bar_progress
         } else {
-            0.0
+            source_value
         };
         // The remap as client.dll stores it (0x18041bbd0): in-low, 1 / in
         // range, out-low, out range; an empty in range gives out-low.
@@ -168,6 +173,9 @@ pub struct BarSource {
     pub source: i32,
     pub source_entity: Option<u32>,
     pub remap: Option<[f32; 4]>,
+    /// The source's value (PROGRESS_SOURCE_* other than 0), read from the
+    /// game by the client each frame (pf-clientvm `bar_source_value`).
+    pub value: f32,
 }
 
 /// A screen made from `vgui_screens.txt`.

@@ -266,6 +266,25 @@ pub trait Host {
         let _ = weapon;
         Vec::new()
     }
+    /// A charging weapon's charge, as client.dll's charge fraction
+    /// (0x18048b100) gives it; None for a weapon without a charge fire mode
+    /// (no `charge_time`).
+    fn weapon_charge_fraction(&self, weapon: EntityId) -> Option<f32> {
+        let _ = weapon;
+        None
+    }
+    /// How far a weapon is from being ready to fire again, 0..1
+    /// (client.dll 0x18048eec0, docs/port/hud.md "Bar sources").
+    fn weapon_ready_fraction(&self, weapon: EntityId) -> f32 {
+        let _ = weapon;
+        0.0
+    }
+    /// A weapon's ammo outside the clip and its most (client.dll +0x2328,
+    /// +0x271c).
+    fn weapon_stockpile(&self, weapon: EntityId) -> (i32, i32) {
+        let _ = weapon;
+        (0, 0)
+    }
     /// The ammo loaded in a weapon's clip.
     fn weapon_clip_ammo(&self, weapon: EntityId) -> i32 {
         let _ = weapon;

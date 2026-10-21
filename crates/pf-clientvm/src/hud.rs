@@ -1215,7 +1215,11 @@ pub fn install(cvm: &mut ClientVm) -> SharedHud {
         Box::new(move |_, a| {
             let i = this_element(&h2, a)?;
             let now = host.time();
-            Ok(Value::Float(read_panel(&h2, i, |p| p.bar_value(now))))
+            let bar = read_panel(&h2, i, |p| p.bar.clone());
+            let source = bar_source_value(&*host, &bar);
+            Ok(Value::Float(read_panel(&h2, i, |p| {
+                p.bar_value_from(now, source)
+            })))
         }),
     );
     // SetBarProgressAndRate( value, rate ) (0x1804203f0 -> 0x18041b8c0):
@@ -1445,6 +1449,79 @@ fn cancel(hud: &SharedHud, i: usize, vars: &[Var]) {
     let panel = h.elements[i].as_ref().map(|e| e.panel).unwrap_or(0);
     for v in vars {
         h.anim.cancel(panel, v);
+    }
+}
+
+/// A bar's value from its source (client.dll 0x18041c880; PROGRESS_SOURCE_*
+/// in `_consts.nut`), read from the source entity:
+/// - 1 entity health: health / max health;
+/// - 2 player suit power: the player's suit power × 0.01;
+/// - 3, 4 friendly / enemy team score: the score of the entity's team, or
+///   the other team's;
+/// - 5 weapon charge fraction: the charge, held to 0..1 (0 for a weapon
+///   without a charge fire mode, where the game reports
+///   "Weapon does not have a charge fire mode");
+/// - 6 weapon ready-to-fire fraction (the host's answer);
+/// - 7 weapon clip ammo fraction: clip / clip size, or with no clip size,
+///   ammo outside the clip / its most;
+/// - 8 weapon remaining ammo fraction: ammo outside the clip / its most,
+///   for weapons with a clip (0 otherwise).
+///
+/// For 7 and 8 a player stands for its active weapon. No entity reads 0.
+pub fn bar_source_value(host: &dyn crate::Host, bar: &pf_vgui::BarSource) -> f32 {
+    let Some(id) = bar.source_entity else {
+        return 0.0;
+    };
+    let ratio = |a: i32, b: i32| a as f32 / b as f32;
+    match bar.source {
+        1 => host
+            .entity(id)
+            .map_or(0.0, |e| ratio(e.health, e.max_health)),
+        2 => match host.entity_field(id, "GetSuitPower") {
+            Some(crate::FieldValue::Float(v)) => v * 0.01,
+            _ => 0.0,
+        },
+        3 | 4 => {
+            let Some(team) = host.entity(id).map(|e| e.team) else {
+                return 0.0;
+            };
+            let team = if bar.source == 4 {
+                host.other_team(team)
+            } else {
+                team
+            };
+            host.team(team).score as f32
+        }
+        5 => host
+            .weapon_charge_fraction(id)
+            .map_or(0.0, |f| f.clamp(0.0, 1.0)),
+        6 => host.weapon_ready_fraction(id),
+        7 | 8 => {
+            let is_player = host.entity(id).is_some_and(|e| e.is_player);
+            let weapon = if is_player {
+                match host.active_weapon() {
+                    Some(w) if Some(id) == host.local_player() => w.id,
+                    _ => return 0.0,
+                }
+            } else {
+                id
+            };
+            let clip_size = host
+                .weapon_mod_setting(weapon, "ammo_clip_size")
+                .and_then(|v| v.trim().parse::<f32>().ok())
+                .map_or(0, |v| v as i32)
+                .max(0);
+            let (stock, most) = host.weapon_stockpile(weapon);
+            let most = most.max(0);
+            if bar.source == 7 && clip_size > 0 {
+                ratio(host.weapon_clip_ammo(weapon), clip_size)
+            } else if (bar.source == 7 || clip_size > 0) && most != 0 {
+                ratio(stock, most)
+            } else {
+                0.0
+            }
+        }
+        _ => 0.0,
     }
 }
 
@@ -1720,6 +1797,12 @@ impl ClientVm {
             let mut h = hud.borrow_mut();
             let h = &mut *h;
             h.anim.update(&mut h.ui, real_time);
+            // Bars fed from the game: their values, read now.
+            for p in h.ui.panels.iter_mut().flatten() {
+                if p.control == Control::ProgressBar && p.bar.source != 0 {
+                    p.bar.value = bar_source_value(&*self.host, &p.bar);
+                }
+            }
         }
     }
 }
